@@ -1527,6 +1527,37 @@ for _m in ascii viz; do
     report "ting refuses -f $_m, naming the modes" yes "$_mhit"
 done
 
+# A DETACHED PLAYER'S SOCKET MUST FIT a unix socket path, and past the limit mpv plays on
+# with no IPC server at all — so `-d` used to answer `started` for a player nothing could
+# then control. The boundary is pinned from both sides, offline: a TMPDIR that puts the socket
+# path at exactly the limit gets PAST this gate (the -f ascii refusal behind it answers), one
+# byte more is refused by it. A gate off by one, or firing on every TMPDIR, reads wrong on one
+# side. The directory never needs to exist: the refusal happens before anything is created.
+_sk_max=102
+[ "$(uname -s)" = Linux ] && _sk_max=106
+_sk_suffix="/ting-$(id -u)/mpv-XXXXXX.sock"
+sock_tmpdir() { # <total socket path bytes> — a TMPDIR under this run's scratch that yields it
+    local want=$(( $1 - ${#_sk_suffix} )) d="$UT_TEST_TMP/"
+    [ "${#d}" -lt "$want" ] ||
+        { echo "contract.sh: \$UT_TEST_TMP is too long to build a socket-limit TMPDIR" >&2; exit 1; }
+    while [ "${#d}" -lt "$want" ]; do d="${d}s"; done
+    printf '%s' "$d"
+}
+sock_gate() { # <total bytes> <extra t-play args…> — which gate answered
+    local d
+    d=$(sock_tmpdir "$1")
+    shift
+    case "$(env TMPDIR="$d" shell/t-play -d "$@" --engine yt -- dQw4w9WgXcQ </dev/null 2>&1 || true)" in
+    *"control socket"*) echo socket ;;
+    *"no terminal to render"*) echo mode ;;
+    *) echo other ;;
+    esac
+}
+report "-d: a socket path at the limit passes" mode   "$(sock_gate "$_sk_max" -f ascii)"
+report "…one byte past it is refused"          socket "$(sock_gate "$((_sk_max + 1))" -f ascii)"
+report "…with exit 1"                          1 \
+    "$(rc env TMPDIR="$(sock_tmpdir "$((_sk_max + 1))")" shell/t-play -d -j --engine yt -- dQw4w9WgXcQ)"
+
 # ── THE ORDER OF `ting`'s TWO GATES, and ARCH-tui.md「调用面」's worked calls, which are
 # the same check from two sides. That doc states the order as a fact — the flag gate answers
 # first, the TTY gate second — and both gates exit 1, so the order can only be pinned by

@@ -4010,6 +4010,32 @@ fi
 if ((DETACH)) && [[ -n "$ACTION" ]]; then
     die "-d/--detach cannot be combined with $ACTION_FLAG"
 fi
+# A DETACHED PLAYER IS ONLY REACHABLE THROUGH ITS SOCKET, and a unix socket path has a hard
+# ceiling. sun_path is 104 bytes on macOS and the BSDs (108 on Linux), and mpv refuses one
+# byte short of that: measured on mpv 0.41 / macOS, 2026-09-26, a 102-byte path gets a
+# socket and a 103-byte one logs "Could not create IPC socket". Past it mpv does not fail —
+# it plays on with NO IPC server — so the launch used to answer `started` for a player every
+# socket verb then answered 4 about, and --watch polled for a socket that would never exist.
+# Go's per-test temp dirs (…/T/TestName123456789/001/) put "$STATE_DIR/mpv-XXXXXX.sock" at
+# 111 bytes. Linux's 106 is the same rule over its 108, not a measurement.
+#
+# Refused HERE, before a player or even an id exists, because the path is known from the
+# environment alone: the id is always mktemp's six characters. Exit 1 like every other
+# environment value this file validates (UT_DEAD_KEEP, UT_VIZ_STYLE) — the call cannot
+# succeed as configured, and the message says which variable to change. Counted in BYTES
+# (LC_ALL=C), because that is what the kernel counts; a CJK directory name is three per glyph.
+# Checked ahead of the -f ascii|viz refusal below only so the suite can pin the boundary
+# offline: one byte either side of it, the other refusal answers instead.
+detach_sock_fits() {
+    local LC_ALL=C
+    local sock="$STATE_DIR/mpv-XXXXXX.sock" max=102
+    [[ "$(uname -s 2>/dev/null)" == Linux ]] && max=106
+    ((${#sock} <= max)) && return 0
+    die "-d/--detach: the player's control socket would be $sock (${#sock} bytes), past the $max bytes a player socket path can have here — set TMPDIR to a shorter directory"
+}
+if ((DETACH)); then
+    detach_sock_fits
+fi
 if ((DETACH)) && [[ "$PLAYBACK_MODE" == "ascii" || "$PLAYBACK_MODE" == "viz" ]]; then
     die "-d/--detach cannot use -f $PLAYBACK_MODE: a detached player has no terminal to render into (use audio, video, or fast)"
 fi

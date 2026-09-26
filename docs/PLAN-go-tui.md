@@ -183,8 +183,8 @@ ASCII 模式、亮暗背景探测；同步重绘（今天是 DCS `1q/2q`，tmux 
    `Close` 连 nc/jq 一起收走，播放器不受影响）、`internal/config`（读链，含 TING_ 环境名只认那张改名清单的怪癖）、
    `internal/tui`（搜 / 播 / 暂停 / 停 / 换源 / 新搜索，启动时接管最新那个在跑的播放器，退出只停本会话起的）。
    `go test ./...` 驱动真实命令；带网络与 mpv 的两例在 `-short` 下跳过。测试的 `TMPDIR` 放在仓内 `tmp/`：
-   macOS 的 unix socket 路径上限 104 字节，Go 每个测试的临时目录会超，mpv 于是**不建 socket 就起播**，
-   `--watch` 永远等不到可连的 socket（t-play 这一侧的既有问题，见「未决」）。
+   Go 每个测试的临时目录会把 mpv 的 socket 路径推过上限，mpv 于是**不建 socket 就起播**；
+   `t-play -d` 现在在门口退 1 拒掉这种 `TMPDIR`（ARCH-player.md「运行时 IPC」，2026-09-26 定）。
    偏好写回、键表其余部分、主题与封面归第 4 步。
 4. **对齐**：按 §5 清单逐项。
 5. **测试迁移**：`tests/contract.sh` 的 tmux 段与 `tests/drive.sh` 改为驱动 Go 二进制；
@@ -203,6 +203,3 @@ ASCII 模式、亮暗背景探测；同步重绘（今天是 DCS `1q/2q`，tmux 
 ## 7. 未决
 
 - Linux 上 openbsd `nc` / `ncat` 对 `--watch` 那条长连接的行为还没实测。
-- `$TMPDIR` 长到 socket 路径超过 104 字节时，`t-play -d` 照样报 `started`，mpv 却没有 IPC socket：
-  之后每个 socket 动词都 4，`--watch` 无限轮询。是在 `-d` 门口拒掉（退 1 并说出路径长度），还是换一个
-  更短的 socket 位置，待定。

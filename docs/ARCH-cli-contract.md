@@ -714,6 +714,7 @@ search、resolve、`--info`、`--transcript`、`-d`、`--status`、`--stop`、`-
         所以一份畸形的队列永远到不了一个播放器，
         `--queue` 而没有 `-d`、或配上一个动作、生命周期动词带了 positional 句柄、
         一个不认识的 --engine、一个 host 不是这个引擎的 URL（ARCH-engine.md「解析」 / 本文 「数据契约」）、
+        -d 而 $TMPDIR 长到播放器的 socket 路径放不下（ARCH-player.md「运行时 IPC」）、
         --info / --transcript 取数失败（含 no_subtitles_available）、
         --quality 撞上 --info / --parts / --items / --transcript / --auth（它是流格式选择器，「命令规格」的 `<engine>-resolve` 一节）、
         一个不认识的 --quality 档位、--parts 拿到一个它认不得的句柄形状（b23.tv 短链）、
