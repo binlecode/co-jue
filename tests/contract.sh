@@ -316,7 +316,7 @@ poll_until() {
     done
     echo 0
 }
-# The predicates. `-J` everywhere (join wrapped lines) so a pattern cannot miss because the
+# The predicates. tmux's `capture-pane -J` everywhere (join wrapped lines) so a pattern cannot miss because the
 # terminal folded the line it was on.
 pane_has()   { tmux capture-pane -t "$TS" -p -J 2>/dev/null | grep -qE "$1"; }
 pane_lacks() { ! pane_has "$1"; }

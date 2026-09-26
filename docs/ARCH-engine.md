@@ -114,8 +114,8 @@ bili-resolve --capabilities -j                     # 已证 · 这一半接受�
 | `--cursor` 不配 `--items` / 不是 `o:<偏移>` | 游标是这套件自己签发的，形状在 argv 上就判得完 |
 | `bili-resolve --items -- <?type=series 的 URL>` | 系列与合集是两个端点，拿错端点会读出别人的视频 |
 | `ne-resolve --items -- <裸数字>` | 一个裸数字说不出自己是专辑、歌单还是歌 |
-| `--auth` + 句柄 / `-f` / `-J` | 它不接句柄也不发请求 |
-| `--capabilities` + 句柄或查询 / `-f` / `-n` / `-J` / 另一个动词 | 它问的是引擎，不解析也不搜索；两个动词就是没说要哪个 |
+| `--auth` + 句柄 / `-f` / `--raw` | 它不接句柄也不发请求 |
+| `--capabilities` + 句柄或查询 / `-f` / `-n` / `--raw` / 另一个动词 | 它问的是引擎，不解析也不搜索；两个动词就是没说要哪个 |
 | `--parts` + 两个句柄 | 一次一个 |
 | 句柄属于**别的**站点 | host allowlist：一个引擎一个站，否则 `engine` 字段会说谎 |
 | `bili-resolve --transcript` / `ne-resolve --parts` | 能力靠「没有那个动词」声明 |
@@ -128,8 +128,8 @@ bili-resolve --capabilities -j                     # 已证 · 这一半接受�
 答的是这一半接受的全部 flag（每个命令都有的 `-l --color -h -V` 除外）：
 
 ```
-$ bili-resolve --capabilities -j
-{"status":"ok","engine":"bili","flags":["-f","-S","--quality","-j","-J","--info","--parts","--items","--cursor","--auth","--capabilities"]}
+$ t-engine-bili --capabilities -j
+{"status":"ok","engine":"bili","flags":["--search","-n","--min-duration","--max-duration","--sort","--info","--items","--cursor","--auth"]}
 ```
 
 **清单只写一次。** 每个脚本里一个数组，unknown-flag 那句拒绝印给人看，`--capabilities` 答给调用方，
@@ -196,7 +196,7 @@ B 站给的是**协议相对**的一条 `//i0.hdslb.com/…`，网易云给的�
 （`CLAUDE.md`「站点知识只住在引擎对里」）—— 所以三处各写各的 `pick_thumb`，**不共享代码**，
 对外只有一个键。
 
-**它和 `kind`/`access` 注入在同一处，因此 `-j` 与 `-J` 一起带着它。** 理由是那两个键
+**它和 `kind`/`access` 注入在同一处，因此 `-j` 与 `--raw` 一起带着它。** 理由是那两个键
 用血换来的（「`kind` 与 `access`」）：只投进精简那一份，等于让**要更多数据**的调用方
 拿到**更少的字段**，而所有 `-j` 的检查照样全绿。
 
@@ -300,7 +300,7 @@ yt-dlp、只在解析那一半、只经由 `--cookies-from-browser`。正是它�
 `.data.result // []` 的原因。
 
 **整形用的是同一个 jq 程序** —— 只多一份归一化，因为这条传输返回的是一个*搜索 API 的*记录而
-不是一个 extractor 的。归一化后的字段被合并**盖在**原始记录之上，于是 `-J` 保留站点发来的每
+不是一个 extractor 的。归一化后的字段被合并**盖在**原始记录之上，于是 `--raw`（引擎自检）保留站点发来的每
 一个字段，而 `-j` 投影出与 `yt-search` 同样的字段，且 `title`/`duration` 在**两者**里都是清洗
 过、类型正确的值 —— 没有任何一个面会拿到那段 HTML 或那个 `"MM:SS"` 字符串。两处值得点名的
 归一化：`url` 是**从 `bvid` 构造**的而不是取自 `arcurl`（后者是 `av` 拼法、走 `http://`），因为
@@ -352,8 +352,8 @@ null，而那个键仍然在**（ARCH-cli-contract.md「数据契约」）。
 ### `kind` 与 `access` —— 引擎的判断落在哪里，以及为什么只有一个引擎算得出 `access`
 
 **注入点在 `FILTERED_JSON`，不在 lean 投影里。** 它们是**引擎的判断**，不是站点的原始记录，
-所以在整形那一步就合并**盖在**记录之上：`-j` 与 `-J` 由此一起拿到它们，且引擎的判断压过任何
-同名的原始字段。只写进投影的实现会让 `-J` 少两个必填字段 —— 而每一条 `-j` 检查照旧全绿，这正
+所以在整形那一步就合并**盖在**记录之上：`-j` 与 `--raw` 由此一起拿到它们，且引擎的判断压过任何
+同名的原始字段。只写进投影的实现会让 `--raw` 少两个必填字段 —— 而每一条 `-j` 检查照旧全绿，这正
 是 `tests/contract.sh` 那条不变式要跨**两种形状**断言的原因。
 
 **`kind` 今天三个引擎都印恒定的 `track`，而这是行模型的结果，不是占位。** 行模型是
@@ -416,7 +416,7 @@ agent 面的答案，再加一个 TUI 标记是重复而不是补充。
 
 **信号是免费的，这才是它成为一道门而不是一条 roadmap 条目的原因**：yt-dlp 给每条 flat 条目
 标着接手它的 extractor，视频是 `Youtube`，频道与播放列表是 `YoutubeTab`，且**已经在同一份响应里**
-——零额外请求。门开在 `FILTERED_JSON`，所以 `-j`、`-J` 与人读列表由同一次判定覆盖。
+——零额外请求。门开在 `FILTERED_JSON`，所以 `-j`、`--raw` 与人读列表由同一次判定覆盖。
 
 **这道门刻意 fail open**：没有 `ie_key` 的条目**保留**。门的职责是丢掉一个叫得出名字的形状，
 不是向 yt-dlp 索要一个键 —— 一个不再发这个键的未来版本会让这个引擎的每一次搜索**空手而归**，
@@ -555,7 +555,7 @@ URL，或本引擎自己的媒体 id 形状，用的是**显式清单，不是�
 生态、掉回原始的 `yt-dlp --dump-json` —— 与 JSON 搜索面当初消除的是同一种"逃生口"失败。这是
 LLM 优先而不是人体工学（对照被否掉的 `--url-only`，那个是**剥掉**接地信号）：`--info` 是**增加**
 agent 推理所依据的接地。`-j` 的投影守的是与搜索同一条字段纪律（原始记录里那 ~40 个
-formats/thumbnails/fragments 字段对一个 headless 调用方是纯 token 压舱物），`-J` 是保真逃生口。
+formats/thumbnails/fragments 字段对一个 headless 调用方是纯 token 压舱物）。原始记录不上公开面：引擎文件上的 `--raw` 是自检，`t-play` 不转发。
 
 `bili-resolve --info` 用 `.channel // .uploader` 来填 `channel`，因为那个 extractor 按记录只填
 其中之一 —— **信封的形状不得取决于是哪一个**。这是对一个引擎的通则：**归一化到契约，绝不把
@@ -564,7 +564,7 @@ extractor 的方差原样发布出去。**
 ### 字幕（`--transcript`）—— 一个动词，两种"字幕"，一个 `bili-resolve` 没有
 
 `yt-resolve --transcript` 取一条字幕轨，并把它清洗成可以直接丢进 prompt 的文本。信封、
-`-j`/`-J` 的分工，以及"只许一次 yt-dlp 调用"的约束：ARCH-cli-contract.md「数据契约」，
+`-j` 与 `--segments` 的分工，以及"只许一次 yt-dlp 调用"的约束：ARCH-cli-contract.md「数据契约」，
 `no_subtitles_available` 这个 reason 也规定在那里。Bilibili 不供字幕，所以这个 flag 在
 `bili-resolve` 上不被接受、帮助里也不列 —— 「接口」那条能力规矩的一个实例。
 
@@ -689,7 +689,7 @@ B 站的音频歌单（`am`）、视频收藏夹（`ml`）与创作者合集、�
 
 | 容器 | 取数 | 上游上限（实测） | 容器不存在时（实测） |
 |---|---|---|---|
-| YouTube 歌单/专辑 | `yt-dlp --flat-playlist -J --playlist-items <off+1>:<off+500>`，一次进程；flat 条目自带 id/url/title/duration | 87 条 1.0s，12 条专辑 0.7s；4749 条的列表答 500，`total` 如实报 4749 | 坏 `PL` id：yt-dlp 退 1 印 `The playlist does not exist`；形状对但不存在的 `OLAK5uy_`：**退 0**，`id: null`，无 entries |
+| YouTube 歌单/专辑 | `yt-dlp --flat-playlist --dump-single-json --playlist-items <off+1>:<off+500>`，一次进程；flat 条目自带 id/url/title/duration | 87 条 1.0s，12 条专辑 0.7s；4749 条的列表答 500，`total` 如实报 4749 | 坏 `PL` id：yt-dlp 退 1 印 `The playlist does not exist`；形状对但不存在的 `OLAK5uy_`：**退 0**，`id: null`，无 entries |
 | YouTube 频道投稿 | 同上，句柄先规范到 `/videos` 那个 tab | 500 条一批 6s，第二批 11s，分段枚举同序幂等（`1:3`+`4:6` 逐位等于 `1:6`）；**`playlist_count` 只在走到尽头那一批才有**（138 条的频道：`1:6` 答 `null`，`10000:10005` 答 `138`、零条目、退 0） | 频道不存在：yt-dlp 退非零，落 `unavailable` |
 | B 站音频歌单 `am` | `menu/info`（标题与存在性）+ `song/of-menu`（条目），纯 HTTP，不经 yt-dlp | `ps` 上限 **100**（`ps=101` 答 `code 4511000`）；翻页有效，页与页 id 不重、`totalSize` 不动、越过末页答空数组 | HTTP 200 + `code: 0` + `msg: "success"` + **`data: null`** —— code 完全不答，只有形状答。`of-menu` 更不能拿来判：不存在的歌单与空歌单是同一份 body |
 | B 站收藏夹 `ml` | `fav/folder/info`（标题与存在性）+ `fav/resource/list`（条目），纯 HTTP | `ps` 上限 **40**（`ps=41` 答 `code -400`，与 media_id 存不存在无关）；**上游自带 `data.has_more`**，81 条按 40 翻三页答 40/40/1、`true/true/false`，第一页与第二页 bvid 交集 0 | `folder/info` 答 200 + `code: 0` + `message: "OK"` + **`data.title: null`** —— 又是只有形状答 |
@@ -776,18 +776,16 @@ Mix 每次请求现生成，游标对它给不出"页与页不重叠"的承诺�
 列表一条私密条目都没有，所以证据是把那几种形状喂给同一段 jq（`tests/contract.sh` 的容器信封检查
 配合一份手写混装记录），私密与已删被丢、直播留下、嵌套列表行被丢。
 
-**`-J` 是这一批的 body，翻页只服务 `-j`**：游标那两个键住在信封里，而 `-J` 是信封之前的那份原始
-响应 —— 所以一个只用 `-J` 的调用方拿不到 `next_cursor`，这是有意的分工，不是遗漏。
+**`--raw`（引擎自检）是这一批的 body，翻页只服务 `-j`**：游标那两个键住在信封里，而 `--raw` 是信封
+之前的那份原始响应 —— 所以它拿不到 `next_cursor`，这是有意的分工，不是遗漏。
 
-**`-J` 吐出条目那一份上游 body**，与 `--parts -J` 先例一致：YouTube 是那份 flat 记录，B 站是
+**`--raw` 吐出条目那一份上游 body**：YouTube 是那份 flat 记录，B 站是
 `of-menu`，网易云是专辑响应或合并后的 `song/detail`（多页/多批时，各页的行合并进第一份 body 的
-那个键 —— 一个答得比 `-j` 还少的 `-J` 会是唯一一个"放宽反而丢东西"的输出模式）。只服务顶层
-`title` 与 `total` 的那次请求（`menu/info` / `playlist/detail`）不进 `-J`。
+那个键 —— 一个答得比 `-j` 还少的 `--raw` 会让自检看漏条目）。只服务顶层
+`title` 与 `total` 的那次请求（`menu/info` / `playlist/detail`）不进 `--raw`。
 
-**所以 `--items -J` 里的行是没过滤的**，这是这个动词上 `-J` 与 `-j` 唯一一处不是"同一批行、更多
-字段"的地方：判据与 `fee` 过滤都发生在信封的投影里，而 `-J` 就是投影之前的那份 body。它与
-`<engine>-search -J`（那里 `-J` 是同一批行的全字段版本）不同，与 `--parts -J` / `--transcript -J`
-（那里 `-J` 也是上游记录）相同。要"能播的那些"，问 `-j`。
+**所以 `--items --raw` 里的行是没过滤的**：判据与 `fee` 过滤都发生在信封的投影里，而 `--raw` 就是
+投影之前的那份 body（`--search --raw` 则是同一批行的全字段版本）。要"能播的那些"，问 `-j`。
 
 **这一版只交付 agent 面，`ting` 不加键**：横切规范只要求"人有按键则 agent 有动词"，不要求反向。
 "在 TUI 里打开一个容器"要先回答入口在哪（没有一行搜索结果可以按上去），另议。
@@ -835,6 +833,6 @@ CLAUDE.md）。
 悄指向了第 1 P。`--parts` 不受影响 —— 它的 base 是从 `.data.bvid`（回落时是 `target_id` 摘出来的裸 id）拼出来
 的，从不经过 `TARGET_URL`。
 
-**推论给第三个引擎作者**：先跑 `yt-dlp -J '<带时间戳的本站 URL>' | jq .start_time`。有值就白拿，
+**推论给第三个引擎作者**：先跑 `yt-dlp --dump-single-json '<带时间戳的本站 URL>' | jq .start_time`。有值就白拿，
 没有就照 bili 那样自己解，站点根本没有这种语法就恒填 `null` —— 与 `kind`/`access` 恒填默认值是
 合法状态同理（「`kind` 与 `access`」）。清单：ARCH-cli-contract.md「加一个引擎」。

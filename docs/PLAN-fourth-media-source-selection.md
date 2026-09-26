@@ -73,7 +73,7 @@
 - 传输基线为 `scsearch<N>:` 的一次 yt-dlp 进程；`-m/-M` 在本地按规范化整数秒过滤，`-s` 只对已取窗口排序。
 - `id` 取数字 Track ID，`url` 取 HTTPS `webpage_url`，`channel` 取 uploader，`view_count` 取 playback count。
 - `duration` 向下取整，`duration_fmt` 由同一份 `JQ_PRELUDE` 导出；没有 duration 且没有直播理由的记录在信封前丢弃。
-- `live_status:null`、`kind:"track"`、`access:"full"` 是当前已测映射；`-J` 也必须由归一化字段覆盖原始同名键。
+- `live_status:null`、`kind:"track"`、`access:"full"` 是当前已测映射；引擎自检的 `--raw` 也必须由归一化字段覆盖原始同名键。
 - `thumbnail` 选择带数值宽度且宽度不小于 200 的最小 HTTPS 项；没有合格项时按已有跨引擎规则返回 HTTPS fallback 或 `null`，不得把无 width 的 `original` 当作已满足阈值。
 
 ### 3.3 `sc-resolve`
@@ -129,7 +129,7 @@
 
 - 离线内置引擎顺序期望与 `SC_*` 配置读取/拒绝；
 - SoundCloud host 正例、子域正例及 userinfo/尾点/相似域反例；
-- `-j/-J` 搜索行、resolve、`--info`、`--auth` 的键集与一行 JSON；
+- `-j` 与 `--raw` 搜索行、resolve、`--info`、`--auth` 的键集与一行 JSON；
 - `?t=601`、`?t=0`、无偏移和 `#t=1:30`；
 - Set 的完整信封、空/不存在/过滤、游标往返与两批不重叠；
 - 搜索行经 `t-play -d --engine sc` 到真实 playhead 的端到端播放；

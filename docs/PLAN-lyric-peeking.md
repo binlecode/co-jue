@@ -7,7 +7,7 @@
 > **前置**: `PLAN-go-tui.md` 全部完成——Go `ting` 已接过名字，`t-play --watch -j` 与 `<engine>-resolve --capabilities -j` 已发布  
 > **Governing Docs**: [`docs/ARCH-tui.md`](ARCH-tui.md)「重排与分页」（届时为 Go 版重写后的对应章节）、[`docs/ARCH-engine.md`](ARCH-engine.md)「字幕（`--transcript`）」、[`docs/ARCH-cli-contract.md`](ARCH-cli-contract.md)「数据契约」、[`docs/ROADMAP.md`](ROADMAP.md)「横切规范 —— 每个新功能都要过的判据」  
 > **Verification**: `go test ./...`、`tests/contract.sh --offline`、tmux 驱动段（Go 版）  
-> **Scope Boundary**: 仅当光标停在正在播放的那一行、且歌词就绪时，在它下方的 details 空间里显示当前一句。置换 Description，details 段高度不变。数据只来自两个已发布的动词：`<engine>-resolve --transcript -J`（歌词）与 `t-play --watch -j`（播放位置）。不加 CLI 选项、信封字段或依赖，不开独立歌词视图。
+> **Scope Boundary**: 仅当光标停在正在播放的那一行、且歌词就绪时，在它下方的 details 空间里显示当前一句。置换 Description，details 段高度不变。数据只来自两个已发布的动词：`t-play --transcript -j --segments`（歌词）与 `t-play --watch -j`（播放位置）。不加 CLI 选项、信封字段或依赖，不开独立歌词视图。
 
 ---
 
@@ -74,7 +74,7 @@ details 段的行数与置换前相同，上方结果行数不变。
                | 是
                v
   +--------------------------+
-  | goroutine: 一次调用       |     <engine>-resolve --transcript -J -- URL
+  | goroutine: 一次调用       |     t-play --transcript -j --segments -- URL
   | 解 segments 进内存切片    |
   +------------+-------------+
                |  消息进 Bubbletea 更新循环
@@ -119,7 +119,7 @@ details 段的行数与置换前相同，上方结果行数不变。
 
 ## 横切规范核验
 
-1. **一个功能必带 agent 面**：两半都是已发布的动词。agent 调 `--transcript -J` 拿带时间戳的
+1. **一个功能必带 agent 面**：两半都是已发布的动词。agent 调 `--transcript -j --segments` 拿带时间戳的
    segments，读 `t-play --watch -j` 拿播放位置，就能自己完成同样的对齐。窥探只是这两份契约
    在人机面的呈现，不需要新增任何东西。（旧稿说 `t-play --status -j` 发布了播放秒数 `pos`——
    不成立：那个 `pos` 是队列下标。播放位置的 agent 面由 `--watch` 第一次提供。）
@@ -131,7 +131,7 @@ details 段的行数与置换前相同，上方结果行数不变。
 
 ## 实施顺序
 
-1. 在 Go 的 `verb` 包里加 `--transcript -J` 的调用与 segments 解析；能力门控接 `--capabilities`。
+1. 在 Go 的 `verb` 包里加 `--transcript -j --segments` 的调用与 segments 解析；能力门控接 `--capabilities`。
 2. 模型里加歌词状态（none / loading / ready）与按 URL 的缓存；换曲事件触发拉取。
 3. 游标：位置事件 + 二分 + 外推；暂停与 seek。
 4. details 渲染置换与行预算；先把过渡候选渲染成帧供选择，再定实现。

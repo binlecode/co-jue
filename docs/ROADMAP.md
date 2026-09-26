@@ -155,7 +155,7 @@
 
 - **【高 ROI · 待做 · 前置 Go TUI】焦点行歌词窥探。**
   **收益**：高。光标停在在播行时，details 空间内联当前一句歌词，行预算不变。
-  **成本**：中。只消费 `--transcript -J` 与 `--watch -j` 两个已发布动词，零契约改动。
+  **成本**：中。只消费 `--transcript -j --segments` 与 `--watch -j` 两个已发布动词，零契约改动。
   **前置**：Go TUI 已替换 `shell/ting`；不在 bash TUI 上实现。**计划**：[`docs/PLAN-lyric-peeking.md`](PLAN-lyric-peeking.md)。
 
 - **【最高优先级 · TUI Design / 视觉排版】付费权限徽章（`access`）要不要上屏，以及上在哪一行。**

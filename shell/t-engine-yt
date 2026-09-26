@@ -1502,7 +1502,7 @@ items_run() {
     ensure_scratch
 
     local start=$((CURSOR_OFFSET + 1)) end=$((CURSOR_OFFSET + ITEMS_MAX))
-    local cmd=(yt-dlp --flat-playlist -J --playlist-items "$start:$end")
+    local cmd=(yt-dlp --flat-playlist --dump-single-json --playlist-items "$start:$end")
     # Cookies for the same reason --info takes them: a caller's own unlisted playlist is
     # readable with the login it already configured.
     cmd+=(--no-warnings --quiet "$CONTAINER_URL")

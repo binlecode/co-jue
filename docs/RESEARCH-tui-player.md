@@ -540,7 +540,7 @@ UI 与播放分离的架构里，MPRIS 该由谁来发布，是个真问题 —�
 
 1. **条件首选：SoundCloud (`sc`)**
    - **已经闭环的半边**：`yt-dlp 2026.08.19` 的 `scsearch` 返回 `id/title/duration/webpage_url/view_count/thumbnails`；数字 Track ID 与网页 URL 都能解出签名 HLS，`mpv 0.41.0 --no-ytdl --ao=null --frames=1` 实测解码为 AAC 44100 Hz 双声道。
-   - **尚未闭环的容器**：`yt-dlp --flat-playlist -J https://soundcloud.com/forss/sets/ecclesia` 的条目有 `id/url/title`，却没有 `duration` 或 `live_status`，不能直接投影成当前 `--items` 条目。非 flat 是否会把一次列表放大为逐曲请求、并撞上 extractor 明示的约 600 请求/10 分钟限流，仍需测量。
+   - **尚未闭环的容器**：`yt-dlp --flat-playlist --dump-single-json https://soundcloud.com/forss/sets/ecclesia` 的条目有 `id/url/title`，却没有 `duration` 或 `live_status`，不能直接投影成当前 `--items` 条目。非 flat 是否会把一次列表放大为逐曲请求、并撞上 extractor 明示的约 600 请求/10 分钟限流，仍需测量。
    - **长音频不是差异点**：`scsearch3:lofi hip hop` 的样本含 7200.255 秒与 3704.629 秒 DJ Mix；SoundCloud 也需要面对长音频体验，只是它不阻断现有显式 seek 与 `--start`。
 2. **待裁决候选：开放播客生态 (`pod`)**
    - **单集路径成立**：iTunes Search `entity=podcastEpisode` 返回 Apple 单集 ID、页面、时长、简介与 MP3；Apple 单集页可由 yt-dlp 解出直接 MP3。
@@ -650,7 +650,7 @@ spotuify 用守护进程 + unix socket 解决它；本仓用 detached 进程 + �
    - 解析：`yt-dlp -j -f "ba/b"` 实测直接提取标准 HLS `m3u8` 直链，`mpv --no-ytdl` 无缝起播；
    - 起播偏移：SoundCloud 的 `#t=1:30` 会让 yt-dlp 回退 generic extractor，且不给 `start_time`；若接入，引擎必须在请求前自行解析并剥离。
 2. **SoundCloud Sets/Playlists（重开，尚未闭环）**：
-   - `--flat-playlist -J` 的 Set 顶层能给出标题、ID 与总数，条目却没有 `duration` 或 `live_status`；这不满足套件当前 `--items` 的可播条目判据；
+   - `--flat-playlist --dump-single-json` 的 Set 顶层能给出标题、ID 与总数，条目却没有 `duration` 或 `live_status`；这不满足套件当前 `--items` 的可播条目判据；
    - 非 flat 路径会不会逐曲取数、耗时多少、在大 Set 上是否触发约 600 请求/10 分钟的上游限流，仍须实测；因此不能再写“完全对接 `--items`”。
 3. **开放播客生态（单集已证，容器与路由重开）**：
    - 搜索与单集：iTunes Search 可匿名返回单集记录，Apple 页面可由 yt-dlp 解析出 MP3 直链与时长；

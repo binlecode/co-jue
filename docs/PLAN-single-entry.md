@@ -209,7 +209,7 @@ yt 这一对 392 行（占 `yt-search` 代码的 63%），bili、ne 各约 214 �
   多 P 视频一律 `<BV>_p<N>`（连第 1 P 与裸 URL 都是 `_p1`），单 P 视频就是裸 BV（2026-09-26 实测）。
 - ne 的 `--info -j` 多打一次 `api/v3/song/detail`（`--items` 已在用的同一个 GET），从 `fee` 算 `access`、
   从 `al.picUrl` 取封面，与搜索同一套判断。这次请求失败时 `--info -j` 整体失败（退 1，错误信封）：
-  `access` 是闭集，没有「不知道」可印。散文与 `-J` 不多打这一次。
+  `access` 是闭集，没有「不知道」可印。散文与引擎自检的 `--raw` 不多打这一次。
 - 两个站的错误分类各并成一份：ne 搜索若遇到 body code -404/-400/404，`reason` 从 `unknown` 变 `unavailable`（退出码不变）。
 
 - 第 1、2 步期间 `--engines` 与 bash `ting` 仍按旧的一对找引擎：`t-play` 播放已走 `t-engine-<n> --stream`，

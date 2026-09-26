@@ -533,12 +533,12 @@ ARCH-engine.md「搜索子系统」（一个引擎自己的时长规矩住在那
    │      --color/--volume/--start/--engine/--quality/--id → 变量；--queue → QUEUE_INPUT
    │      --status/--stop/--set-volume/--pause/--resume/
    │        --seek/--seek-to/--enqueue/--next → set_action
-   │      --get-url / --info / --transcript → die，并点名 <engine>-resolve
+   │      引擎动词（--search --info --items --transcript --auth）在这一步之前已原样 exec 给
+   │      t-engine-<name>；--get-url → die；动词的修饰符单独出现 → die
    │      未知的 --flag → die，并**列出**播放类 flag
    │      `--` → 选项到此为止：其后原样复制（连 getopts 也一起停）
-   │  (b) getopts  ":f:S:dljhV"  → MODE、FORMAT_SORT、OUTPUT_MODE
-   │      未知的 -n/-m/-M/-s → die "那是搜索的 flag"
-   │      未知的 -J          → die "那是引擎的 flag"
+   │  (b) getopts  ":f:djhV"  → MODE、OUTPUT_MODE
+   │      未知的 -n → die "那是搜索的 flag，用 --search"
    │  (c) **校验**  值域（--color 枚举、--volume 0-100、--start 非负整数秒）与组合规矩：
    │      只许一个动作，--start 是播放路径的 flag 所以与任何动作互斥（ARCH-player.md「起播偏移」），
    │      --id/--all/-d/--queue 各自能配什么（完整清单是契约面，
