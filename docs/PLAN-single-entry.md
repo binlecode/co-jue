@@ -1,6 +1,6 @@
 # PLAN — `t-play` 成为唯一 CLI 入口，引擎退到底层（`t-engine-<site>`）
 
-> **Status**: 实施中（2026-09-26 开工）· §8 七项按建议定下（`ACCENT` 两键留到第 5 步再定）；第 1 步（`t-engine-yt`）已落  
+> **Status**: 实施中（2026-09-26 开工）· §8 七项按建议定下（`ACCENT` 两键留到第 5 步再定）；第 1 步（`t-engine-yt`）、第 2 步（`t-engine-bili`、`t-engine-ne`）已落  
 > **Priority**: 第一梯队，**立即做**：先于 `PLAN-go-tui.md` 第 4 步，Go 那侧等本计划落地再继续  
 > **Target Branch**: main  
 > **Governing Docs**: [`ARCHITECTURE.md`](ARCHITECTURE.md)「命令拓扑与文件布局」、[`ARCH-engine.md`](ARCH-engine.md)、
@@ -202,5 +202,15 @@ yt 这一对 392 行（占 `yt-search` 代码的 63%），bili、ne 各约 214 �
 
 - `--info` 补齐的字段是 `kind`、`access`、`thumbnail`。bili 的 `--info` 在第 1 步一并补上（与它的搜索同一判断），
   ne 留到第 2 步：它的 `access` 由搜索接口的 `fee` 算出，而 `--info` 走的 yt-dlp 记录里没有 `fee`，印 `full` 就是猜。
+**实施中定下的三条**（第 2 步）：
+
+- 视频的分 P 走 `--items`，信封就是容器信封（`total` = 分 P 数，`has_more`/`next_cursor` 照常按游标切片），
+  旧 `--parts` 的 `total_duration`、`total_duration_fmt` 随之不再有。每个分 P 的 `id` 是解析它时 yt-dlp 给的那个：
+  多 P 视频一律 `<BV>_p<N>`（连第 1 P 与裸 URL 都是 `_p1`），单 P 视频就是裸 BV（2026-09-26 实测）。
+- ne 的 `--info -j` 多打一次 `api/v3/song/detail`（`--items` 已在用的同一个 GET），从 `fee` 算 `access`、
+  从 `al.picUrl` 取封面，与搜索同一套判断。这次请求失败时 `--info -j` 整体失败（退 1，错误信封）：
+  `access` 是闭集，没有「不知道」可印。散文与 `-J` 不多打这一次。
+- 两个站的错误分类各并成一份：ne 搜索若遇到 body code -404/-400/404，`reason` 从 `unknown` 变 `unavailable`（退出码不变）。
+
 - 第 1、2 步期间 `--engines` 与 bash `ting` 仍按旧的一对找引擎：`t-play` 播放已走 `t-engine-<n> --stream`，
   TUI 的搜索与 `c`/`i` 仍调旧文件。两边同时在役，第 3 步删旧文件时一起收口。

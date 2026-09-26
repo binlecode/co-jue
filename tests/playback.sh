@@ -393,7 +393,7 @@ echo "── three more players, launched back to back ────────�
 # play — which makes "take row one" both the cheapest handle and the correct one. `lofi` is the
 # query because it measured 98% playable; the row itself is asserted, so a query that stops
 # returning one is a red with a name on it rather than a mystery below.
-NE_ROW=$(shell/ne-search -j -n 5 -- lofi 2>/dev/null | jq -r '.results[0].url // empty')
+NE_ROW=$(shell/t-engine-ne --search -j -n 5 -- lofi 2>/dev/null | jq -r '.results[0].url // empty')
 o3=$(shell/t-play -d -j --volume 0 --engine bili -- "$BV" 2>/dev/null)
 o6=""
 [ -n "$NE_ROW" ] && o6=$(shell/t-play -d -j --volume 0 --engine ne -- "$NE_ROW" 2>/dev/null)

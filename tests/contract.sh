@@ -1271,44 +1271,37 @@ report "resolve rejects -n"       1 "$(rc shell/t-engine-yt --stream -n 5 -- "$M
 # belongs to the live check that needs it.
 report "transcript rejects -f"    1 "$(rc shell/t-engine-yt --transcript -f audio -- "$MEDIA_ID")"
 report "transcript rejects -d"    1 "$(rc shell/t-engine-yt --transcript -d -- "$MEDIA_ID")"
-report "bili-resolve rejects a non-id" 1 "$(rc shell/bili-resolve -j -- "not an id")"
-report "bili-resolve rejects audio menu URL" 1 \
-    "$(rc shell/bili-resolve -j -- "https://www.bilibili.com/audio/am10624")"
-report "bili-resolve rejects bare am id" 1 \
-    "$(rc shell/bili-resolve -j -- am10624)"
+report "t-engine-bili rejects a non-id" 1 "$(rc shell/t-engine-bili --stream -j -- "not an id")"
+report "t-engine-bili rejects audio menu URL" 1 \
+    "$(rc shell/t-engine-bili --stream -j -- "https://www.bilibili.com/audio/am10624")"
+report "t-engine-bili rejects bare am id" 1 \
+    "$(rc shell/t-engine-bili --stream -j -- am10624)"
 # Capability differs per engine and is stated, not faked: this site's videos carry no
-# caption track, so the verb is absent rather than always answering "none".
-report "bili-resolve has no --transcript" 1 "$(rc shell/bili-resolve --transcript -- "$BILI_ID")"
-# The third engine states its own two absences the same way, and they are absences of
-# DIFFERENT kinds — which is the point of asserting both. `--parts` is a verb this site has no
-# shape for (one song id is one file), so the engine has no such flag at all. `--sub-lang` is
-# the opposite —
-# the verb it belongs to IS here, but the CAPABILITY behind it is not: one lyric per song, tagged
-# with no language, so there is nothing to choose between and the flag is refused rather than
-# accepted and ignored (ARCH-engine.md「字幕」).
-report "ne-resolve has no --parts"  1 "$(rc shell/ne-resolve --parts -- "$NE_LYRIC")"
-report "ne-resolve has no --sub-lang" 1 \
-    "$(rc shell/ne-resolve --transcript --sub-lang zh-Hans -- "$NE_LYRIC")"
+# caption track, so the verb is absent rather than always answering "none" — and the refusal
+# says why instead of calling a reasonable expectation an unknown flag.
+report "t-engine-bili has no --transcript" 1 "$(rc shell/t-engine-bili --transcript -- "$BILI_ID")"
+report "…and says the site has no captions" 0 \
+    "$(err_has 'no caption track' shell/t-engine-bili --transcript -- "$BILI_ID")"
+# The third engine states its own absence of a DIFFERENT kind: `--transcript` IS here, but the
+# CAPABILITY behind `--sub-lang` is not — one lyric per song, tagged with no language, so there
+# is nothing to choose between and the flag is refused rather than accepted and ignored
+# (ARCH-engine.md「字幕」).
+report "t-engine-ne has no --sub-lang" 1 \
+    "$(rc shell/t-engine-ne --transcript --sub-lang zh-Hans -- "$NE_LYRIC")"
 
-# --parts is the other half of that same statement-by-capability rule, read from the other
-# direction: this site HAS multi-part videos and the sibling site does not, so the verb
-# exists on one engine and must never appear on the other.
-#
-# It is asked with NO handle, so no request is spent: the engine that has the verb answers with
-# a usage error about the missing handle, and the engine that does not falls into the
-# unknown-flag arm every gate in this suite shares (ARCH-cli-contract.md「门模型」). BOTH exit 1,
-# which is why what these pin is the stderr WORDING, not the exit code.
-report "bili-resolve has --parts"  1 "$(err_has 'unknown flag' shell/bili-resolve --parts)"
-report "bili --parts needs a handle" 1 "$(rc shell/bili-resolve --parts)"
-report "t-engine-yt has no --parts" 0 "$(err_has 'unknown flag' shell/t-engine-yt --parts)"
-report "yt --parts is usage"        1 "$(rc shell/t-engine-yt --parts)"
-# A flag that cannot act is REJECTED, not ignored: -f and -S select a stream format, and
-# enumerating parts resolves no stream. Same rule --info is already held to above.
-report "bili --parts takes ONE handle" 1 \
-    "$(rc shell/bili-resolve --parts -- "$BILI_ID" "$BILI_ID")"
+# --parts is gone from every engine: a multi-part video is a container of its parts, so its
+# parts are listed by --items (docs/PLAN-single-entry.md §3, one thing one spelling). Asked
+# with no handle, so no request is spent and the refusal is the shared unknown-flag arm.
+for _e in shell/t-engine-*; do
+    report "$(basename "$_e") has no --parts" 0 "$(err_has 'unknown flag' "$_e" --parts)"
+done
+# A video handle --items cannot turn into an id is refused before a request: a b23.tv short
+# link is a REDIRECT, not a spelling of an id, and the parts endpoints take only an id.
+report "bili --items refuses a short link" 0 \
+    "$(err_has 'redirect, not an id' shell/t-engine-bili --items -- https://b23.tv/abc)"
 
 # --items is the one read-only verb EVERY engine has, so presence is not the discriminator —
-# the per-engine GRAMMAR is, and each of these three refusals is a different site's reason.
+# the per-engine GRAMMAR is, and each of these refusals is a different site's reason.
 # All of it is offline: a handle is judged before a request is spent, which is itself the
 # claim (a container verb that had to ask the site whether a handle was a container would
 # cost a request per typo).
@@ -1320,23 +1313,23 @@ report "--items refuses a video id"     0 \
 # reads, which is exactly the property that made them admissible.
 report "--items refuses an endless list" 0 \
     "$(err_has 'no last item' shell/t-engine-yt --items -- RDdQw4w9WgXcQ)"
-report "--items refuses a BV id"        0 \
-    "$(err_has 'not a Bilibili container' shell/bili-resolve --items -- "$BILI_ID")"
+report "--items refuses a bare word on bili" 0 \
+    "$(err_has 'not a Bilibili container' shell/t-engine-bili --items -- notahandle)"
 # A SERIES IS NOT A COLLECTION on this site — different endpoint, same-looking URL — so it is
 # refused by name rather than read with the wrong one and answered with someone else's videos.
 report "--items refuses a bili series"  0 \
-    "$(err_has 'is a series' shell/bili-resolve --items -- 'https://space.bilibili.com/946974/lists/12345?type=series')"
+    "$(err_has 'is a series' shell/t-engine-bili --items -- 'https://space.bilibili.com/946974/lists/12345?type=series')"
 # The third site's own reason, and it is not fussiness: `song`, `album` and `playlist` ids
 # share no namespace here, so a bare number cannot say what it identifies. The song verb
 # accepts one only because it has already decided what it means.
 report "--items refuses a bare number"  0 \
-    "$(err_has 'does not say what it identifies' shell/ne-resolve --items -- "$NE_LYRIC")"
+    "$(err_has 'does not say what it identifies' shell/t-engine-ne --items -- "$NE_LYRIC")"
 report "--items refuses a song URL"     0 \
-    "$(err_has 'not an album or playlist' shell/ne-resolve --items -- "https://music.163.com/song?id=$NE_LYRIC")"
+    "$(err_has 'not an album or playlist' shell/t-engine-ne --items -- "https://music.163.com/song?id=$NE_LYRIC")"
 # The cross-engine half of this — one verb per invocation, a handle required, exactly one —
 # is stated over every DISCOVERED engine, and it lives in the discovery section below where
 # $ENGINES exists.
-report "bili-search rejects -d" 1 "$(rc shell/bili-search -d -- 音乐)"
+report "bili --search rejects -d" 1 "$(rc shell/t-engine-bili --search -d -- 音乐)"
 # A mistyped engine must be a USAGE error. If it fell into 2+ an agent would read it as
 # "the tool failed, retry later" and retry a name that will never exist.
 report "unknown engine is usage"  1 "$(rc shell/t-play --engine nope -- "$MEDIA_ID")"
@@ -2158,7 +2151,7 @@ for h in "$NE_CANON" \
          'https://music.163.com/#/song?id=1824020871' \
          'https://y.music.163.com/m/song?id=1824020871' \
          '1824020871'; do
-    [ "$(http_proxy=$NOPROXY https_proxy=$NOPROXY shell/ne-resolve -j -- "$h" 2>/dev/null |
+    [ "$(http_proxy=$NOPROXY https_proxy=$NOPROXY shell/t-engine-ne --stream -j -- "$h" 2>/dev/null |
          jq -r '.url' 2>/dev/null)" = "$NE_CANON" ] && _nec=$((_nec + 1))
 done
 report "ne: four spellings, one canonical url" 4 "$_nec"
@@ -2175,15 +2168,15 @@ for h in 'https://music.163.com/artist?id=6452' \
          'https://music.163.com/song' \
          'notanid' \
          '-'; do
-    [ "$(http_proxy=$NOPROXY https_proxy=$NOPROXY rc shell/ne-resolve -j -- "$h")" = 1 ] &&
+    [ "$(http_proxy=$NOPROXY https_proxy=$NOPROXY rc shell/t-engine-ne --stream -j -- "$h")" = 1 ] &&
         _ner=$((_ner + 1))
 done
 report "ne refuses a non-song handle" 4 "$_ner"
 
-echo "── --parts: the offline gate ──────────────────────────────────────"
+echo "── --items on a video: the offline gate ───────────────────────────"
 # The part-list pipeline itself (a part list feeding the store and the queue with no field
 # renamed) runs live, on a real part list, in the half below.
-# --parts runs ONE HTTP request and no yt-dlp — the same backwards gate --auth refuses, one
+# A video's parts are ONE HTTP request and no yt-dlp — the same backwards gate --auth refuses, one
 # verb over. Under the dead proxy this verb reaches its transport and fails with 2; a version
 # that had grown a yt-dlp call on this path (to fetch the title, say) would die at the
 # dependency gate on the bare PATH before any transport existed. The PATH guard further up is
@@ -2195,13 +2188,13 @@ echo "── --parts: the offline gate ─────────────�
 # is WHO SPOKE: the gate names the tool it wanted, a dead transport never does. So the value
 # compared is the code AND the shape of the message — one run, both facts.
 _parts_err=$(env "PATH=$NODEP_PATH" "http_proxy=$NOPROXY" "https_proxy=$NOPROXY" \
-    shell/bili-resolve --parts -j -- "$BILI_ID" 2>&1 >/dev/null)
+    shell/t-engine-bili --items -j -- "$BILI_ID" 2>&1 >/dev/null)
 _parts_rc=$?
 case "$_parts_err" in
 *'required command not found'*) _parts_who=gate ;;
 *) _parts_who=transport ;;
 esac
-report "--parts needs no yt-dlp"          "2 transport" "$_parts_rc $_parts_who"
+report "a video's --items needs no yt-dlp" "2 transport" "$_parts_rc $_parts_who"
 
 echo "── the config file: precedence, and what it refuses ───────────────"
 # WHY THESE CHECKS EXIST AT ALL. The config file is the one input in the suite that a user
@@ -2722,34 +2715,34 @@ spawn yt-transJ    shell/t-engine-yt --transcript -J -- "$CAPTIONED"
 spawn yt-nocap     shell/t-engine-yt --transcript -j -- "$BARE"
 spawn yt-argv      shell/t-engine-yt --search -j -n 1 -- --status
 spawn yt-dead      shell/t-play      -j -- AAAAAAAAAAA
-spawn bili-resolve shell/bili-resolve -j -- "$BILI_ID"
-spawn bili-info    shell/bili-resolve --info -j -- "$BILI_ID"
-spawn bili-zh      shell/bili-search  -j -n 20 -M 600 -- 周杰伦
+spawn bili-resolve shell/t-engine-bili --stream -j -- "$BILI_ID"
+spawn bili-info    shell/t-engine-bili --info -j -- "$BILI_ID"
+spawn bili-zh      shell/t-engine-bili --search -j -n 20 --max-duration 600 -- 周杰伦
 spawn yt-zh        shell/t-engine-yt --search -J -n 15 -- 周杰伦
-spawn bili-offset  shell/bili-resolve -j -- "https://www.bilibili.com/video/$BILI_PARTS_ID?p=2&t=601"
-spawn bili-parts   shell/bili-resolve --parts -j -- "$BILI_PARTS_ID"
-spawn bili-part1   shell/bili-resolve --parts -j -- "$BILI_ID"
-spawn bili-nopart  shell/bili-resolve --parts -j -- av999999999999
+spawn bili-offset  shell/t-engine-bili --stream -j -- "https://www.bilibili.com/video/$BILI_PARTS_ID?p=2&t=601"
+spawn bili-parts   shell/t-engine-bili --items -j -- "$BILI_PARTS_ID"
+spawn bili-part1   shell/t-engine-bili --items -j -- "$BILI_ID"
+spawn bili-nopart  shell/t-engine-bili --items -j -- av999999999999
 spawn bili-route   shell/t-play      --engine bili -j -- BV1111111111
-spawn ne-vip       env NE_INCLUDE_VIP=1 shell/ne-search -j -n 20 -- 周杰伦
-spawn ne-trans     shell/ne-resolve --transcript -j -- "$NE_LYRIC"
-spawn ne-notrans   shell/ne-resolve --transcript -j -- "$NE_SILENT"
-spawn ne-novip     shell/ne-search  -j -n 20 -- 周杰伦
+spawn ne-vip       env NE_INCLUDE_VIP=1 shell/t-engine-ne --search -j -n 20 -- 周杰伦
+spawn ne-trans     shell/t-engine-ne --transcript -j -- "$NE_LYRIC"
+spawn ne-notrans   shell/t-engine-ne --transcript -j -- "$NE_SILENT"
+spawn ne-novip     shell/t-engine-ne --search -j -n 20 -- 周杰伦
 spawn yt-items     shell/t-engine-yt --items -j -- "$YT_LIST"
-spawn bili-items   shell/bili-resolve --items -j -- "$BILI_MENU"
-spawn ne-items     env NE_INCLUDE_VIP=1 shell/ne-resolve --items -j -- "$NE_LIST"
-spawn ne-items-def shell/ne-resolve   --items -j -- "$NE_LIST"
-spawn bili-fav     shell/bili-resolve --items -j -- "$BILI_FAV"
-spawn bili-season  shell/bili-resolve --items -j -- "$BILI_SEASON"
+spawn bili-items   shell/t-engine-bili --items -j -- "$BILI_MENU"
+spawn ne-items     env NE_INCLUDE_VIP=1 shell/t-engine-ne --items -j -- "$NE_LIST"
+spawn ne-items-def shell/t-engine-ne --items -j -- "$NE_LIST"
+spawn bili-fav     shell/t-engine-bili --items -j -- "$BILI_FAV"
+spawn bili-season  shell/t-engine-bili --items -j -- "$BILI_SEASON"
 spawn yt-channel   shell/t-engine-yt --items -j -- "$YT_CHANNEL"
 # The two halves of one cursor round trip, fired TOGETHER: the second is not waiting on the
 # first's token, it asserts that the token the first hands out is the offset the second reads.
 spawn yt-big1      shell/t-engine-yt --items -j -- "$YT_BIG"
 spawn yt-big2      shell/t-engine-yt --items -j --cursor o:500 -- "$YT_BIG"
 spawn yt-nolist    shell/t-engine-yt --items -j -- PLzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
-spawn bili-nofav   shell/bili-resolve --items -j -- ml999999999999
-spawn bili-nomenu  shell/bili-resolve --items -j -- am999999999
-spawn ne-nolist    shell/ne-resolve   --items -j -- "https://music.163.com/album?id=999999999"
+spawn bili-nofav   shell/t-engine-bili --items -j -- ml999999999999
+spawn bili-nomenu  shell/t-engine-bili --items -j -- am999999999
+spawn ne-nolist    shell/t-engine-ne --items -j -- "https://music.163.com/album?id=999999999"
 for n in $ENGINES; do
     spawn_once "net-j-$n" env http_proxy="$NOPROXY" https_proxy="$NOPROXY" $(search_cmd "$n") -j -n 2 -- lofi
     spawn_once "net-t-$n" env http_proxy="$NOPROXY" https_proxy="$NOPROXY" $(search_cmd "$n")    -n 2 -- lofi
@@ -3347,11 +3340,11 @@ report "bili resolve sends a Referer" 0 \
 # correct implementation from a slow afternoon — every red it ever produced would have been
 # the network's. A second round trip is a code review's job, not a stopwatch's.
 BILI_P=$(out bili-parts)
-report "bili --parts is one line"    1 "$(lines "$BILI_P")"
+report "bili video --items is one line" 1 "$(lines "$BILI_P")"
 # Every part is asserted, not just the first: `?p=N` is built per element, and an off-by-one
 # or a base URL that kept the caller's own query string shows up on element two onwards. The
 # base is taken from the envelope's OWN top-level url, so the claim is internal consistency
-# — the thing a caller relies on when it pipes .parts straight into the player.
+# — the thing a caller relies on when it pipes .items straight into the player.
 #
 # THE TITLE IS ASSERTED AS string-or-null, and that is not a weakening for its own sake. The
 # verb has two endpoints since 2026-09-01 — `view` preferred, `player/pagelist` as fallback
@@ -3361,20 +3354,26 @@ report "bili --parts is one line"    1 "$(lines "$BILI_P")"
 # which endpoint answered, because the caller cannot either — the envelope is the contract,
 # not the route to it. Everything the verb exists FOR is asserted below at full strength on
 # either path: per-part titles are non-empty strings whichever endpoint filled them.
-report "bili --parts envelope"       0 \
+report "bili video --items envelope" 0 \
     "$(jqv '.status=="ok" and .engine=="bili" and (.id|startswith("BV"))
               and ((.title|type)=="null"
                    or ((.title|type)=="string" and (.title|length)>0))
-              and (.count|type)=="number" and .count>=2 and .count==(.parts|length)
-              and (.total_duration|type)=="number"
-              and (.total_duration_fmt|type)=="string"
-              and (.url as $b | all(.parts[];
+              and (.count|type)=="number" and .count>=2 and .count==(.items|length)
+              and .total==.count and .has_more==false and .next_cursor==null
+              and (.url as $b | .id as $id | all(.items[];
                     (.n|type)=="number" and .engine=="bili"
+                    and .id == ($id + "_p" + (.n|tostring))
                     and (.title|type)=="string" and (.title|length)>0
                     and (.duration|type)=="number"
                     and (.duration_fmt|type)=="string"
                     and .url == ($b + "?p=" + (.n|tostring))))' "$BILI_P")"
-BILI_PARTS_ITEMS=$(printf '%s' "$BILI_P" | jq -c '{items: .parts}')
+# A PART'S id IS THE ONE RESOLVING IT ANSWERS, so a record stored from this list and a record
+# played from the part's own URL are the same row. bili-offset resolved `?p=2` of this very
+# video, so its id is the answer the second item must carry — no extra request spent.
+report "a part's id is its resolve id" \
+    "$(printf '%s' "$(out bili-offset)" | jq -r '.id')" \
+    "$(printf '%s' "$BILI_P" | jq -r '.items[1].id')"
+BILI_PARTS_ITEMS=$BILI_P
 report "a part list adds to a playlist" 0 \
     "$(jq_in '.status=="ok" and .added>=2 and .count>=2' "$BILI_PARTS_ITEMS" shell/t-playlist --add parts -j)"
 report "…and every stored row is a call"  0 \
@@ -3388,11 +3387,12 @@ report "…parsed, not refused"             0 \
     "$(jq_in '.status=="not_playing"' "$BILI_PARTS_ITEMS" shell/t-play --enqueue - -j)"
 # A single-part video is a list of ONE and is NOT an error — the contract says so, and the
 # plausible wrong implementation (treat "no parts to choose between" as a failure) would pass
-# every other --parts check in this file. BILI_ID is that handle, which is why it is separate
+# every other part-list check in this file. BILI_ID is that handle, which is why it is separate
 # from BILI_PARTS_ID above.
 report "one part is still a list"    0 \
-    "$(jqv '.status=="ok" and .count==1 and (.parts|length)==1
-                and .parts[0].url==(.url + "?p=1")' "$(out bili-part1)")"
+    "$(jqv '.status=="ok" and .count==1 and (.items|length)==1 and .total==1
+                and .items[0].id==.id
+                and .items[0].url==(.url + "?p=1")' "$(out bili-part1)")"
 # A HANDLE THAT WILL NEVER RESOLVE MUST NOT BE REPORTED AS RETRYABLE, and since 2026-09-01
 # that is a claim about the verb's TWO endpoints rather than one. `view` answers 412 to
 # everything now, and 412 is `network` — so a fallback that simply reported the preferred

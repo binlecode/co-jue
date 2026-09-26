@@ -1,0 +1,2135 @@
+#!/usr/bin/env bash
+# t-engine-ne — the NetEase Cloud Music ENGINE: everything this suite knows about one site, in
+# one file.
+#
+# An engine is one file per SITE, not one per operation. The User-Agent, the Referer, the
+# `os=pc` cookie, the host list, the id shapes, the body codes this host answers with — each is
+# a fact about NetEase, and when searching and resolving lived in two files each was written
+# twice. The verbs below share them; they share nothing with any other engine.
+#
+# This file is BELOW the public contract. `t-play` is the one entry point: it forwards its
+# engine verbs (--search --info --items --transcript --auth) here verbatim and calls --stream
+# itself to turn a handle into bytes. So the argv here is an internal protocol between two
+# files of this suite, and the flag gate lives in exactly one place — this one. --capabilities
+# publishes that gate so `t-play --engines` can answer for it. docs/ARCHITECTURE.md「命令拓扑」.
+#
+# THREE TRANSPORTS, and each verb uses the one that works (measured, not preferred):
+#   --search             the weapi endpoint, an AES-wrapped POST — the only verb that needs
+#                        openssl, so openssl is checked for it and for nothing else.
+#   --items --transcript plain GETs to the site's own API — no encryption, no credential.
+#   --stream --info      yt-dlp's `netease:song` extractor, which owns login and stream URLs.
+# The hand-written HTTP paths NEVER TOUCH A CREDENTIAL: the only cookie they send is `os=pc`,
+# a client-shape hint. Login lives entirely on the yt-dlp side.
+#
+# It has NO playback, lifecycle, or mpv logic and never starts a process that outlives it.
+set -euo pipefail
+# Portability: bash 3.2 (macOS system bash) — no bash-4 features; guard empty-array
+# expansions ("${arr[@]}" on an empty array aborts under set -u on 3.2). ARCHITECTURE.md「可移植性契约」.
+
+# Resolve this script's OWN symlink chain before looking for its siblings. The PATH entry
+# is a symlink into a checkout that can live anywhere, so `dirname $0` is the symlink's
+# directory, not the code's. This walks the chain to the real file and takes ITS directory.
+#
+# `cd -P` / `pwd -P`, not the logical forms: a relative symlink resolves to something like
+# ~/bin/../../../elsewhere/shell, and logical `cd` would normalise those `..` textually
+# against ~/bin instead of against what ~/bin actually points at. Physical resolution is the
+# only one that lands in the right place. bash 3.2 has no `readlink -f`, hence the loop.
+_self="${BASH_SOURCE[0]}"
+while [[ -L "$_self" ]]; do
+    _link=$(readlink "$_self")
+    case "$_link" in
+    /*) _self="$_link" ;;
+    *)  _self="$(dirname "$_self")/$_link" ;;
+    esac
+done
+SCRIPT_DIR=$(cd -P "$(dirname "$_self")" && pwd -P)
+
+# THE version of the whole suite, declared once — in a data file, not in code. The engines
+# and the player are independent executables that share no library, so a shell variable in
+# any one of them would make the others ask IT for the version, which is the wrong
+# dependency direction for a player that must not know its engines. CLAUDE.md § one fact, one place.
+if [[ -r "$SCRIPT_DIR/../VERSION" ]]; then
+    UT_VERSION=$(cat "$SCRIPT_DIR/../VERSION")
+else
+    UT_VERSION="unknown"
+fi
+
+# CONFIGURATION — the chain is flag > environment > the user's config > the shipped defaults
+# in `<checkout>/config`, which is where every default value in the suite is declared once.
+# Duplicated VERBATIM in every entry point — see the same block in t-play for why, and
+# ARCH-cli-contract.md「配置面」 for the keys.
+TING_CONFIG="${TING_CONFIG:-${UT_CONFIG:-}}"
+if [[ -z "$TING_CONFIG" ]]; then
+    if [[ -r "${XDG_CONFIG_HOME:-$HOME/.config}/ting/config" ]]; then
+        TING_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/ting/config"
+    else
+        TING_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/uting/config"
+    fi
+fi
+UT_CONFIG="$TING_CONFIG"
+for _v in STATE_DIR ENGINE_DIR HISTORY THEME ACCENT VOLUME LANG IMAGE KEYS RESOURCE RESOURCE_TICKS BRAND ASCII SYNC PLAY_QUALITY VIZ_STYLE VIZ_COLOR DEAD_KEEP DEFAULT_ENGINE MODE_CYCLE SORT_CYCLE THEME_CYCLE QUALITY_CYCLE LOOP_CYCLE; do
+    eval "[[ -n \"\${TING_$_v+x}\" ]] && UT_$_v=\"\$TING_$_v\" || true"
+    eval "[[ -n \"\${UT_$_v+x}\" && -z \"\${TING_$_v+x}\" ]] && TING_$_v=\"\$UT_$_v\" || true"
+done
+UT_DEFAULTS="$SCRIPT_DIR/../config"
+ut_read_config() {
+    local file="$1" line key val _ting_k _ut_k
+    [[ -r "$file" ]] || return 0
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line="${line%%#*}"
+        while [[ "$line" == [[:space:]]* ]]; do line="${line#[[:space:]]}"; done
+        while [[ "$line" == *[[:space:]] ]]; do line="${line%[[:space:]]}"; done
+        [[ -n "$line" && "$line" == *=* ]] || continue
+        key="${line%%=*}"
+        val="${line#*=}"
+        while [[ "$key" == *[[:space:]] ]]; do key="${key%[[:space:]]}"; done
+        while [[ "$val" == [[:space:]]* ]]; do val="${val#[[:space:]]}"; done
+        [[ "$key" =~ ^(TING|UT|YT|BILI|NE)_[A-Z0-9_]+$ ]] || continue
+        case "$key" in
+        TING_CONFIG | TING_DEFAULTS | TING_ENGINE_DIR | TING_VERSION | UT_CONFIG | UT_DEFAULTS | UT_ENGINE_DIR | UT_VERSION | YT_IPC_SOCK | YT_DETACHED | YT_PLAYER_ID | YT_DETACHED_LOG) continue ;;
+        esac
+        if [[ ${#val} -ge 2 ]] && { [[ "$val" == \"*\" ]] || [[ "$val" == \'*\' ]]; }; then
+            val="${val#?}"
+            val="${val%?}"
+        fi
+        [[ "$val" == "~/"* ]] && val="$HOME/${val#\~/}"
+        if [[ "$key" == TING_* ]]; then
+            _ut_k="UT_${key#TING_}"
+            eval "[[ -n \"\${$key+x}\" ]] || $key=\$val"
+            eval "[[ -n \"\${$_ut_k+x}\" ]] || $_ut_k=\$val"
+        elif [[ "$key" == UT_* ]]; then
+            _ting_k="TING_${key#UT_}"
+            eval "[[ -n \"\${$key+x}\" ]] || $key=\$val"
+            eval "[[ -n \"\${$_ting_k+x}\" ]] || $_ting_k=\$val"
+        else
+            eval "[[ -n \"\${$key+x}\" ]]" && continue
+            eval "$key=\$val"
+        fi
+    done < "$file"
+}
+# FAIL FAST AND SAY WHY. There is deliberately no escape hatch for --version or --help: they
+# were tried, and letting execution continue past a missing defaults file replaced this one
+# clear line with `YT_ASCII_VO: unbound variable` from set -u somewhere further down. A
+# checkout missing part of itself is not a dependency gate — it is a broken checkout, and 2 is
+# the exit code for a failure that is not the caller's usage error.
+if [[ ! -r "$UT_DEFAULTS" ]]; then
+    printf '%s: cannot read the shipped defaults at %s — that file declares every default value in the suite and is not optional\n' \
+        "$(basename "$0")" "$UT_DEFAULTS" >&2
+    exit 2
+fi
+ut_read_config "$UT_CONFIG"
+ut_read_config "$UT_DEFAULTS"
+
+# The engine's own name, as it appears in every envelope AND as the suffix of this file's
+# name. Name == suffix is deliberate: it lets `t-play --engine ne` find `t-engine-ne` by string
+# concatenation, with no name->command registry to keep in sync. docs/ARCHITECTURE.md「命令拓扑」.
+ENGINE_NAME="ne"
+PROG="t-engine-ne"
+
+# ==============================================================================
+# 1. SETTINGS
+# ==============================================================================
+
+# THE SITE'S ENDPOINTS AND HEADERS. The Referer is the only header this host insists on, and it
+# is a public constant, not an authentication mechanism; `os=pc` is likewise a client-shape
+# hint. No account cookie, no token, no browser profile is sent by any hand-built request here
+# (measured 2026-09-02 — the anonymous search answers code:200 with the full page).
+#
+# UNPREFIXED on purpose: since ARCHITECTURE.md「两个根数据文件」 the prefix IS config
+# reachability — ut_read_config accepts every UT_/YT_/BILI_/NE_ name not in its refusal list —
+# so an NE_ spelling would be taken off disk and then silently overwritten by these lines. A
+# constant must not wear a settable name.
+SITE_REFERER="https://music.163.com"
+SITE_COOKIE="os=pc"
+SEARCH_ENDPOINT="https://music.163.com/weapi/cloudsearch/pc"
+
+# THE LYRIC ENDPOINT. yt-dlp's `netease:song` extractor fetches no lyrics at all, and this
+# endpoint costs nothing: measured 2026-09-02, a plain GET with a Referer answers code:200 with
+# the LRC text. No encryption, no credential, no signature.
+LYRIC_ENDPOINT="https://music.163.com/api/song/lyric"
+
+# THE CONTAINER ENDPOINTS — plain GETs, the same as the lyric endpoint.
+#
+#   album/<id>        ONE request answers the whole album: `.album.name`, `.album.size` and a
+#                     complete `.songs[]` carrying id, name, dt (MILLISECONDS) and fee.
+#                     Measured 2026-09-10 on album 32311: code 200, 9 songs.
+#   playlist/detail   TWO requests, because this one is TRUNCATED BY DESIGN: measured on
+#                     playlist 24381616, `.playlist.trackCount` and `.playlist.trackIds[]` are
+#                     both 1266 while `.playlist.tracks[]` holds only 10 full records. The ids
+#                     are the complete, ordered list; the records have to be asked for.
+#   song/detail       those records, in batches — `c=[{"id":N},…]`. --info asks it for ONE id,
+#                     because it is where this site states `fee` (see info_run).
+#
+# The id goes in album/<id>'s PATH, which is why the grammar below validates it as digits
+# before it is interpolated: everything else here reaches curl through --data-urlencode, and a
+# path segment cannot.
+ALBUM_ENDPOINT="https://interface3.music.163.com/api/v1/album"
+PLAYLIST_ENDPOINT="https://music.163.com/api/v6/playlist/detail"
+DETAIL_ENDPOINT="https://music.163.com/api/v3/song/detail"
+
+# THE WEAPI WRAPPER, and every constant in it. The site's browser client wraps a JSON payload
+# in two AES-128-CBC passes and ships the (RSA-encrypted) second key alongside:
+#
+#     step1  = base64( AES-128-CBC( payload_json, presetKey, iv ) )
+#     params = base64( AES-128-CBC( step1,        secretKey, iv ) )
+#     encSecKey = RSA_nopad( reverse(secretKey) )
+#
+# presetKey and iv are the site's own literals. `secretKey` is a value the CALLER picks —
+# the browser generates 16 random characters per request and nothing on the far side checks
+# that it is random — so this engine PINS it to presetKey, and `encSecKey` collapses from a
+# per-request modular exponentiation into the 256-hex-character constant below. That is the
+# whole reason no RSA runs at search time: measured 2026-09-02, a search sent with these three
+# constants answers code:200.
+#
+# The keys are given to openssl as HEX because that is what -K/-iv take. They are written out
+# rather than derived with `xxd -p`: xxd ships with vim, not with a base system, and deriving
+# a constant at runtime would add a dependency to save nothing.
+#   presetKey "0CoJUm6Qyw8W8jud" · iv "0102030405060708" (the ASCII digits, not the bytes)
+PRESET_KEY_HEX="30436f4a556d365179773857386a7564"
+IV_HEX="30313032303330343035303630373038"
+# HOW encSecKey WAS COMPUTED, written down so the next person dares to touch it. It is
+# RSA(reverse(secretKey)) with NO padding: 112 zero bytes followed by the 16 bytes of the
+# REVERSED key, exactly 128 bytes in, textbook modular exponentiation against the site's
+# public modulus. Change PRESET_KEY_HEX and this MUST be recomputed — and the only symptom of
+# getting it wrong is a generic error code from the endpoint, which is precisely why the
+# known-vector check in tests/contract.sh exists.
+#
+#     K='0CoJUm6Qyw8W8jud'
+#     { head -c 112 /dev/zero; printf '%s' "$(printf '%s' "$K" | rev)"; } > in.bin
+#     openssl pkeyutl -encrypt -pubin -inkey pub.pem -pkeyopt rsa_padding_mode:none \
+#         -in in.bin | xxd -p -c 256
+#
+# pub.pem is NetEase's published client key (a public constant, not a secret):
+#     -----BEGIN PUBLIC KEY-----
+#     MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDgtQn2JZ34ZC28NWYpAUd98iZ37BUrX/aKzmFbt7cl
+#     FSs6sXqHauqKWqdtLkF2KexO40H1YTX8z2lSgBBOAxLsvaklV8k4cBFK9snQXE9/DDaFt6Rr7iVZMldc
+#     zhC0JNgTz+SHXT6CBHuX3e9SdB1Ua44oncaTWz7OBGLbCiK45wIDAQAB
+#     -----END PUBLIC KEY-----
+#   (the PEM body is ONE line in the original; folded here only to fit this column.)
+ENC_SEC_KEY="bf50d0bcf56833b06d8d1219496a452a1d860fd58a14c0aafba3e770104ca77dc6856cb310ed3309039e6865081be4ddc2df52663373b20b70ac25b4d0c6ca466daef6b50174e93536e2d580c49e70649ad1936584899e85722eb83ceddfb4f56c1172fca5e60592d0e6ee3e8e02be1fe6e53f285b0389162d8e6ddc553857cd"
+
+# The search endpoint's own ceiling on one request. Asking for more is answered with fewer, so
+# the page plan is built around it rather than discovering it every time.
+PAGE_LIMIT_MAX=100
+# HOW MANY REQUESTS ONE SEARCH MAY SPEND. The default filter (NE_INCLUDE_VIP=0) throws rows
+# away, so `-n 20` against an artist name can come back holding six; the answer is to ASK FOR
+# MORE, never to promise less — `-n` has always said how many to FETCH, not how many will be
+# emitted. Each request asks for twice what is still wanted, and no search makes more than
+# three requests: this host has risk control and the fourth buys the tail of a page nobody
+# reads. Not config keys: they are this engine's cost policy, not a per-user choice.
+OVERFETCH=2
+MAX_REQUESTS=3
+
+# A song/detail batch is 100 ids and the --items ceiling is five of them. 100 is measured, not
+# chosen: 150 ids answer code 200, 200 ids are refused at the HTTP layer (curl 16, "Error in
+# the HTTP2 framing layer", twice from two runs) because the query grows past what this host
+# will take on a GET. So the ceiling costs at most six requests — one for the container, five
+# for its records. `count` below `total` is how a caller learns it was truncated.
+# ARCH-engine.md「容器（--items）」.
+ITEMS_BATCH=100
+ITEMS_MAX=500
+
+# Cookies (login) are ON by default (browser: chrome), the same posture the other engines take:
+# on this site an account is what unlocks the higher stream tiers (`higher`, `exhigh`, and above
+# them the VIP-only `lossless`/`hires`). Public tracks resolve fine without them, so an absent
+# profile degrades to anonymous rather than failing. They reach yt-dlp only — no hand-built
+# request here sends them. Set NE_COOKIE_BROWSER=none to force anonymous-only.
+#
+# MEASURED, so nobody reads more into it than it says (2026-09-02): with a real MUSIC_U
+# session from chrome — `nuser/account/get` answering code:200, hasProfile:true — this site
+# served a FREE account (vipType:0) exactly the anonymous ladder, field for field. So an
+# accepted login can be indistinguishable from no login at all, which is why `--auth` reports
+# what is SENT and never what it buys.
+COOKIE_ARGS=()
+if [[ -n "${NE_COOKIE_BROWSER:-}" && "$NE_COOKIE_BROWSER" != "none" ]]; then
+    browser_exists=0
+    case "$NE_COOKIE_BROWSER" in
+    chrome|chromium|brave)
+        if [[ "$(uname -s)" == "Darwin" ]]; then
+            if [[ -d "$HOME/Library/Application Support/Google/Chrome" || -d "$HOME/Library/Application Support/BraveSoftware" || -d "$HOME/Library/Application Support/Chromium" ]]; then
+                browser_exists=1
+            fi
+        else
+            if [[ -d "$HOME/.config/google-chrome" || -d "$HOME/.config/chromium" || -d "$HOME/.config/BraveSoftware" ]]; then
+                browser_exists=1
+            fi
+        fi
+        ;;
+    safari)
+        if [[ "$(uname -s)" == "Darwin" ]]; then
+            [[ -d "$HOME/Library/Safari" ]] && browser_exists=1
+        fi
+        ;;
+    firefox)
+        if [[ "$(uname -s)" == "Darwin" ]]; then
+            [[ -d "$HOME/Library/Application Support/Firefox" ]] && browser_exists=1
+        else
+            [[ -d "$HOME/.mozilla/firefox" ]] && browser_exists=1
+        fi
+        ;;
+    edge)
+        if [[ "$(uname -s)" == "Darwin" ]]; then
+            [[ -d "$HOME/Library/Application Support/Microsoft Edge" ]] && browser_exists=1
+        else
+            [[ -d "$HOME/.config/microsoft-edge" ]] && browser_exists=1
+        fi
+        ;;
+    opera)
+        if [[ "$(uname -s)" == "Darwin" ]]; then
+            [[ -d "$HOME/Library/Application Support/com.operasoftware.Opera" ]] && browser_exists=1
+        else
+            [[ -d "$HOME/.config/opera" ]] && browser_exists=1
+        fi
+        ;;
+    vivaldi)
+        if [[ "$(uname -s)" == "Darwin" ]]; then
+            [[ -d "$HOME/Library/Application Support/Vivaldi" ]] && browser_exists=1
+        else
+            [[ -d "$HOME/.config/vivaldi" ]] && browser_exists=1
+        fi
+        ;;
+    *)
+        browser_exists=0
+        ;;
+    esac
+
+    if ((browser_exists)); then
+        COOKIE_ARGS=(--cookies-from-browser "$NE_COOKIE_BROWSER")
+    fi
+fi
+
+ACTION=""            # search | stream | info | transcript | items | auth | capabilities
+VERB_FLAG=""         # the verb flag as typed — the one-verb-per-invocation gate reads it
+COLOR_MODE="auto"
+OUTPUT_MODE="list"   # list (prose) | json | json_full
+
+# --search. The `-n` and --sort defaults are cross-engine: a caller who wants a different
+# result count by default wants it from whichever source they asked. ARCH-cli-contract.md「配置面」.
+NUM_RESULTS=$UT_SEARCH_RESULTS
+MIN_DURATION=0
+MAX_DURATION=0
+SORT_FIELD="$UT_SORT_FIELD"
+QUERY=""
+FILTERED_JSON=""
+
+# --stream. The `-f` default is cross-engine too: a user who listens rather than watches
+# says so once.
+PLAYBACK_MODE="$UT_PLAY_MODE"
+FORMAT_SORT=""
+QUALITY="auto"       # auto | low | medium | high — the tier abstraction (--quality)
+FMT=""               # the yt-dlp format string the mode resolves to
+
+TARGET=""            # the handle as the caller typed it
+TARGET_URL=""        # the canonical song URL it normalises to
+TARGET_ID=""         # the numeric song id inside it — the lyric and detail endpoints' input
+TARGET_START=""      # ?t= seconds carried by the handle, or "" — see parse_start_seconds
+CONTAINER_KIND=""    # album | playlist — which endpoint pair --items will spend
+CONTAINER_ID=""      # the container's numeric id
+CONTAINER_URL=""     # the canonical container URL it normalises to
+CURSOR=""            # the --cursor token as the caller typed it, "" when absent
+CURSOR_OFFSET=0      # the item offset it decodes to; 0 is the first batch
+
+# Glyph fallback shares ONE switch with ting (YT_ASCII, legacy alias YT_TUI_ASCII): a
+# terminal whose font can't draw ♫ can't draw it in either surface, and a non-UTF-8 locale
+# (bare cron/launchd) would emit mojibake. Empty = drop the glyph, as ting does.
+MUSIC_CHAR="♫"
+case "${YT_ASCII:-${YT_TUI_ASCII:-}}" in
+1 | true | yes | on) MUSIC_CHAR="" ;;
+"")
+    case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
+    *UTF-8* | *utf-8* | *UTF8* | *utf8*) ;;
+    *) MUSIC_CHAR="" ;;
+    esac
+    ;;
+esac
+
+# ==============================================================================
+# 2. HELPERS
+# ==============================================================================
+
+err() {
+    local red='' reset=''
+    case "${COLOR_MODE:-auto}" in
+    always)
+        red=$'\033[31m'
+        reset=$'\033[0m'
+        ;;
+    auto)
+        if [[ -t 2 ]]; then
+            red=$'\033[31m'
+            reset=$'\033[0m'
+        fi
+        ;;
+    never) ;;
+    esac
+    echo "${red}Error:${reset} $*" >&2
+}
+
+die() {
+    err "$@"
+    exit 1
+}
+
+# A missing tool is not a malformed call: `die` is exit 1 (the argv is wrong — fix it),
+# `die_dep` is exit 2 (the argv was fine; the machine is missing something no rewrite of the
+# argv will supply). An agent that read 1 here would loop editing its own parameters against
+# a wall. docs/ARCH-cli-contract.md「退出码、TTY、依赖」.
+die_dep() {
+    err "required command not found: $1"
+    exit 2
+}
+
+is_non_negative_int() {
+    [[ "$1" =~ ^[0-9]+$ ]]
+}
+
+validate_enum() {
+    local value=$1
+    shift
+    local allowed
+    for allowed in "$@"; do
+        if [[ "$value" == "$allowed" ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# ONE VERB PER INVOCATION. A caller who names two verbs has not said what it wants, and the
+# gate model answers that by refusing rather than by guessing (ARCH-cli-contract.md「门模型」).
+set_action() {
+    local action=$1 flag=$2
+    if [[ -n "$VERB_FLAG" && "$VERB_FLAG" != "$flag" ]]; then
+        die "$VERB_FLAG and $flag are two verbs — pass one"
+    fi
+    VERB_FLAG="$flag"
+    ACTION="$action"
+}
+
+require_cmd() {
+    local cmd=$1
+    command -v "$cmd" >/dev/null 2>&1 || die_dep "$cmd"
+}
+
+require_deps() {
+    local cmd
+    for cmd in "$@"; do
+        require_cmd "$cmd"
+    done
+}
+
+# The ONE implementation of duration formatting: seconds -> "[Nd ]HHh:MMm:SSs". A jq prelude,
+# not a bash function, so a caller already shaping JSON pays one fork instead of one per row.
+# Each engine carries its own copy: they are independent executables sharing no library, and
+# the shared fact is the FORMAT, stated once in docs/ARCH-engine.md「搜索子系统」.
+#
+# `ne_secs` is this site's own half: duration arrives as `dt`, in MILLISECONDS, on every
+# endpoint that states one (search, album, song/detail).
+JQ_PRELUDE='
+def p2: tostring | if length < 2 then "0" + . else . end;
+def fmt_dur:
+  if type != "number" then null
+  else (. | floor) as $t
+    | ($t / 86400 | floor) as $d
+    | (($t % 86400) / 3600 | floor) as $h
+    | (($t % 3600) / 60 | floor) as $m
+    | ($t % 60) as $s
+    | (if $d > 0 then "\($d)d " else "" end) + "\($h | p2)h:\($m | p2)m:\($s | p2)s"
+  end;
+def ne_secs:
+  if type != "number" then null else (. / 1000 | floor) end;
+# THE COVER, normalised to one directly-GETtable https URL — the site field name stops here.
+# `.al.picUrl` is what this site calls it, and a caller must never learn that (CLAUDE.md:
+# site knowledge lives in an engine). Measured 2026-09-03: it arrives over PLAIN http on
+# every search row (`http://p3.music.126.net/…jpg`), and the host serves the identical bytes
+# over https — so the scheme is upgraded rather than passed through, because a TUI that
+# fetches it must not be the one place in the suite that downgrades a connection. The same
+# field on the same song/detail record serves --info, so both verbs pick the cover one way.
+#
+# The cover is SQUARE here (album art), not 16:9 like the two video sites. Nothing in this
+# engine acts on that — an aspect ratio is a rendering fact and belongs to whoever draws —
+# but it is why the field is a URL and not a promised shape.
+def pick_thumb:
+  (.al.picUrl // "") as $p
+  | if ($p | type) != "string" or $p == "" then null
+    elif ($p | startswith("http://")) then ($p | sub("^http://"; "https://"))
+    elif ($p | startswith("https://")) then $p
+    else null
+    end;
+'
+
+# THE `fee` -> `access` MAP. `access` (ARCH-cli-contract.md「数据契约」) is a constant "full"
+# on the two video engines because neither site tells them anything else; this one states it
+# as `fee` on every song record — the search row, the album's songs, song/detail.
+#
+# The map, and what each arm is measured against (2026-09-02):
+#   0, 8  -> full        id 5257138 (fee:8) resolves to size 12764517 / br 320001 / the whole
+#                        319s — a complete track, not a sample.
+#   1     -> preview     the two paths disagree and the honest answer is the one the PLAYER
+#                        will take: weapi answers size:0 / br:0 / level:null (no stream at
+#                        all), while the eapi path yt-dlp uses answers a playable but
+#                        TRUNCATED 30-second clip. --stream walks the second, so the row
+#                        promises a preview.
+#   4     -> paywalled   album purchase required. Zero rows of 500 measured, filled from the
+#                        site's own semantics rather than left to fall through.
+#   else  -> full        an engine states what it knows and does not downgrade on a value it
+#                        has never seen.
+#
+# `preview` rather than `paywalled` for fee:1 keeps this field a LOWER BOUND: a VIP account
+# resolving the whole track is not a broken promise, and it keeps `access` a statement about
+# the SITE rather than about who is logged in (ARCH-cli-contract.md「数据契约」).
+JQ_ACCESS='
+def ne_access:
+  if type != "number" then "full"
+  elif . == 1 then "preview"
+  elif . == 4 then "paywalled"
+  else "full"
+  end;
+'
+
+# Map captured yt-dlp output + exit code to the suite's stable reason taxonomy so an agent
+# caller can branch on `reason` instead of string-matching raw extractor wording. The ENUM is
+# the shared fact and lives in ARCH-cli-contract.md「数据契约」 — no member may be added here
+# that it does not already have; `unknown` is the conservative default.
+#
+# The site-specific half is the second pattern. This extractor's way of saying "the catalogue
+# has it and you may not have it" is a missing media link rather than an HTTP status, and that
+# is `unavailable` — a statement about the HANDLE, so an agent stops asking — never `network`,
+# which would send it round the loop for ever.
+classify_yt_dlp_error() {
+    local text=$1 rc=$2
+    if ((rc == 130)); then
+        echo "stopped_by_user"
+        return
+    fi
+    # The browser's cookie store could not be read, before any request was made. First,
+    # because it says nothing about the site.
+    if grep -qiE 'could not (find|copy) [a-z]+ cookies? database|failed to decrypt|cannot decrypt|find-generic-password|keyring|keychain|\[Errno [0-9]+\][^:]*: .*(Cookies|cookies\.sqlite|binarycookies)' <<<"$text"; then
+        echo "cookies"
+        return
+    fi
+    if grep -qiE 'No media links found|Song not available|not available for|VIP|付费|会员|无版权|版权' <<<"$text"; then
+        echo "unavailable"
+        return
+    fi
+    # A NONEXISTENT song id, and the string really is this: the extractor indexes into the
+    # empty `songs` array the API returns for an unknown id and the IndexError reaches stderr
+    # verbatim (measured 2026-09-02, `ERROR: list index out of range`). Classified rather than
+    # left to fall through because `unknown` is the one member a caller cannot act on, and this
+    # handle will never resolve however long it waits. Narrow and fragile on purpose: an
+    # extractor that starts saying something better simply stops matching.
+    if grep -qiE 'list index out of range' <<<"$text"; then
+        echo "unavailable"
+        return
+    fi
+    if grep -qiE 'HTTP Error 403|[^a-z]403[^0-9]|Forbidden' <<<"$text"; then
+        echo "forbidden"
+        return
+    fi
+    if grep -qiE 'Video unavailable|has been removed|no longer available|does not exist|Unable to extract' <<<"$text"; then
+        echo "unavailable"
+        return
+    fi
+    if grep -qiE 'Requested format is not available|No video formats|requested format|only images are available' <<<"$text"; then
+        echo "format_unavailable"
+        return
+    fi
+    if grep -qiE 'Temporary failure in name resolution|Failed to resolve|Name or service not known|Network is unreachable|Connection (refused|timed out|reset)|Could not connect|getaddrinfo|Timed out|Operation timed out|HTTP Error 429|Too Many Requests|Unable to download (webpage|API page|JSON metadata)' <<<"$text"; then
+        echo "network"
+        return
+    fi
+    echo "unknown"
+}
+
+# HTTP status + body code -> the shared reason enum, for every request this file builds by
+# hand. ONE table for the SITE, because the two numbers mean the same thing at every one of
+# this host's addresses.
+#
+# -462 is this host's rate limit and lands in `network`, the member that already means
+# RETRYABLE — the same call 429 gets everywhere else in the suite. `forbidden` would tell a
+# caller these credentials never work, which is doubly wrong here: no credential was sent.
+classify_ne_error() {
+    local rc=$1 http=$2 code=$3
+    # curl never got an answer: DNS, connection refused, TLS, timeout. All transport.
+    ((rc != 0)) && {
+        echo "network"
+        return
+    }
+    case "$http" in
+    412 | 429 | 5??) echo "network"; return ;;
+    403) echo "forbidden"; return ;;
+    404) echo "unavailable"; return ;;
+    esac
+    case "$code" in
+    -462 | -447 | 405) echo "network"; return ;;
+    -460 | -2) echo "forbidden"; return ;;
+    -404 | -400 | 404) echo "unavailable"; return ;;
+    esac
+    echo "unknown"
+}
+
+# ONE transport for every plain GET this file makes (lyric, album, playlist, song/detail):
+# they answer the same way — curl exits 0, HTTP is 200 and the body's own `code` is 200.
+# Arguments reach curl as an ARRAY and every value a caller supplies goes through
+# --data-urlencode, so nothing in a handle or an id list can be read as a further curl
+# argument. Sets HTTP_CURL_RC / HTTP_STATUS / HTTP_CODE for classify_ne_error.
+#
+# NO RETRY: each verb spends one request per thing asked for against a host with risk control,
+# and `network` already tells a caller the call is retryable — spending another request is
+# the caller's decision.
+HTTP_CURL_RC=0
+HTTP_STATUS=""
+HTTP_CODE=""
+ne_http_get() { # <body-file> <url> [curl args…]
+    local body=$1
+    shift
+    local cmd=(
+        curl -sS --compressed
+        --max-time 20 --retry 0
+        -o "$body" -w '%{http_code}'
+        -H "User-Agent: $NE_UA"
+        -H "Referer: $SITE_REFERER"
+        -H "Cookie: $SITE_COOKIE"
+        -G "$@"
+    )
+
+    HTTP_CURL_RC=0
+    HTTP_STATUS=$("${cmd[@]}" 2>/dev/null) || HTTP_CURL_RC=$?
+    HTTP_CODE=""
+    if [[ -s "$body" ]]; then
+        HTTP_CODE=$(jq -r '.code // empty' "$body" 2>/dev/null) || HTTP_CODE=""
+    fi
+    ((HTTP_CURL_RC == 0)) && [[ "$HTTP_STATUS" == "200" && "$HTTP_CODE" == "200" ]]
+}
+
+# ── the cookie store, diagnosed ─────────────────────────────────────────────────────────
+# yt-dlp words several different causes as ONE sentence. A folder the calling terminal app
+# is not allowed into (macOS privacy protection) is walked as empty and reported "could not
+# find … cookies database" — the same words as a browser that was never used, and the same
+# command then works from another terminal. cookie_probe tells them apart by doing what
+# yt-dlp does: list the browser's folder, find its newest cookie file, read one byte of it.
+# `[ -r ]` would not do: it consults Unix permissions, and privacy protection sits above
+# them. Local — no network, no Keychain. The paths are site knowledge, so each engine carries
+# its own copy (ARCH-engine.md, the anonymous-fallback section).
+COOKIE_STATE=""; COOKIE_PATH=""; COOKIE_ERR=""
+cookie_denied() {
+    COOKIE_ERR=$1
+    if [[ "$1" == *"Operation not permitted"* && "$(uname -s)" == "Darwin" ]]; then
+        COOKIE_STATE="blocked"
+    else
+        COOKIE_STATE="denied"
+    fi
+    return 0
+}
+cookie_probe() {
+    COOKIE_STATE="unknown"; COOKIE_PATH=""; COOKIE_ERR=""
+    local b=$1 root="" name="Cookies" as="$HOME/Library/Application Support" mac=0 f newest="" err
+    if [[ "$(uname -s)" == "Darwin" ]]; then mac=1; fi
+    case "$b" in
+    chrome)   if ((mac)); then root="$as/Google/Chrome"; else root="$HOME/.config/google-chrome"; fi ;;
+    chromium) if ((mac)); then root="$as/Chromium"; else root="$HOME/.config/chromium"; fi ;;
+    brave)    if ((mac)); then root="$as/BraveSoftware/Brave-Browser"; else root="$HOME/.config/BraveSoftware/Brave-Browser"; fi ;;
+    edge)     if ((mac)); then root="$as/Microsoft Edge"; else root="$HOME/.config/microsoft-edge"; fi ;;
+    opera)    if ((mac)); then root="$as/com.operasoftware.Opera"; else root="$HOME/.config/opera"; fi ;;
+    vivaldi)  if ((mac)); then root="$as/Vivaldi"; else root="$HOME/.config/vivaldi"; fi ;;
+    firefox)  name="cookies.sqlite"
+              if ((mac)); then root="$as/Firefox"; else root="$HOME/.mozilla/firefox"; fi ;;
+    safari)   ((mac)) || return 0
+              name="Cookies.binarycookies"
+              root="$HOME/Library/Containers/com.apple.Safari/Data/Library/Cookies"
+              if [[ ! -d "$root" ]]; then root="$HOME/Library/Cookies"; fi ;;
+    *) return 0 ;;
+    esac
+    COOKIE_PATH=$root
+    if [[ ! -e "$root" ]]; then COOKIE_STATE="missing"; return 0; fi
+    if ! err=$(ls "$root" 2>&1 >/dev/null); then cookie_denied "$err"; return 0; fi
+    # Newest wins because that is the profile yt-dlp itself picks when none is named.
+    while IFS= read -r f; do
+        if [[ -z "$newest" || "$f" -nt "$newest" ]]; then newest=$f; fi
+    done < <(find "$root" -maxdepth 3 -type f -name "$name" 2>/dev/null)
+    if [[ -z "$newest" ]]; then COOKIE_STATE="missing"; return 0; fi
+    COOKIE_PATH=$newest
+    if ! err=$(head -c1 "$newest" 2>&1 >/dev/null); then cookie_denied "$err"; return 0; fi
+    COOKIE_STATE="readable"
+    return 0
+}
+# The app to name in the fix. TERM_PROGRAM is what the terminal says it is; tmux and screen
+# replace it with themselves, and then the honest answer is that we cannot tell.
+terminal_app() {
+    case "${TERM_PROGRAM:-}" in
+    Apple_Terminal) echo "Terminal" ;;
+    iTerm.app) echo "iTerm" ;;
+    ghostty) echo "Ghostty" ;;
+    vscode) echo "VS Code" ;;
+    WezTerm) echo "WezTerm" ;;
+    WarpTerminal) echo "Warp" ;;
+    "" | tmux | screen)
+        if [[ "${TERM:-}" == "xterm-kitty" ]]; then echo "kitty"; else echo "your terminal app"; fi ;;
+    *) echo "$TERM_PROGRAM" ;;
+    esac
+}
+# ONE line on stderr that says what was lost, why, and the fix. stderr and not the envelope:
+# it is prose for a person, and the -j envelope keeps its shape (ARCH-cli-contract.md).
+cookie_diagnosis() {
+    local b=${NE_COOKIE_BROWSER:-} first="" app prog="$PROG" knob="NE_COOKIE_BROWSER"
+    cookie_probe "$b"
+    first=$(printf '%s\n' "$1" | grep -m1 'ERROR' | sed 's/^ERROR: //') || first=""
+    case "$COOKIE_STATE" in
+    blocked)
+        app=$(terminal_app)
+        printf '%s: no %s cookies: macOS blocks %s from reading them - grant it Full Disk Access (System Settings > Privacy & Security), restart it; or set %s=none\n' \
+            "$prog" "$b" "$app" "$knob" ;;
+    denied)
+        printf '%s: no %s cookies: %s reading %s; or set %s=none\n' \
+            "$prog" "$b" "${COOKIE_ERR##*: }" "$COOKIE_PATH" "$knob" ;;
+    missing)
+        printf '%s: no %s cookies: %s has no cookie database - sign in to it once; or set %s=none (looked under %s)\n' \
+            "$prog" "$b" "$b" "$knob" "$COOKIE_PATH" ;;
+    readable)
+        case "$b" in
+        firefox | safari)
+            printf '%s: no %s cookies: %s; or set %s=none\n' \
+                "$prog" "$b" "${first:-yt-dlp could not load them}" "$knob" ;;
+        *)
+            printf '%s: no %s cookies: they could not be decrypted - allow Keychain access to "%s Safe Storage" when macOS asks; or set %s=none\n' \
+                "$prog" "$b" "$b" "$knob" ;;
+        esac ;;
+    *)
+        printf '%s: no %s cookies: %s; or set %s=none\n' \
+            "$prog" "$b" "${first:-yt-dlp could not load them}" "$knob" ;;
+    esac
+    return 0
+}
+# Run one yt-dlp command ("$@", cookie args NOT included) with the configured cookie store,
+# and once more WITHOUT it when the store itself is what failed — only then, so a network
+# error is not paid for twice. stdout is the command's; yt-dlp's stderr lands in ERR_FILE for
+# the caller's classifier; the diagnosis goes to this process's stderr.
+ytdlp_cookied() {
+    local out="" rc=0
+    if ((${#COOKIE_ARGS[@]} > 0)); then
+        out=$("$@" "${COOKIE_ARGS[@]}" 2>"$ERR_FILE") || rc=$?
+        if ((rc != 0)) || [[ -z "$out" ]]; then
+            if [[ "$(classify_yt_dlp_error "$(cat "$ERR_FILE" 2>/dev/null)" "$rc")" == "cookies" ]]; then
+                cookie_diagnosis "$(cat "$ERR_FILE" 2>/dev/null)" >&2
+                rc=0
+                out=$("$@" 2>"$ERR_FILE") || rc=$?
+            fi
+        fi
+    else
+        out=$("$@" 2>"$ERR_FILE") || rc=$?
+    fi
+    printf '%s' "$out"
+    return "$rc"
+}
+
+# This process's own scratch dir: 0700, created lazily, removed however we exit. Lazily
+# because -h / -V must answer without touching the filesystem, and process-level rather
+# than a function `local` because the EXIT trap runs after the function has returned — a
+# `local` would be out of scope there and abort under `set -u`.
+#
+# 0700 rather than a bare /tmp path because a response body or a lyric is content and the
+# captured yt-dlp stderr can name a cookie database. The engine does not reach into the
+# player's state dir: `players/` has exactly one owner (t-play).
+SCRATCH_DIR=""
+ERR_FILE=""
+cleanup_scratch() {
+    [[ -n "$SCRATCH_DIR" ]] && rm -rf "$SCRATCH_DIR" 2>/dev/null
+    return 0
+}
+trap cleanup_scratch EXIT
+
+ensure_scratch() {
+    [[ -n "$SCRATCH_DIR" ]] && return 0
+    SCRATCH_DIR=$(mktemp -d "${TMPDIR:-/tmp}/t-engine-ne.XXXXXX") || die "cannot create a scratch directory"
+    chmod 700 "$SCRATCH_DIR" 2>/dev/null || true
+    ERR_FILE="$SCRATCH_DIR/yt-dlp.err"
+    : >"$ERR_FILE"
+}
+
+is_json_out() {
+    [[ "$OUTPUT_MODE" == "json" || "$OUTPUT_MODE" == "json_full" ]]
+}
+
+# ==============================================================================
+# 3. HANDLES — what a NetEase URL or id looks like
+# ==============================================================================
+
+# The hostname a URL names — lowercased, with userinfo, port, path, query and fragment
+# removed. Lowercasing goes through `tr` because the parameter-expansion form for it is a
+# bash-4 feature and the floor here is 3.2; one fork per invocation.
+url_host() {
+    local h=$1
+    h="${h#*://}"
+    h="${h%%/*}"
+    h="${h%%\?*}"
+    h="${h%%#*}"
+    h="${h##*@}"
+    h="${h%%:*}"
+    printf '%s' "$h" | tr 'A-Z' 'a-z'
+}
+
+# Is this host THIS engine's? One engine, one site. An engine that resolves someone else's URL
+# is lying in the `engine` field, and that field's whole job is letting a caller route a result
+# back to the resolver that produced it. An explicit list rather than a substring test:
+# `evilmusic.163.com` must not pass because `music.163.com` is a suffix of it.
+is_own_host() {
+    case "$1" in
+    music.163.com | y.music.163.com) return 0 ;;
+    esac
+    return 1
+}
+
+# Does a search token look like a URL? A URL is a thing to play or inspect, never a query.
+looks_like_url() {
+    case "$1" in
+    http://* | https://* | www.* | music.163.com/* | y.music.163.com/*) return 0 ;;
+    esac
+    return 1
+}
+
+# The site's single-page app puts the whole route in a FRAGMENT — `music.163.com/#/song?id=N`
+# is the URL a person copies out of a desktop browser, and everything after the `#` is
+# invisible to a query parser. Folding `/#/` down to `/` before anything else reads the URL is
+# what makes that handle work; it is done with anchored expansions rather than
+# `${var//pat/repl}`, which is quadratic on bash 3.2 (CLAUDE.md「可移植性契约」).
+strip_hash_route() {
+    local u=$1
+    case "$u" in
+    *"/#/"*) printf '%s/%s' "${u%%/#/*}" "${u#*/#/}" ;;
+    *) printf '%s' "$u" ;;
+    esac
+}
+
+# Does this URL's PATH name a song? `id=` alone is not enough to answer, and that is the
+# whole reason this function exists: every resource on this site is `?id=N` — an artist, an
+# album, a playlist, a user — so an engine that read the query and ignored the path would take
+# `music.163.com/artist?id=6452` and resolve SONG 6452, a different track entirely, without a
+# word to the caller. Silently playing the wrong thing is the worst failure a resolver has, so
+# the path has to say `song` (the desktop route, the mobile share link `/m/song`, and the
+# `/song/media/outer/url` form all do) or the handle is refused.
+url_is_song_path() {
+    local u=$1
+    u="${u%%\?*}"
+    u="${u%%#*}"
+    case "$u" in
+    */song | */song/*) return 0 ;;
+    esac
+    return 1
+}
+
+# The numeric id carried by a URL's query, or empty. Only `id=` is read: every handle shape
+# this site publishes carries the id there, and guessing one out of a path segment is the one
+# thing that must not happen.
+url_song_id() {
+    local u=$1 q="" v=""
+    u="${u%%#*}"
+    case "$u" in
+    *\?*) q="${u#*\?}" ;;
+    *) return 0 ;;
+    esac
+    local p
+    while [[ -n "$q" ]]; do
+        p=${q%%&*}
+        case "$q" in
+        *\&*) q=${q#*&} ;;
+        *) q="" ;;
+        esac
+        case "$p" in
+        id=*) v=${p#id=} ;;
+        esac
+    done
+    [[ "$v" =~ ^[0-9]+$ ]] || return 0
+    printf '%s' "$v"
+}
+
+# The ?t= seconds a handle carries, floored to a whole second, or "" when it carries none.
+#
+# The site itself never writes one — no NetEase link carries a start offset — and the key is
+# parsed anyway, because `?t=` is the SUITE's spelling for "start here" and every engine has
+# to read it: `t-play --start` round-trips through the handle, and a queue built by hand
+# writes it.
+#
+# Split by hand rather than `for p in $q` — an unquoted expansion would glob, and a query
+# value really can hold a `*`. Every expansion below is ANCHORED (`%%`/`#`), never the
+# ${var//pat/} substitution form, which is O(n2) on bash 3.2 (CLAUDE.md).
+parse_start_seconds() {
+    local url=$1 q p v=""
+    case "$url" in
+    *\?*) q=${url#*\?} ;;
+    *) return 0 ;;
+    esac
+    q=${q%%#*}
+    while [[ -n "$q" ]]; do
+        p=${q%%&*}
+        case "$q" in
+        *\&*) q=${q#*&} ;;
+        *) q="" ;;
+        esac
+        case "$p" in
+        t=*) v=${p#t=} ;;
+        esac
+    done
+    # An unreadable value is NOT an error: it did not answer a question that had to be
+    # answered, so the envelope says null and the resolve carries on. Fractions floor because
+    # the key counts seconds already gone by.
+    [[ "$v" =~ ^[0-9]+(\.[0-9]+)?$ ]] || return 0
+    TARGET_START=${v%%.*}
+}
+
+# A handle is either a URL on one of this site's hosts or a bare song id. Knowing those shapes
+# is ENGINE knowledge, so the check lives here. A URL from another site is a USAGE error (1):
+# nothing was attempted and nothing is retryable — the caller named the wrong engine.
+#
+# Every accepted handle collapses to ONE canonical form, `https://music.163.com/song?id=N`.
+# That matters twice: it is byte-identical to what --search puts in `results[].url`, so a
+# record stored from a pasted mobile link names the same track as one stored from a search
+# row; and it is what yt-dlp is handed, so nothing a caller appended to the query — a `t=`
+# offset, a share campaign tag — can reach the extractor and change what it matches.
+normalize_target() {
+    local t host id
+    t=$(strip_hash_route "$1")
+    case "$t" in
+    http://* | https://*)
+        host=$(url_host "$t")
+        is_own_host "$host" ||
+            die "'$host' is not a NetEase host — this engine resolves NetEase Cloud Music only (another site needs its own engine: t-play --engine NAME)"
+        ;;
+    music.163.com/* | y.music.163.com/*)
+        t="https://$t"
+        ;;
+    [0-9]*)
+        [[ "$t" =~ ^[0-9]+$ ]] ||
+            die "'$1' is not a NetEase handle (expected a music.163.com song URL or a numeric song id)"
+        TARGET_ID="$t"
+        TARGET_URL="https://music.163.com/song?id=$t"
+        return 0
+        ;;
+    *)
+        die "'$1' is neither a NetEase URL nor a song id (to search, pass --search)"
+        ;;
+    esac
+
+    url_is_song_path "$t" ||
+        die "'$1' is not a song URL — this engine resolves one song at a time, and every resource on this site is ?id=N (to search, pass --search)"
+    parse_start_seconds "$t"
+    id=$(url_song_id "$t")
+    [[ -n "$id" ]] ||
+        die "'$1' carries no song id — a NetEase handle is .../song?id=N, or the bare number"
+    TARGET_ID="$id"
+    TARGET_URL="https://music.163.com/song?id=$id"
+}
+
+# Which CONTAINER a URL's path names — "album", "playlist", or "" for neither. The path is
+# what answers, exactly as url_is_song_path answers for a song: on this site every resource is
+# `?id=N`, so the number says nothing about what it identifies.
+url_container_kind() {
+    local u=$1
+    u="${u%%\?*}"
+    u="${u%%#*}"
+    u="${u%/}"
+    case "$u" in
+    */album) printf 'album' ;;
+    */playlist) printf 'playlist' ;;
+    *) printf '' ;;
+    esac
+}
+
+# --items' OWN handle grammar, BESIDE normalize_target rather than inside it: normalize_target
+# refuses every non-song path, which is the right answer for a verb that resolves one song and
+# the wrong one for a verb whose whole subject is albums and playlists.
+#
+# A BARE NUMBER IS REFUSED HERE, and that is this site's own doing: `song`, `album` and
+# `playlist` ids share no namespace and a bare number cannot say which it is. normalize_target
+# accepts one only because THOSE verbs have already decided it means a song.
+#
+# The HOST gate fires first: an off-site URL is the same usage error at every verb and must be
+# reported before this engine's opinion about what a container looks like.
+normalize_container() {
+    local t host kind id
+    t=$(strip_hash_route "$1")
+    case "$t" in
+    http://* | https://*)
+        host=$(url_host "$t")
+        is_own_host "$host" ||
+            die "'$host' is not a NetEase host — this engine resolves NetEase Cloud Music only (another site needs its own engine: t-play --engine NAME)"
+        ;;
+    music.163.com/* | y.music.163.com/*)
+        t="https://$t"
+        ;;
+    [0-9]*)
+        die "'$1' is a bare number, and on this site a number does not say what it identifies — --items takes an album or playlist URL (music.163.com/album?id=N or /playlist?id=N)"
+        ;;
+    *)
+        die "'$1' is not a NetEase container URL — --items takes music.163.com/album?id=N or /playlist?id=N"
+        ;;
+    esac
+
+    kind=$(url_container_kind "$t")
+    [[ -n "$kind" ]] ||
+        die "'$1' is not an album or playlist URL — every resource on this site is ?id=N, so the path has to say which one (for one song, that is --info or a play)"
+    id=$(url_song_id "$t")
+    [[ "$id" =~ ^[0-9]+$ ]] ||
+        die "'$1' carries no id — a NetEase container handle is .../album?id=N or .../playlist?id=N"
+
+    CONTAINER_KIND="$kind"
+    CONTAINER_ID="$id"
+    CONTAINER_URL="https://music.163.com/$kind?id=$id"
+}
+
+# ==============================================================================
+# 4. --search (weapi: the one verb that needs openssl)
+# ==============================================================================
+
+# Report a search that produced nothing usable, in whichever shape the caller asked for. 1 is
+# reserved for usage/validation, so a failure to reach or parse the site is 2 — a caller
+# branching on the exit code must be able to tell "you called me wrong" from "the site did not
+# answer". ARCH-cli-contract.md「退出码」.
+search_fail() {
+    local reason=$1
+    if is_json_out; then
+        jq -nc --arg e "$ENGINE_NAME" --arg q "$QUERY" --arg reason "$reason" \
+            '{status: "error", engine: $e, query: $q, count: 0, results: [], reason: $reason}'
+    else
+        echo "Error: search failed for '$QUERY' ($reason)" >&2
+    fi
+    exit 2
+}
+
+# THE ONLY PLACE IN THE SUITE THAT ENCRYPTS ANYTHING. Payload JSON in, the `params` value out.
+# Two passes with the same key, because the second key is pinned to the first (see ENC_SEC_KEY
+# above); `-A` on both is load-bearing — without it openssl wraps its base64 at 64 columns and
+# the endpoint is handed a value with newlines in it.
+weapi_params() {
+    local payload=$1 step1
+    step1=$(printf '%s' "$payload" |
+        openssl enc -aes-128-cbc -K "$PRESET_KEY_HEX" -iv "$IV_HEX" -a -A) || return 1
+    printf '%s' "$step1" |
+        openssl enc -aes-128-cbc -K "$PRESET_KEY_HEX" -iv "$IV_HEX" -a -A || return 1
+}
+
+# One attempt: a POST, so it does not go through ne_http_get, but it sets the same three
+# globals and answers the same way, so one classify_ne_error reads it. Both values go through
+# --data-urlencode, so nothing in a query or a ciphertext (base64 contains `+` and `/`) can be
+# read as a further parameter.
+fetch_page_once() {
+    local limit=$1 offset=$2 body=$3
+    local payload params
+
+    # limit/offset are STRINGS in this payload — that is the shape the site's own client
+    # sends, and it is what was measured answering 200.
+    payload=$(jq -cn --arg s "$QUERY" --arg limit "$limit" --arg offset "$offset" \
+        '{s: $s, type: "1", limit: $limit, offset: $offset, csrf_token: ""}') || return 1
+    params=$(weapi_params "$payload") || return 1
+
+    local cmd=(
+        curl -sS --compressed
+        --max-time 15 --retry 0
+        -o "$body" -w '%{http_code}'
+        "$SEARCH_ENDPOINT"
+        -H "User-Agent: $NE_UA"
+        -H "Referer: $SITE_REFERER"
+        -H "Cookie: $SITE_COOKIE"
+        --data-urlencode "params=$params"
+        --data-urlencode "encSecKey=$ENC_SEC_KEY"
+    )
+
+    HTTP_CURL_RC=0
+    HTTP_STATUS=$("${cmd[@]}" 2>/dev/null) || HTTP_CURL_RC=$?
+    HTTP_CODE=""
+    if [[ -s "$body" ]]; then
+        HTTP_CODE=$(jq -r '.code // empty' "$body" 2>/dev/null) || HTTP_CODE=""
+    fi
+    ((HTTP_CURL_RC == 0)) && [[ "$HTTP_STATUS" == "200" && "$HTTP_CODE" == "200" ]]
+}
+
+# One page of results, left in $SCRATCH_DIR/chunk.json as the raw `.result.songs` array.
+#
+# IT RETURNS A STATUS AND WRITES A FILE; IT DOES NOT PRINT AND IT DOES NOT DIE. A failure
+# reported by calling `search_fail` from in here would be swallowed: the caller runs this
+# inside a command substitution, so the error envelope would land in a shell variable and a
+# JSON caller would get an empty stdout and a bare 2 — exactly the contract this envelope
+# exists to keep (ARCH-cli-contract.md「数据契约」).
+PAGE_TOTAL=0
+FETCH_REASON=""
+fetch_page() {
+    local limit=$1 offset=$2
+    local body="$SCRATCH_DIR/page.$offset.json"
+
+    if ! fetch_page_once "$limit" "$offset" "$body"; then
+        FETCH_REASON=$(classify_ne_error "$HTTP_CURL_RC" "$HTTP_STATUS" "$HTTP_CODE")
+        return 1
+    fi
+
+    # `songCount` is the server's own total and is how the loop knows the tail is exhausted
+    # without spending a request to discover an empty page. An exhausted or empty search
+    # omits `.result.songs` entirely rather than sending [].
+    PAGE_TOTAL=$(jq -r '.result.songCount // 0' "$body" 2>/dev/null) || PAGE_TOTAL=0
+    is_non_negative_int "$PAGE_TOTAL" || PAGE_TOTAL=0
+    jq -c '.result.songs // []' "$body" >"$SCRATCH_DIR/chunk.json" 2>/dev/null ||
+        echo '[]' >"$SCRATCH_DIR/chunk.json"
+    return 0
+}
+
+# ONE jq program does the whole shaping, and the page loop below runs THIS — never a second
+# predicate of its own — to decide whether to fetch again. The normalised fields are merged
+# OVER the raw record rather than replacing it, so -J keeps every field the site sent while -j
+# projects the same twelve keys the other engines project.
+#
+# Field by field, and the two that are deliberately null:
+#   view_count  ALWAYS null. The response carries `.pop`, which is a 0-100 popularity SCORE,
+#               not a play count. Printing it as view_count would publish a fabricated fact in
+#               a field whose whole meaning is "how many times this was played".
+#   live_status ALWAYS null. A song is not a broadcast; this site has no live form here.
+#   kind        always "track" — a cloudsearch type:1 result IS one song, and the site's
+#               album/playlist shapes live behind other type numbers this engine does not ask
+#               for. A constant that was measured, not a stub.
+#   access      the one field that is COMPUTED, from `.fee` — see JQ_ACCESS.
+#
+# `title` is NOT run through an HTML unescaper, and that is measured rather than assumed
+# (2026-09-02): unlike Bilibili's search, this endpoint highlights nothing and escapes
+# nothing — a track really called "R&B Soul" arrives with a bare `&`.
+#
+# `select(.url != null)` is the row's own premise: a result is a CALL (`t-play --engine ne --
+# <url>`) or it is not a row. ARCH-cli-contract.md「数据契约」.
+JQ_SHAPE='
+[ .[]
+  | . + { id:          (if (.id | type) == "number" then (.id | tostring) else null end),
+          title:       (.name // null),
+          url:         (if (.id | type) == "number"
+                        then "https://music.163.com/song?id=" + (.id | tostring)
+                        else null end),
+          channel:     (if (.ar | type) == "array"
+                        then ([.ar[].name // empty] | join(", ")) else null end),
+          duration:    (.dt | ne_secs),
+          view_count:  null,
+          live_status: null,
+          description: (.al.name // "") }
+  | . + { duration_fmt: (.duration | fmt_dur),
+          kind: "track",
+          access: (.fee | ne_access),
+          thumbnail: pick_thumb }
+  | select(.url != null)
+  | select($vip or .access == "full") ]
+'
+
+search_run() {
+    # -n 0 is a legal, cheap answer: the empty envelope, without a round trip.
+    if ((NUM_RESULTS == 0)); then
+        FILTERED_JSON='[]'
+    else
+        search_fetch
+    fi
+
+    case "$OUTPUT_MODE" in
+    list)
+        # Prose list. The third line is the ARTIST rather than a play count: this site
+        # publishes none, and "n/a views" on every row is noise. A row that is not fully
+        # playable says so — it can only appear at all under NE_INCLUDE_VIP=1.
+        printf '%s' "$FILTERED_JSON" | jq -r --arg note "$MUSIC_CHAR" '
+            to_entries[]
+            | (.key + 1) as $i
+            | .value
+            | (if $note == "" then "" else $note + " " end) + "\($i). \(.title)"
+              + (if .access == "full" then "" else "  [" + .access + "]" end),
+              "  - " + (.duration_fmt // "--"),
+              "  - " + (if (.channel // "") == "" then "?" else .channel end),
+              "  - \(.url)"'
+        ;;
+    json_full)
+        printf '%s' "$FILTERED_JSON" | jq -c --arg e "$ENGINE_NAME" --arg q "$QUERY" \
+            '{status: "ok", engine: $e, query: $q, count: length, results: .}'
+        ;;
+    *)
+        printf '%s' "$FILTERED_JSON" | jq -c --arg e "$ENGINE_NAME" --arg q "$QUERY" \
+            '{status: "ok", engine: $e, query: $q, count: length,
+              results: map({id, title, url, channel, duration, duration_fmt, view_count,
+                            live_status, description, kind, access, thumbnail})}'
+        ;;
+    esac
+}
+
+search_fetch() {
+    ensure_scratch
+
+    # The request plan is derived from the row budget: this engine spends it by asking for
+    # more rows per request rather than by taking more pages (ARCH-cli-contract.md「配置面」).
+    local wanted=$NUM_RESULTS
+    local limit=$((wanted * OVERFETCH))
+    ((limit > PAGE_LIMIT_MAX)) && limit=$PAGE_LIMIT_MAX
+    ((limit < 1)) && limit=1
+
+    local vip=false
+    ((NE_INCLUDE_VIP)) && vip=true
+
+    local all="$SCRATCH_DIR/all.json"
+    echo '[]' >"$all"
+    local shaped='[]'
+    local offset=0 req=0 kept=0
+
+    while ((req < MAX_REQUESTS)); do
+        local chunk n
+        fetch_page "$limit" "$offset" || search_fail "$FETCH_REASON"
+        chunk="$SCRATCH_DIR/chunk.json"
+        n=$(jq 'length' "$chunk" 2>/dev/null) || n=0
+        req=$((req + 1))
+        ((n == 0)) && break
+
+        jq -c --slurpfile chunk "$chunk" '. + $chunk[0]' "$all" >"$all.tmp" && mv "$all.tmp" "$all"
+        shaped=$(jq -c --argjson vip "$vip" "$JQ_PRELUDE $JQ_ACCESS $JQ_SHAPE" "$all")
+        kept=$(printf '%s' "$shaped" | jq 'length')
+
+        ((kept >= wanted)) && break
+        # The server is out of rows: it sent a short page, or the next offset is past the
+        # total it declared. Either way another request would come back empty.
+        ((n < limit)) && break
+        offset=$((offset + n))
+        ((PAGE_TOTAL > 0 && offset >= PAGE_TOTAL)) && break
+    done
+
+    # Sort is a client-side re-order of what was fetched. --sort view_count DEGRADES to the
+    # site's own ordering and does not error: the field this engine publishes is always null,
+    # and re-ordering by a constant would only reverse the ranking the site sent. --sort
+    # duration is exact. SORT_FIELD is validated at startup.
+    local sort_expr=""
+    case "$SORT_FIELD" in
+    duration) sort_expr=' | sort_by(.duration // -1) | reverse' ;;
+    esac
+
+    # The duration bounds are LOCAL and exact. This endpoint has no duration filter of its own
+    # to hand half the work to — unlike Bilibili's, which offers four coarse buckets.
+    local bounds="true"
+    ((MIN_DURATION > 0)) && bounds+=" and (.duration != null and .duration > $MIN_DURATION)"
+    ((MAX_DURATION > 0)) && bounds+=" and (.duration != null and .duration < $MAX_DURATION)"
+
+    FILTERED_JSON=$(printf '%s' "$shaped" |
+        jq -c '[ .[] | select('"$bounds"') ]'"$sort_expr"' | .[0:'"$wanted"']')
+}
+
+# ==============================================================================
+# 5. --stream (internal: the player's handle -> bytes)
+# ==============================================================================
+
+# The yt-dlp format string a playback mode resolves to. This table is the reason format
+# selection belongs to the engine and not the player: the player sends a MODE and gets back
+# bytes, and it must never learn to read a yt-dlp format expression.
+#
+# EVERY MODE LANDS ON THE SAME ARM HERE, and that is the site rather than an oversight: a
+# `netease:song` handle has no video track at all (measured 2026-09-02 — one audio-only format
+# per tier, vcodec "none" throughout). `-f video` and `-f fast` therefore resolve the audio
+# stream and say so honestly in the envelope's `format`/`selected_resolution`; they are not
+# refused, because a player switching modes across a mixed queue must not fail on this row,
+# and they do not pretend, because the fields report what was actually picked.
+format_for_mode() {
+    case "$1" in
+    *) echo "$NE_AUDIO_FORMAT" ;;
+    esac
+}
+
+# The yt-dlp format-sort a quality tier resolves to. auto sends no --format-sort — the default
+# format table already picks the best. -S, when the player still forwards one, EXPLICITLY
+# wins: both given, the caller's own sort replaces this table's (ARCH-engine.md「解析」).
+#
+# A SORT, NOT A FORMAT ID, and the distinction is load-bearing on this site. The tiers have
+# names here — `standard` (128k), `higher` (192k), `exhigh` (320k), and the VIP-only ladder
+# above them — so `-f exhigh` looks like the precise answer. It is the brittle one: which
+# tiers exist depends on the ACCOUNT, and an anonymous client asking for a tier it is not
+# offered gets "Requested format is not available" instead of the best track it could have
+# had. A bitrate target degrades to the nearest rung instead of failing.
+#
+# TWO LEVELS, LIKE THE OTHER ENGINES', AND THE OUTER ONE COLLAPSES — kept as a case so the
+# shape of the table is the same everywhere and the collapse is visible: the mode axis is real
+# in the contract and empty here, for the reason format_for_mode states.
+quality_sort_for_tier() {
+    local mode=$1 tier=$2
+    case "$mode" in
+    *)
+        case "$tier" in
+        low) echo "+abr" ;;       # smallest bitrate — the `standard` rung
+        medium) echo "abr:192" ;; # ~`higher`
+        high) echo "abr:320" ;;   # ~`exhigh`; a VIP ladder above it is taken when offered
+        esac
+        ;;
+    esac
+}
+
+# ONE yt-dlp call answers the whole question: the media URL for the selected format, the
+# per-format http_headers that must accompany it, and the title/duration the player needs for
+# its OSD and its state record. --no-playlist: a handle resolves to one track even when the
+# extractor could read the surrounding album.
+dump_once() {
+    local cmd=(yt-dlp --dump-single-json --no-playlist -f "$FMT")
+    if [[ -n "$FORMAT_SORT" ]]; then
+        cmd+=(--format-sort "$FORMAT_SORT")
+    else
+        local sort
+        sort=$(quality_sort_for_tier "$PLAYBACK_MODE" "$QUALITY")
+        [[ -n "$sort" ]] && cmd+=(--format-sort "$sort")
+    fi
+    (($#)) && cmd+=("$@")
+    cmd+=(--no-warnings --quiet "$TARGET_URL")
+    "${cmd[@]}" 2>>"$ERR_FILE"
+}
+
+# Project a raw yt-dlp record down to [ {url, http_headers} ], VIDEO FIRST. jq's sort is
+# stable, so a merge keeps yt-dlp's own ordering within each class and an audio-only selection
+# stays a one-element list — which on this site is every selection. The player reads position,
+# not codec: element 0 is what mpv opens.
+#
+# Credential-bearing headers are STRIPPED. The player turns every header in this object into
+# an mpv `--http-header-fields-append=` argument, and mpv's argv is visible in `ps` to every
+# process on the machine — so a Cookie carrying this account's MUSIC_U would be world-readable
+# for as long as playback lasts. This extractor was measured sending User-Agent / Accept /
+# Accept-Language / Sec-Fetch-Mode / X-Forwarded-For and no cookie, so today the filter
+# removes nothing; it is here so a future extractor change cannot quietly turn a login into a
+# leak. CLAUDE.md § security.
+JQ_STREAMS='
+def safe_headers:
+  (. // {}) | with_entries(select(.key | ascii_downcase
+                                       | . != "cookie" and . != "authorization" and . != "set-cookie"));
+[ if (.requested_formats | type) == "array"
+  then (.requested_formats[] | {url: .url, http_headers: (.http_headers | safe_headers), vcodec: (.vcodec // "none")})
+  else {url: .url, http_headers: (.http_headers | safe_headers), vcodec: (.vcodec // "none")}
+  end
+]
+| map(select(.url != null))
+| sort_by(if .vcodec == "none" then 1 else 0 end)
+'
+
+# The stream envelope (ARCH-cli-contract.md「数据契约」), key for key the one every engine
+# emits, because the player must not be able to tell which engine answered. `format` is the
+# format STRING this engine SENT; `selected` is what yt-dlp answered with ("standard - audio
+# only").
+#
+# `url` is the CANONICAL handle this file built, not the record's `webpage_url`: they agree
+# today, and building it here is what guarantees the key can never carry a `t=` offset back
+# out — the url answers WHICH MEDIA, never where to start, because `t-playlist --add` stores
+# exactly this string and an offset riding along in it would replay a saved track from 10:01
+# for ever.
+#
+# `http_headers` is a REQUIRED key, empty object when none: the extractor decides what
+# accompanies the stream request — a browser UA always, and an X-Forwarded-For on some
+# resolutions — and the player has to send back exactly what it was handed.
+emit_stream() {
+    local raw=$1 retried=$2
+    local retried_json=false
+    ((retried)) && retried_json=true
+
+    if [[ "$OUTPUT_MODE" == "json_full" ]]; then
+        printf '%s\n' "$raw" | jq -c '.'
+        return 0
+    fi
+    if [[ "$OUTPUT_MODE" == "json" ]]; then
+        printf '%s\n' "$raw" | jq -c \
+            --arg engine "$ENGINE_NAME" --arg mode "$PLAYBACK_MODE" --arg format "$FMT" \
+            --arg canon "$TARGET_URL" \
+            --argjson retried "$retried_json" --argjson start "${TARGET_START:-null}" \
+            "$JQ_PRELUDE
+             ($JQ_STREAMS) as \$s
+             | {status: \"ok\", engine: \$engine,
+                id: (.id // null), url: \$canon,
+                title: (.title // null), duration: (.duration // null),
+                start_seconds: \$start,
+                mode: \$mode, format: \$format,
+                selected: (.format // null),
+                selected_resolution: (.resolution // null),
+                stream_urls: [\$s[].url],
+                http_headers: (\$s[0].http_headers // {}),
+                retried: \$retried}"
+        return 0
+    fi
+    # Prose: the stream URLs, one per line — what a human piping this into another tool wants.
+    printf '%s' "$raw" | jq -r "$JQ_STREAMS | .[].url"
+}
+
+# Report a resolve that produced nothing usable. 2+ is a PROPAGATED tool failure and 1 is
+# reserved for usage, so a yt-dlp status of 0 or 1 is FLOORED to 2 — yt-dlp exits 1 for an
+# unavailable track, and letting that through would make "this track is VIP-only"
+# indistinguishable from "you called me wrong".
+stream_fail() {
+    local rc=$1 reason
+    reason=$(classify_yt_dlp_error "$(cat "$ERR_FILE" 2>/dev/null)" "$rc")
+    ((rc <= 1)) && rc=2
+    if is_json_out; then
+        jq -nc --arg engine "$ENGINE_NAME" --arg url "$TARGET_URL" \
+            --arg mode "$PLAYBACK_MODE" --arg reason "$reason" \
+            '{status: "error", engine: $engine, url: $url, mode: $mode, reason: $reason}'
+    else
+        echo "$PROG: could not resolve a stream for $TARGET_URL ($reason)" >&2
+    fi
+    exit "$rc"
+}
+
+# Cookies are ON by default because on this site they can unlock a higher tier. If the cookie
+# attempt FAILS — a locked profile, a denied keychain, an expired session — the anonymous
+# client is tried before giving up, because a free track plays either way and losing the 320k
+# rendition beats losing the song.
+#
+# There is deliberately NO fetch probe here, and its absence is the point. The YouTube engine
+# test-fetches its resolved URL because a googlevideo link missing its proof-of-origin token
+# resolves fine and then 403s at play time — a YouTube-specific defect. This site has no such
+# failure mode, so inheriting the probe would mean an extra round trip per play to answer a
+# question that cannot come out wrong. An engine inherits the CONTRACT, not another engine's
+# workarounds.
+stream_run() {
+    ensure_scratch
+    FMT=$(format_for_mode "$PLAYBACK_MODE")
+
+    local raw_c="" rc_c=0 raw_a="" rc_a=0
+
+    if ((${#COOKIE_ARGS[@]} > 0)); then
+        raw_c=$(dump_once "${COOKIE_ARGS[@]}") || rc_c=$?
+        # The anonymous attempt below already covers a store that cannot be read; this only
+        # says so, once, in words (see cookie_diagnosis).
+        if ((rc_c != 0)) && [[ "$(classify_yt_dlp_error "$(cat "$ERR_FILE" 2>/dev/null)" "$rc_c")" == "cookies" ]]; then
+            cookie_diagnosis "$(cat "$ERR_FILE" 2>/dev/null)" >&2
+        fi
+        if ((rc_c == 0)) && [[ -n "$raw_c" ]]; then
+            emit_stream "$raw_c" 0
+            return 0
+        fi
+        raw_a=$(dump_once) || rc_a=$?
+        if ((rc_a == 0)) && [[ -n "$raw_a" ]]; then
+            emit_stream "$raw_a" 1
+            return 0
+        fi
+        # The COOKIE attempt's status is reported, not the fallback's: it is the one that
+        # describes what the caller asked for.
+        stream_fail "$rc_c"
+    fi
+
+    # Anonymous-only (NE_COOKIE_BROWSER=none, or no profile on this machine).
+    raw_a=$(dump_once) || rc_a=$?
+    if ((rc_a == 0)) && [[ -n "$raw_a" ]]; then
+        emit_stream "$raw_a" 0
+        return 0
+    fi
+    stream_fail "$rc_a"
+}
+
+# ==============================================================================
+# 6. --info and --transcript (read-only: nothing plays, no mpv, no state file)
+# ==============================================================================
+
+# The one place a read-only verb reports a miss, so the text and JSON shapes cannot drift:
+# machine callers get {status:"error", ...} and exit 1, humans get a sentence on stderr.
+# `reason` is the shared enum, never prose.
+readonly_fail() { # <reason> <prose>
+    if is_json_out; then
+        jq -nc --arg engine "$ENGINE_NAME" --arg url "$TARGET_URL" --arg reason "$1" \
+            '{status: "error", engine: $engine, url: $url, reason: $reason}'
+        exit 1
+    fi
+    die "$2"
+}
+
+# Rich metadata for a song WITHOUT playing. -j projects a lean schema; -J returns the full raw
+# yt-dlp record; the default is a readable text block.
+#
+# THE -j ENVELOPE CARRIES EVERY FIELD A SEARCH ROW DOES — `kind`, `access` and `thumbnail`
+# included — so a caller holding a URL instead of a search result can build the same row out
+# of it. `kind` is the constant search states. The other two need `fee` and `.al.picUrl`, and
+# the yt-dlp record carries neither the fee nor this site's cover field (measured 2026-09-26 on
+# 1824020871: no `fee` key at all, `thumbnail` an http URL). So -j asks song/detail — the plain
+# GET --items already spends for the same records — for this ONE id: one request, and the
+# record it returns is the same shape a search row is shaped from, so `access` goes through the
+# same ne_access and `thumbnail` through the same pick_thumb (measured: 1824020871 answers fee
+# 1 -> preview, 5257138 answers fee 8 -> full).
+#
+# A song/detail failure is a failure of --info -j, reported the same way a yt-dlp failure is:
+# `access` is a closed enum with no "unknown" member (ARCH-cli-contract.md「数据契约」), so an
+# envelope that could not learn it has no honest value to print. Prose and -J do not print
+# either field and do not spend the request.
+info_run() {
+    ensure_scratch
+    local cmd=(yt-dlp --dump-single-json --no-playlist --skip-download)
+    cmd+=(--no-warnings --quiet "$TARGET_URL")
+
+    local raw rc=0
+    raw=$(ytdlp_cookied "${cmd[@]}") || rc=$?
+
+    if ((rc != 0)) || [[ -z "$raw" ]]; then
+        local reason
+        reason=$(classify_yt_dlp_error "$(cat "$ERR_FILE" 2>/dev/null)" "$rc")
+        readonly_fail "$reason" "could not fetch metadata for: $TARGET_URL ($reason)"
+    fi
+
+    case "$OUTPUT_MODE" in
+    json_full)
+        printf '%s\n' "$raw" | jq -c '.'
+        ;;
+    json)
+        local detail="$SCRATCH_DIR/detail.json" song
+        ne_http_get "$detail" "$DETAIL_ENDPOINT" --data-urlencode "c=[{\"id\":$TARGET_ID}]" ||
+            readonly_fail "$(classify_ne_error "$HTTP_CURL_RC" "$HTTP_STATUS" "$HTTP_CODE")" \
+                "could not fetch metadata for: $TARGET_URL"
+        song=$(jq -c '(.songs // [])[0] // empty' "$detail" 2>/dev/null) || song=""
+        [[ -n "$song" ]] ||
+            readonly_fail "unavailable" "could not fetch metadata for: $TARGET_URL (unavailable)"
+        # `channel` falls back through `uploader` to `creator`: this extractor leaves the
+        # first two null and puts the ARTIST in the third, and the envelope's shape must not
+        # depend on which field a site happens to fill.
+        printf '%s\n' "$raw" | jq -c --arg engine "$ENGINE_NAME" \
+            --arg canon "$TARGET_URL" --argjson start "${TARGET_START:-null}" \
+            --argjson song "$song" \
+            "$JQ_PRELUDE $JQ_ACCESS"'{
+            status: "ok",
+            engine: $engine,
+            id, title,
+            url: $canon,
+            channel: (.channel // .uploader // .creator // null),
+            uploader: (.uploader // .creator // null),
+            upload_date: (.upload_date // null),
+            duration, duration_fmt: (.duration | fmt_dur),
+            start_seconds: $start,
+            view_count: (.view_count // null),
+            like_count: (.like_count // null),
+            live_status: (.live_status // null),
+            description: (.description // null),
+            kind: "track",
+            access: ($song.fee | ne_access),
+            thumbnail: ($song | pick_thumb),
+            chapters: (if (.chapters | type) == "array"
+                       then [.chapters[] | {start_time, end_time, title}]
+                       else null end)
+        }'
+        ;;
+    *)
+        printf '%s' "$raw" | jq -r --arg note "$MUSIC_CHAR" --arg canon "$TARGET_URL" "$JQ_PRELUDE"'
+            (if $note == "" then "" else $note + " " end) + (.title // "(untitled)"),
+            "  - channel: \(.channel // .uploader // .creator // "?")",
+            "  - uploaded: \(.upload_date // "?")",
+            ((.duration | fmt_dur) // empty | "  - duration: \(.)"),
+            "  - views: \(.view_count // "?")   likes: \(.like_count // "?")",
+            "  - url: \($canon)",
+            (if (.description // "") != "" then "", "Description:", .description else empty end)'
+        ;;
+    esac
+}
+
+# LYRICS ARE THIS ENGINE'S CAPTION TRACK, and having the verb is how the engine says so
+# (ARCH-cli-contract.md「命令规格」). One plain GET, no encryption, no credential, and the site
+# returns time-stamped LRC that drops straight into a prompt. `lv=-1&kv=-1&tv=-1` asks for the
+# original, the karaoke and the translated tracks in one request — the site's own client's
+# spelling for "all of them".
+#
+# LRC -> the same [{start, duration, text}] shape the YouTube engine's json3 parser produces,
+# so the engines' `--transcript -J` envelopes carry the same segment record.
+#
+# A line is a segment only if it OPENS with a `[mm:ss]` stamp. That single rule drops the
+# file's metadata header — `[ti:]`, `[ar:]`, `[by:]`, which are the same bracket syntax with a
+# non-numeric tag — without an exclusion list that would go stale the first time the site
+# added a tag. Trailing stamps on the same line (LRC's repeat-this-line form) are stripped
+# from the text, and a line whose text cleans to empty is dropped: an instrumental break is
+# written as a stamp with nothing after it.
+#
+# `duration` is derived from the NEXT segment's start, because LRC states when a line begins
+# and never how long it lasts. The last line gets 0 — the honest answer, since the file does
+# not say.
+JQ_LRC='
+def lrc_clean: gsub("\\[[0-9]+:[0-9]+([.:][0-9]+)?\\]"; "")
+             | gsub("[[:space:]]+"; " ") | sub("^ +"; "") | sub(" +$"; "");
+def lrc_segments:
+  [ (. // "") | split("\n")[]
+    | capture("^[[:space:]]*\\[(?<m>[0-9]+):(?<s>[0-9]+([.:][0-9]+)?)\\](?<t>.*)$")?
+    | { start: ((.m | tonumber) * 60 + (.s | sub(":"; ".") | tonumber)),
+        text:  (.t | lrc_clean) }
+    | select(.text != "") ]
+  | . as $segs
+  | [ range(0; $segs | length) as $i
+      | $segs[$i]
+      + { duration: (if ($i + 1) < ($segs | length)
+                     then ($segs[$i + 1].start - $segs[$i].start) else 0 end) } ];
+'
+
+# `no_subtitles_available` is the member the YouTube engine already publishes for a missing
+# track, and an instrumental here is the same answer as an uncaptioned video there.
+transcript_fail() {
+    case "$1" in
+    no_subtitles_available) readonly_fail "$1" "no lyrics available for: $TARGET_URL" ;;
+    *) readonly_fail "$1" "could not fetch lyrics ($1) for: $TARGET_URL" ;;
+    esac
+}
+
+transcript_run() {
+    ensure_scratch
+    local body="$SCRATCH_DIR/lyric.json"
+
+    ne_http_get "$body" "$LYRIC_ENDPOINT" \
+        --data-urlencode "id=$TARGET_ID" \
+        --data-urlencode "lv=-1" --data-urlencode "kv=-1" --data-urlencode "tv=-1" ||
+        transcript_fail "$(classify_ne_error "$HTTP_CURL_RC" "$HTTP_STATUS" "$HTTP_CODE")"
+
+    # AN INSTRUMENTAL IS A MISS, AND IT TAKES TWO TESTS TO SAY SO — which is measured, not
+    # defensive. `nolyric: true` is the documented flag and it is the one that almost never
+    # fires: of eight instrumentals sampled 2026-09-02 (a "纯音乐 钢琴" page) NOT ONE set it.
+    # What they all did instead was return a real `lrc` holding the credit lines and then the
+    # site's own sentinel line, `纯音乐，请欣赏` — "instrumental, enjoy". Reading only the flag
+    # therefore answers status:"ok" with a three-line "transcript" of composer credits. The
+    # sentinel is a UI string the site writes, never a lyric a person wrote, so matching it is
+    # engine knowledge of exactly the kind this file exists to hold.
+    #
+    # A track whose lyrics were never contributed is the third shape: the key absent and an
+    # empty `lrc`. All three are a MISS, not an empty success, because {"text":""} would be
+    # summarised as silence and never explain itself.
+    jq -e '(.nolyric // false) != true
+           and (((.lrc.lyric // "") | contains("纯音乐，请欣赏")) | not)' "$body" >/dev/null 2>&1 ||
+        transcript_fail "no_subtitles_available"
+
+    local segments
+    segments=$(jq -c "$JQ_LRC"' .lrc.lyric | lrc_segments' "$body" 2>/dev/null) || segments=""
+    if [[ -z "$segments" || "$segments" == "[]" ]]; then
+        transcript_fail "no_subtitles_available"
+    fi
+
+    # -j is the lean projection, -J the same envelope at full fidelity — a strict SUPERSET.
+    # What -j drops is `segments`, which is the same words twice.
+    #
+    # `lang` is NULL, and that is the honest answer rather than a missing feature: this
+    # endpoint tags no track with a language, and the catalogue is not one language — the very
+    # first record measured here was a Japanese song. `is_auto` IS knowable and is false: these
+    # lyrics are contributed by users (the response names the contributor), never
+    # machine-generated.
+    if is_json_out; then
+        local full=false
+        [[ "$OUTPUT_MODE" == "json_full" ]] && full=true
+        jq -nc --arg engine "$ENGINE_NAME" --arg id "$TARGET_ID" --arg url "$TARGET_URL" \
+            --argjson segments "$segments" --argjson full "$full" \
+            '($segments | map(.text) | join(" ")) as $text
+             | {status: "ok", engine: $engine, id: $id, url: $url, lang: null, is_auto: false,
+                chars: ($text | length), segment_count: ($segments | length), text: $text}
+             + (if $full then {segments: $segments} else {} end)'
+    else
+        # Same string the envelope's `text` carries, so the two output modes can never
+        # disagree about what the transcript says.
+        printf '%s' "$segments" | jq -r 'map(.text) | join(" ")'
+    fi
+}
+
+# ==============================================================================
+# 7. --items (read-only: plain GETs, no yt-dlp, no state file)
+# ==============================================================================
+
+# A CONTAINER IS NOT A ROW. An album or a playlist holds tens to over a thousand tracks and has
+# no duration of its own; what it has is a track count and a cursor. ARCH-engine.md「容器（--items）」.
+#
+# EVERY ITEM IS AN ITEM RECORD: `{engine, id, url, title, duration}` is what t-playlist stores
+# and what t-play --queue consumes, so `--items -j` pipes into either with nothing renamed.
+#
+# THE ROWS ARE FILTERED BY `fee` THE WAY SEARCH ROWS ARE, same table and same config key
+# (NE_INCLUDE_VIP): by default only `full` survives, because a row stored in t-playlist has to
+# be playable. Measured 2026-09-10: album 32311 is nine tracks and every one of them is fee 1,
+# so by default it lists ZERO items and says so in `count`. Items carry no `access` key — the
+# rows that survive are all `full`, so the key would hold no information.
+
+# Exit 2, never 1 and never 4: by the time a request has been made nothing here is the caller's
+# usage error, and 4 is the lifecycle/storage code an engine never emits.
+items_fail() {
+    local reason=$1
+    if is_json_out; then
+        jq -nc --arg engine "$ENGINE_NAME" --arg url "$CONTAINER_URL" --arg reason "$reason" \
+            '{status: "error", engine: $engine, url: $url, reason: $reason}'
+    else
+        echo "$PROG: could not list the items of $CONTAINER_URL ($reason)" >&2
+    fi
+    exit 2
+}
+
+# A row is an item only if it can be PLAYED and can say how long it is — an id that builds a url,
+# a positive duration, and an access this caller will actually be served. Same judgement a search
+# row passes (ARCH-cli-contract.md「数据契约」); nothing in this catalogue is live, so there is no
+# second way to explain a missing duration here.
+JQ_ITEM_FILTER='
+[ .[]
+  | select((.id | type) == "number" and .id > 0)
+  | select((.dt | type) == "number" and .dt > 0)
+  | select($vip or ((.fee | ne_access) == "full")) ]
+'
+
+# `count` is what survived and `total` is what the site SAYS the container holds. The gap covers
+# both truncation and filtered-out rows, and the envelope does not add a key to tell them apart.
+#
+# `has_more` answers whether the CONTAINER holds rows past this batch — never whether rows were
+# filtered out of it — and `next_cursor` is how to ask for them. A VIP-only album that lists
+# zero rows still says has_more false, because there is nothing more to fetch.
+JQ_ITEMS='
+{status: "ok", engine: $engine, id: $id, url: $url, title: $title,
+ count: ($rows | length),
+ total: $total,
+ has_more: $has_more,
+ next_cursor: $next_cursor,
+ items: [ $rows | to_entries[]
+          | .key as $i | .value as $r
+          | ($r.id | tostring) as $sid
+          | {n: ($i + 1), engine: $engine, id: $sid,
+             url: ("https://music.163.com/song?id=" + $sid),
+             title: ($r.name // null),
+             duration: ($r.dt | ne_secs),
+             duration_fmt: (($r.dt | ne_secs) | fmt_dur)} ]}
+'
+
+ITEMS_TITLE=""
+ITEMS_TOTAL="null"
+ITEMS_RAW="[]"
+ITEMS_BODY=""
+ITEMS_BODY_KEY=""
+
+# The album path: ONE request, records included.
+items_album_rows() {
+    local body="$SCRATCH_DIR/album.json"
+    ne_http_get "$body" "$ALBUM_ENDPOINT/$CONTAINER_ID" ||
+        items_fail "$(classify_ne_error "$HTTP_CURL_RC" "$HTTP_STATUS" "$HTTP_CODE")"
+
+    ITEMS_TITLE=$(jq -r '.album.name // empty' "$body" 2>/dev/null) || ITEMS_TITLE=""
+    ITEMS_TOTAL=$(jq -r '.album.size // "null"' "$body" 2>/dev/null) || ITEMS_TOTAL="null"
+    [[ "$ITEMS_TOTAL" =~ ^[0-9]+$ ]] || ITEMS_TOTAL="null"
+    # The cursor cuts the SAME one response rather than buying a second: this endpoint hands the
+    # whole album over in one go, so a batch here is a window on what already arrived.
+    ITEMS_RAW=$(jq -c --argjson max "$ITEMS_MAX" --argjson off "$CURSOR_OFFSET" \
+        '[(.songs // [])[]] | .[$off:($off + $max)]' "$body" 2>/dev/null) ||
+        items_fail "unknown"
+    ITEMS_BODY="$body"
+    ITEMS_BODY_KEY="songs"
+}
+
+# The playlist path: the ids first, then their records in batches. The second request is not an
+# optimisation to skip — `.playlist.tracks[]` is truncated to a handful (measured: 10 of 1266),
+# so a caller served from it would silently get a fraction of the playlist it asked for.
+#
+# The records are put back in the ID list's order rather than the response's, because the
+# playlist's order is the thing being imported and this endpoint promises nothing about it.
+items_playlist_rows() {
+    local body="$SCRATCH_DIR/playlist.json"
+    ne_http_get "$body" "$PLAYLIST_ENDPOINT" --data-urlencode "id=$CONTAINER_ID" ||
+        items_fail "$(classify_ne_error "$HTTP_CURL_RC" "$HTTP_STATUS" "$HTTP_CODE")"
+
+    ITEMS_TITLE=$(jq -r '.playlist.name // empty' "$body" 2>/dev/null) || ITEMS_TITLE=""
+    ITEMS_TOTAL=$(jq -r '.playlist.trackCount // "null"' "$body" 2>/dev/null) || ITEMS_TOTAL="null"
+    [[ "$ITEMS_TOTAL" =~ ^[0-9]+$ ]] || ITEMS_TOTAL="null"
+
+    # THE ID LIST IS WHERE THE CURSOR BITES, and it is the cheap place for it: this response
+    # carries every id the playlist holds and only a handful of full records, so a batch is a
+    # window on the ids and the records are bought for that window alone.
+    local ids n
+    ids=$(jq -c --argjson max "$ITEMS_MAX" --argjson off "$CURSOR_OFFSET" \
+        '[(.playlist.trackIds // [])[].id] | .[$off:($off + $max)]' "$body" 2>/dev/null) ||
+        items_fail "unknown"
+    n=$(printf '%s' "$ids" | jq 'length' 2>/dev/null) || n=0
+
+    # An empty playlist is an ANSWER, not an error, so it never reaches the batch loop.
+    if ((n == 0)); then
+        ITEMS_RAW='[]'
+        ITEMS_BODY="$body"
+        ITEMS_BODY_KEY=""
+        return 0
+    fi
+
+    local batches=() batch_body c off=0 i=0
+    while ((off < n)); do
+        c=$(printf '%s' "$ids" | jq -c --argjson off "$off" --argjson size "$ITEMS_BATCH" \
+            '[.[$off:($off + $size)][] | {id: .}]' 2>/dev/null) || items_fail "unknown"
+        i=$((i + 1))
+        batch_body="$SCRATCH_DIR/detail-$i.json"
+        ne_http_get "$batch_body" "$DETAIL_ENDPOINT" --data-urlencode "c=$c" ||
+            items_fail "$(classify_ne_error "$HTTP_CURL_RC" "$HTTP_STATUS" "$HTTP_CODE")"
+        batches+=("$batch_body")
+        off=$((off + ITEMS_BATCH))
+    done
+
+    ITEMS_RAW=$(jq -c -s --argjson ids "$ids" '
+        ([ .[] | (.songs // [])[] ] | map({key: (.id | tostring), value: .}) | from_entries) as $byid
+        | [ $ids[] | $byid[(. | tostring)] // empty ]' "${batches[@]}" 2>/dev/null) ||
+        items_fail "unknown"
+    ITEMS_BODY="${batches[0]}"
+    ITEMS_BODY_KEY="songs"
+}
+
+items_run() {
+    ensure_scratch
+
+    case "$CONTAINER_KIND" in
+    album) items_album_rows ;;
+    *) items_playlist_rows ;;
+    esac
+
+    if [[ "$OUTPUT_MODE" == "json_full" ]]; then
+        # The body that CARRIED the records, at full fidelity — the album's own response, or the
+        # merged song/detail result for a playlist. Its rows are NOT filtered: filtering happens
+        # in the projection, and -J is what came before it.
+        if [[ -n "$ITEMS_BODY_KEY" ]]; then
+            jq -c --arg key "$ITEMS_BODY_KEY" --argjson rows "$ITEMS_RAW" '.[$key] = $rows' "$ITEMS_BODY" ||
+                items_fail "unknown"
+        else
+            jq -c '.' "$ITEMS_BODY" || items_fail "unknown"
+        fi
+        return 0
+    fi
+
+    local vip=false
+    ((NE_INCLUDE_VIP)) && vip=true
+
+    local rows env_json title_arg
+    rows=$(printf '%s' "$ITEMS_RAW" | jq -c --argjson vip "$vip" "$JQ_ACCESS $JQ_ITEM_FILTER" 2>/dev/null) ||
+        items_fail "unknown"
+    title_arg="null"
+    [[ -n "$ITEMS_TITLE" ]] && title_arg=$(jq -nc --arg t "$ITEMS_TITLE" '$t')
+
+    # has_more reads the RAW batch, before the access filter: how many upstream rows this call
+    # took, against what the site says the container holds.
+    local taken has_more=false next_cursor="null"
+    taken=$(printf '%s' "$ITEMS_RAW" | jq 'length' 2>/dev/null) || taken=0
+    [[ "$taken" =~ ^[0-9]+$ ]] || taken=0
+    if [[ "$ITEMS_TOTAL" != "null" ]] && ((CURSOR_OFFSET + taken < ITEMS_TOTAL)) && ((taken > 0)); then
+        has_more=true
+        next_cursor="\"o:$((CURSOR_OFFSET + taken))\""
+    fi
+
+    env_json=$(jq -nc --argjson rows "$rows" --arg engine "$ENGINE_NAME" --arg id "$CONTAINER_ID" \
+        --arg url "$CONTAINER_URL" --argjson title "$title_arg" --argjson total "$ITEMS_TOTAL" \
+        --argjson has_more "$has_more" --argjson next_cursor "$next_cursor" \
+        "$JQ_PRELUDE $JQ_ACCESS $JQ_ITEMS" 2>/dev/null) ||
+        items_fail "unknown"
+
+    if [[ "$OUTPUT_MODE" == "json" ]]; then
+        printf '%s\n' "$env_json"
+        return 0
+    fi
+
+    # Prose: the title, a dashed summary line, then one line per track.
+    printf '%s' "$env_json" | jq -r --arg note "$MUSIC_CHAR" '
+        (if $note == "" then "" else $note + " " end) + (.title // "(untitled)"),
+        "  - items: \(.count)   total: \(.total // "?")",
+        (.items[] | "  \(.n). \(.title // "")  \(.duration_fmt // "")")'
+}
+
+# ==============================================================================
+# 8. --auth (read-only: no network, no yt-dlp, no state file)
+# ==============================================================================
+
+# Report the cookie DECISION this engine made at startup: which browser profile --stream and
+# --info will read, and whether that profile exists on this machine. It answers BEFORE the
+# yt-dlp dependency gate and makes no request, because it is a question about this process's
+# own configuration, not about the site.
+#
+# What it deliberately does NOT claim is that the session behind those cookies buys anything.
+# `auth: "cookie"` means the cookies are SENT — and a real logged-in free account was measured
+# being served exactly the anonymous ladder (see COOKIE_ARGS above), so quality is never the
+# evidence for this field, and this field is never the evidence for quality.
+auth_run() {
+    local auth="anonymous" found=false readable=null
+    if ((${#COOKIE_ARGS[@]} > 0)); then
+        auth="cookie"
+        found=true
+        # A profile folder that exists is not a store this process may read (cookie_probe),
+        # and a status line that said "signed in" over a blocked read was the whole bug.
+        # null = no probe for this browser, so no claim either way.
+        cookie_probe "$NE_COOKIE_BROWSER"
+        case "$COOKIE_STATE" in
+        readable) readable=true ;;
+        unknown) readable=null ;;
+        *) readable=false ;;
+        esac
+    fi
+    if [[ "$OUTPUT_MODE" == "json" ]]; then
+        jq -nc --arg engine "$ENGINE_NAME" --arg auth "$auth" \
+            --arg browser "$NE_COOKIE_BROWSER" --argjson found "$found" --argjson readable "$readable" \
+            '{status: "ok", engine: $engine, auth: $auth,
+              cookie_browser: $browser, profile_found: $found, cookie_readable: $readable}'
+        return 0
+    fi
+    if [[ "$auth" == "cookie" && "$readable" == "false" ]]; then
+        printf 'cookie (%s, unreadable: %s)\n' "$NE_COOKIE_BROWSER" "$COOKIE_STATE"
+    elif [[ "$auth" == "cookie" ]]; then
+        printf 'cookie (%s)\n' "$NE_COOKIE_BROWSER"
+    else
+        printf 'anonymous\n'
+    fi
+}
+
+# ==============================================================================
+# 9. CLI
+# ==============================================================================
+
+print_usage() {
+    cat <<'EOF'
+t-engine-ne — the NetEase Cloud Music engine. Internal: callers go through t-play, which
+forwards its engine verbs here unchanged; this argv is not part of the suite's public contract.
+
+Usage:
+  t-engine-ne --search [-n N] [--min-duration S] [--max-duration S] [--sort F] [-j] -- <query>
+  t-engine-ne --info [-j] -- <song id | song URL>
+  t-engine-ne --transcript [-j] -- <song id | song URL>
+  t-engine-ne --items [--cursor TOKEN] [-j] -- <album URL | playlist URL>
+  t-engine-ne --auth [-j]
+  t-engine-ne --stream [-f MODE] [--quality TIER] [-j] -- <song id | song URL>
+  t-engine-ne --capabilities [-j]
+
+Exactly one verb per call. A modifier belongs to one verb and is refused next to another.
+A song handle is a music.163.com song URL (desktop /#/song?id=N and mobile share links too)
+or the bare numeric id; every one canonicalises to https://music.163.com/song?id=N.
+
+  --search        Search. -n is how many to FETCH (default 20), not how many come back:
+                  by default only fully playable rows are kept (NE_INCLUDE_VIP=0), and the
+                  engine asks the site for more to make up for it, up to three requests.
+                  --sort: relevance | view_count | duration (view_count degrades to the
+                  site's own order — this site publishes no play count). Needs openssl
+  --info          Metadata, in the same row shape --search returns (access from the site's
+                  fee, one extra request under -j)
+  --transcript    The song's lyrics as clean text. An instrumental is a miss, not an empty
+                  success
+  --items         The tracks of an album or a playlist, filtered by access like search rows.
+                  A URL, never a bare number: song, album and playlist ids share no namespace.
+                  At most 500 per call; pass the envelope's next_cursor back as --cursor
+  --auth          The cookie decision: which browser profile is read, and whether it can
+                  be. No network. Cookies SENT, not accepted
+  --stream        Resolve a handle to stream URL(s) + the HTTP headers they need, for the
+                  player. -f audio | video | fast | ascii | viz (all resolve audio — this
+                  site has no video track); --quality auto | low | medium | high
+  --capabilities  The public verbs and modifiers this engine accepts; what t-play --engines
+                  reports for it. No network, no dependency
+
+  -j JSON envelope · -J the raw site/yt-dlp record (debugging; no contract) · --color MODE
+  -h this help · -V the suite version
+
+Exit codes: 0 ok · 1 usage/validation, or a read-only miss (--info, --transcript) · 2+ a
+            missing dependency, or a propagated site/yt-dlp failure (see .reason)
+
+Environment: NE_COOKIE_BROWSER (default chrome; "none" = anonymous), NE_AUDIO_FORMAT, NE_UA,
+  NE_INCLUDE_VIP — defaults in <checkout>/config, see ARCH-cli-contract.md「配置面」.
+EOF
+}
+
+# The public verbs and their modifiers, stated ONCE: the unknown-flag refusal prints it for a
+# person and --capabilities answers with it for the registry, so the two cannot disagree.
+# --stream, --capabilities and -J are absent on purpose: the player's pipe, the registry's
+# question and a debugging escape are not things a caller of t-play can ask for.
+PUBLIC_FLAGS=(--search -n --min-duration --max-duration --sort --info --items --cursor --transcript --auth)
+
+# Which verb a modifier belongs to. The gate below refuses it next to any other.
+MODIFIERS=()         # "flag verb" pairs, as given
+add_modifier() { MODIFIERS+=("$1 $2"); }
+
+need_value() {
+    [[ $# -ge 2 ]] || die "$1 requires a value"
+}
+
+has_format=0
+positional=()
+while (($#)); do
+    case "$1" in
+    -h | --help)
+        print_usage
+        exit 0
+        ;;
+    -V | --version)
+        # Answered before ANY dependency gate: a version is the first thing a bug report
+        # needs, and needing a tool installed to find out which version you have is backwards.
+        printf '%s %s\n' "$PROG" "$UT_VERSION"
+        exit 0
+        ;;
+    -j | --json)
+        has_format=1
+        OUTPUT_MODE="json"
+        shift
+        ;;
+    -J)
+        has_format=1
+        OUTPUT_MODE="json_full"
+        shift
+        ;;
+    --color=*)
+        COLOR_MODE="${1#*=}"
+        shift
+        ;;
+    --color)
+        need_value "$@"
+        COLOR_MODE="$2"
+        shift 2
+        ;;
+    --search) set_action search "$1"; shift ;;
+    --info) set_action info "$1"; shift ;;
+    --items) set_action items "$1"; shift ;;
+    --transcript) set_action transcript "$1"; shift ;;
+    --auth) set_action auth "$1"; shift ;;
+    --stream) set_action stream "$1"; shift ;;
+    --capabilities) set_action capabilities "$1"; shift ;;
+    -n | --min-duration | --max-duration | --sort)
+        need_value "$@"
+        add_modifier "$1" search
+        case "$1" in
+        -n) NUM_RESULTS="$2" ;;
+        --min-duration) MIN_DURATION="$2" ;;
+        --max-duration) MAX_DURATION="$2" ;;
+        --sort) SORT_FIELD="$2" ;;
+        esac
+        shift 2
+        ;;
+    --cursor)
+        need_value "$@"
+        add_modifier "$1" items
+        CURSOR="$2"
+        shift 2
+        ;;
+    -f)
+        need_value "$@"
+        add_modifier "$1" stream
+        # Canonical modes only — the alias table (ba/bv/…) is t-play's, which normalizes
+        # before it calls an engine (ARCH-cli-contract.md「命令规格」).
+        validate_enum "$2" audio video fast ascii viz ||
+            die "-f must be one of: audio, video, fast, ascii, viz"
+        PLAYBACK_MODE="$2"
+        shift 2
+        ;;
+    -S)
+        need_value "$@"
+        add_modifier "$1" stream
+        FORMAT_SORT="$2"
+        shift 2
+        ;;
+    --quality)
+        need_value "$@"
+        add_modifier "$1" stream
+        validate_enum "$2" auto low medium high ||
+            die "--quality must be one of: auto, low, medium, high"
+        QUALITY="$2"
+        shift 2
+        ;;
+    --)
+        shift
+        # `--` stops FLAG parsing, not argument validation: a query or handle beginning with
+        # '-' must survive, and each verb still checks what it was given.
+        while (($#)); do
+            positional+=("$1")
+            shift
+        done
+        break
+        ;;
+    -*)
+        die "unknown flag '$1' (flags: ${PUBLIC_FLAGS[*]})"
+        ;;
+    *)
+        positional+=("$1")
+        shift
+        ;;
+    esac
+done
+
+[[ -n "$ACTION" ]] || die "name a verb: ${PUBLIC_FLAGS[*]} (see '$PROG -h')"
+validate_enum "$COLOR_MODE" auto always never || die "--color must be one of: auto, always, never"
+((has_format)) || OUTPUT_MODE="list"
+
+# THE MODIFIER GATE. A modifier next to the wrong verb was accepted and quietly did nothing
+# while the verbs lived in two files; one file makes it refusable in one place.
+_i=0
+while ((_i < ${#MODIFIERS[@]})); do
+    _flag=${MODIFIERS[_i]%% *}
+    _verb=${MODIFIERS[_i]#* }
+    [[ "$_verb" == "$ACTION" ]] || die "$_flag applies only to --$_verb"
+    _i=$((_i + 1))
+done
+
+# -J is the RAW site or yt-dlp record, and neither --auth nor --capabilities fetches one.
+if [[ ( "$ACTION" == "auth" || "$ACTION" == "capabilities" ) && "$OUTPUT_MODE" == "json_full" ]]; then
+    die "-J returns the raw record — $VERB_FLAG fetches none; use -j"
+fi
+
+case "$ACTION" in
+capabilities | auth)
+    ((${#positional[@]} == 0)) || die "$VERB_FLAG takes no argument — it reports about this engine, not a handle"
+    ;;
+search)
+    ((${#positional[@]} > 0)) || die "--search needs a query"
+    for _q in "${positional[@]}"; do
+        looks_like_url "$_q" && die "'$_q' looks like a URL — a URL is played or inspected (--info), not searched"
+    done
+    QUERY="${positional[*]}"
+    [[ "$QUERY" == *[![:space:]]* ]] || die "--search needs a query"
+    ;;
+*)
+    if ((${#positional[@]} != 1)); then
+        if [[ "$ACTION" == "items" ]]; then
+            die "--items takes exactly one album or playlist URL (got ${#positional[@]})"
+        fi
+        die "$VERB_FLAG takes exactly one song id or URL (got ${#positional[@]})"
+    fi
+    TARGET="${positional[0]}"
+    ;;
+esac
+
+# --capabilities answers ahead of every gate that needs a tool, jq included: it is how the
+# registry learns what to ask this engine, so it must answer on a machine that cannot run any
+# of it yet. The flags are fixed ASCII words, so the envelope is printed rather than built.
+if [[ "$ACTION" == "capabilities" ]]; then
+    if [[ "$OUTPUT_MODE" == "json" ]]; then
+        caps=""
+        for f in "${PUBLIC_FLAGS[@]}"; do caps+="${caps:+,}\"$f\""; done
+        printf '{"status":"ok","engine":"%s","flags":[%s]}\n' "$ENGINE_NAME" "$caps"
+    else
+        printf '%s\n' "${PUBLIC_FLAGS[*]}"
+    fi
+    exit 0
+fi
+
+# --auth answers ahead of the yt-dlp gate, the way -V does: it reports configuration, so it
+# must not need the tool it is reporting the configuration of.
+if [[ "$ACTION" == "auth" ]]; then
+    [[ "$OUTPUT_MODE" == "json" ]] && require_deps jq
+    auth_run
+    exit 0
+fi
+
+# Every argv check spends no packet, so a typo costs no network round trip.
+case "$ACTION" in
+search)
+    is_non_negative_int "$NUM_RESULTS" || die "-n must be a non-negative integer"
+    is_non_negative_int "$UT_MAX_SEARCH_RESULTS" ||
+        die "UT_MAX_SEARCH_RESULTS must be a non-negative integer (0 = no ceiling)"
+    # One place decides how many rows a query may cost. Silent by design: a caller asking for
+    # more than the ceiling gets the ceiling.
+    if ((UT_MAX_SEARCH_RESULTS > 0 && NUM_RESULTS > UT_MAX_SEARCH_RESULTS)); then
+        NUM_RESULTS=$UT_MAX_SEARCH_RESULTS
+    fi
+    is_non_negative_int "$MIN_DURATION" || die "--min-duration must be a non-negative integer"
+    is_non_negative_int "$MAX_DURATION" || die "--max-duration must be a non-negative integer"
+    if ((MAX_DURATION > 0 && MAX_DURATION <= MIN_DURATION)); then
+        die "--max-duration must be greater than --min-duration when both are set"
+    fi
+    validate_enum "$SORT_FIELD" relevance view_count duration ||
+        die "--sort must be one of: relevance, view_count, duration"
+    validate_enum "$NE_INCLUDE_VIP" 0 1 || die "NE_INCLUDE_VIP must be 0 or 1"
+    ;;
+items)
+    # THE CURSOR IS A TOKEN THIS ENGINE MINTED: `o:` and an item offset, the same shape in
+    # every engine, so a malformed one is caught in argv instead of a request later.
+    if [[ -n "$CURSOR" ]]; then
+        [[ "$CURSOR" =~ ^o:[0-9]+$ ]] ||
+            die "'$CURSOR' is not a cursor — pass back the next_cursor an --items envelope handed you"
+        CURSOR_OFFSET="${CURSOR#o:}"
+    fi
+    normalize_container "$TARGET"
+    ;;
+*)
+    normalize_target "$TARGET"
+    ;;
+esac
+
+# Dependencies per verb, lazily: a machine missing one tool loses only the verbs that use it.
+# openssl is --search's alone (the weapi wrapper); --items and --transcript are plain GETs and
+# run no extractor; --info -j adds one song/detail GET to its yt-dlp call.
+case "$ACTION" in
+search) require_deps curl jq openssl ;;
+items | transcript) require_deps curl jq ;;
+info)
+    require_deps yt-dlp jq
+    [[ "$OUTPUT_MODE" == "json" ]] && require_deps curl
+    ;;
+*) require_deps yt-dlp jq ;;
+esac
+
+case "$ACTION" in
+search) search_run ;;
+info) info_run ;;
+transcript) transcript_run ;;
+items) items_run ;;
+stream) stream_run ;;
+esac
+exit 0
