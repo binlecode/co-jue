@@ -3089,7 +3089,7 @@ watch_connect() {
     local id=$1 pid=$2 sock=$3 line ev got=0 ticks=${UT_RESOURCE_TICKS:-3} p
     [[ "$ticks" =~ ^[1-9][0-9]*$ ]] || ticks=3
     WATCH_FIFO="$STATE_DIR/watch-$$.out"
-    rm -f "$WATCH_FIFO" "$STATE_DIR/watch-$$.in" 2>/dev/null
+    rm -f "$WATCH_FIFO" "$STATE_DIR/watch-$$.in" "$STATE_DIR/watch-$$.tick" 2>/dev/null
     mkfifo "$STATE_DIR/watch-$$.in" "$WATCH_FIFO" 2>/dev/null || return 1
     exec 3<>"$STATE_DIR/watch-$$.in"
     rm -f "$STATE_DIR/watch-$$.in"
@@ -3105,14 +3105,28 @@ watch_connect() {
     # connection: no next track, and no `end` once the player was gone. ncat's -i would end it,
     # but -i is an idle timeout and a paused player is idle. Measured on Debian trixie, ncat
     # 7.95, 2026-09-26; Debian's ncat also takes over /usr/bin/nc through alternatives, so the
-    # nc branch of resolve_nc_unix can be ncat too. Hence a guard for every client rather than
-    # a branch on which one it is: it polls the mpv that owns this socket (the one mpv in the
-    # player's group — tracks run one after another) and takes the client down when it exits.
+    # nc branch of resolve_nc_unix can be ncat too. So the end is decided here, for every
+    # client, and never by asking which client it is — in two layers:
+    #
+    #   - mpv SAYS it is leaving: every track is its own mpv, so its end-file (the
+    #     `transitioning` line below) is that mpv's last word, and the client is taken down on
+    #     it. That is the path every track change and every normal end takes, at once.
+    #   - a guard for the mpv that never got to say it (kill -9, a crash): it polls the one mpv
+    #     in the player's group (tracks run one after another) and takes the client down when
+    #     that pid is gone. Its tick is `read -t 1` on a FIFO nobody writes — bash 3.2's read
+    #     takes whole seconds only, and a builtin tick forks nothing, where the `sleep 0.2`
+    #     it replaced cost ~2% of a core for the whole of a track (measured, macOS, 2026-09-26).
+    #     A second is the price of the crash case only.
+    #
     # No mpv found means it is already gone and the connect was refused; nothing to guard.
     p=$(pgrep -g "$pid" -x mpv 2>/dev/null | head -1)
-    if [[ -n "$p" ]]; then
+    if [[ -n "$p" ]] && mkfifo "$STATE_DIR/watch-$$.tick" 2>/dev/null; then
         (
-            while kill -0 "$p" 2>/dev/null && kill -0 "$WATCH_NC_PID" 2>/dev/null; do sleep 0.2; done
+            exec 4<>"$STATE_DIR/watch-$$.tick"
+            rm -f "$STATE_DIR/watch-$$.tick"
+            while kill -0 "$p" 2>/dev/null && kill -0 "$WATCH_NC_PID" 2>/dev/null; do
+                read -r -t 1 -u 4 _ || :
+            done
             kill "$WATCH_NC_PID" 2>/dev/null
         ) </dev/null >/dev/null 2>&1 &
         WATCH_GUARD_PID=$!
@@ -3131,6 +3145,9 @@ watch_connect() {
             ;;
         esac
         watch_emit "$id" "$line" "$ev"
+        # mpv's last word on this connection (see the guard above): take the client down now,
+        # and the loop ends on the EOF that follows.
+        [[ "$ev" == transitioning ]] && kill "$WATCH_NC_PID" 2>/dev/null
     done < <(jq -n -r --unbuffered --argjson want "${#WATCH_OBSERVE[@]}" "$WATCH_JQ" <"$WATCH_FIFO" 2>/dev/null)
     wait "$WATCH_NC_PID" 2>/dev/null || true
     WATCH_NC_PID=""

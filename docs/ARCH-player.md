@@ -655,9 +655,20 @@ bash 3.2 的数组过不了 `$(...)` 捕获这一关，而调用方也不能把�
 nmap 的 `ncat` 只要 stdin 还开着就不退，而上面那个 FIFO 正是故意一直开着它。实测（Debian trixie，
 ncat 7.95，2026-09-26）结果是 `--watch` 停在一条死连接上：接不上下一首，播放器死了也发不出 `end`。
 `ncat -i` 能让它退，但 `-i` 同样是空闲超时。Debian 的 ncat 还会经 alternatives 占掉 `/usr/bin/nc`，
-所以 `resolve_nc_unix` 探到的"nc"也可能就是 ncat。于是每条连接都配一个看守，不按客户端分支：
-接上时从播放器进程组里取出这一首的 mpv（队列逐首串行，组里同时只有一个），每 0.2 s 看一眼，它一退就收掉客户端。
-客户端先自己退了，看守跟着退。`tests/playback.sh` 的 `--watch` 一段在 ncat 下全过。
+所以 `resolve_nc_unix` 探到的"nc"也可能就是 ncat。于是由 `--watch` 自己决定连接何时结束，
+对所有客户端一视同仁，分两层：
+
+- **mpv 自己说它要走**：每一首是一个单独的 mpv，所以它的 `end-file`（也就是 `transitioning` 那一行）
+  就是这个 mpv 的最后一句话，发完这一行就收掉客户端。换曲与正常结束都走这一层，没有延迟。
+  实测 mpv 退出时经 IPC 只发 `end-file`，不发 `shutdown`；单曲循环（`loop-file=inf`）不会中途发它。
+- **看守兜住来不及说的 mpv**（`kill -9`、崩溃）：接上时从播放器进程组里取出这一首的 mpv
+  （队列逐首串行，组里同时只有一个），它的 pid 一消失就收掉客户端。节拍是在一个没人写的 FIFO 上
+  `read -t 1`：bash 3.2 的 `read -t` 只收整数秒，但它是内建命令，不 fork。原先的 `sleep 0.2`
+  播放全程约占一个核的 2%，换成这样实测接近 0（macOS，2026-09-26）。一秒的延迟只在崩溃时才付。
+
+业界的首选是内核的进程退出通知（Linux 的 pidfd、BSD/macOS 的 kqueue `NOTE_EXIT`），但 bash 3.2 够不到；
+能调它们的 `pwait`、`pidwait`、`tail --pid` 各自只在某个平台上有，引进哪个都是新依赖。
+`tests/playback.sh` 的 `--watch` 一段（含 `kill -9` 那一例）在 ncat 与 macOS nc 下都全过。
 
 **读者走了，要到下一次写才知道。** 关掉的管道只在写的时候报 SIGPIPE，而暂停中的播放器没有心跳可写，
 所以读者在暂停中离开时，`--watch` 与它的 nc 会留到下一个事件（继续、改音量、`--stop`）才退出 ——

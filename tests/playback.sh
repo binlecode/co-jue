@@ -1025,6 +1025,33 @@ report "every line is the whole record" 0 \
     "$(jq -e -s 'all(.[]; has("title") and has("queue") and has("media") and has("volume") and has("position") and has("cpu"))' "$WOUT" >/dev/null 2>&1; echo $?)"
 report "no nc outlives the stream" 0 "$(pgrep -f "nc(at)? -U $STATE_DIR" 2>/dev/null | wc -l | tr -d ' ')"
 
+# An mpv that DIES says nothing: kill -9 sends no end-file, so the only thing that can end the
+# connection is the guard in watch_connect. Under BSD/OpenBSD nc the client leaves on the EOF
+# by itself; under ncat it does not (ARCH-player.md「状态流」), and without the guard this
+# verb sat on the dead connection forever. The bound is the guard's one-second tick plus the
+# reap, with room to spare; "never" is what it separates from.
+kq=$(shell/t-play -d -j --volume 0 --engine yt -- "$SHORT" 2>/dev/null)
+kid=$(printf '%s' "$kq" | jq -r '.id // empty')
+kpgid=$(printf '%s' "$kq" | jq -r '.pid // empty')
+WOUT="$UT_TEST_TMP/watch-kill.out"
+shell/t-play --watch --id "$kid" -j >"$WOUT" 2>/dev/null &
+kwpid=$!
+if wait_watch 'any(.[]; .ready==true)'; then
+    kmpv=$(pgrep -g "$kpgid" -x mpv 2>/dev/null | head -1)
+    [ -n "$kmpv" ] && kill -9 "$kmpv" 2>/dev/null
+    for i in $(seq 1 40); do kill -0 "$kwpid" 2>/dev/null || break; sleep 0.25; done
+    report "--watch ends by itself when its mpv is killed -9" 1 \
+        "$(kill -0 "$kwpid" 2>/dev/null && echo 0 || echo 1)"
+    report "…and its last line is end" 0 \
+        "$(jq -e -s '.[-1].event=="end"' "$WOUT" >/dev/null 2>&1; echo $?)"
+else
+    bad "the kill -9 player never got ready — the guard is untested"
+fi
+kill "$kwpid" 2>/dev/null
+wait "$kwpid" 2>/dev/null
+shell/t-play --stop --id "$kid" -j >/dev/null 2>&1
+report "no nc outlives the killed player's stream" 0 "$(pgrep -f "nc(at)? -U $STATE_DIR" 2>/dev/null | wc -l | tr -d ' ')"
+
 echo "── the death record: real player failure and reaping ───────────────"
 # An unresolvable handle fails in the ENGINE, before any mpv exists: the detached child's
 # resolve returns the engine's non-zero code (play_url_directly), detached_epitaph records the
