@@ -203,5 +203,6 @@ ASCII 模式、亮暗背景探测；同步重绘（今天是 DCS `1q/2q`，tmux 
 ## 7. 未决
 
 - 无。Linux 上 `--watch` 的长连接与 106 字节门限已在 Debian trixie 容器里实测（2026-09-26）：
-  openbsd `nc` 下 `tests/playback.sh` 全过。ncat 下原本会卡死，已修
-  （ARCH-player.md「状态流」里的看守），修后 `--watch` 一段在 ncat 下全过。
+  openbsd `nc` 下 `tests/playback.sh` 全过。ncat 下原本会卡死，已修：正常结束时由 mpv 的
+  `end-file` 收掉连接，mpv 被 `kill -9` 或崩溃时由一个 `read -t 1` 看守兜底，不 fork
+  （ARCH-player.md「状态流」）。修后 ncat 下 128/128、macOS 下 130/130，含新增的 `kill -9` 一例。
