@@ -13,7 +13,7 @@
 # stays with the player. A queue that survives a reboot IS a playlist, which is the whole
 # reason these are two different things. ARCH-player.md「状态机」.
 #
-# ONE INPUT SHAPE: JSON on stdin, either a search envelope (`yt-search -j` verbatim) or a
+# ONE INPUT SHAPE: JSON on stdin, either a search envelope (`t-play --search -j` verbatim) or a
 # bare array of items. Taking the envelope is correctness, not convenience — a search
 # RESULT carries no `engine` field, the envelope does, so only the whole package tags the
 # items with the engine that produced them. ARCH-cli-contract.md「数据契约」.
@@ -421,7 +421,7 @@ with_undo() {
 # ONE reader for every verb that opens a playlist file, and the only place jq is pointed at
 # one. Before it existed the two READ verbs had no guard at all: a single unparseable file
 # aborted on set -e with jq's raw parse error, exit 5 — outside this command's own taxonomy —
-# and NO envelope under -j. That is the exact failure `yt-search` was fixed for (an agent
+# and NO envelope under -j. That is the exact failure the search verb was fixed for (an agent
 # gets a jq parse error instead of a shape it can branch on); it must not come back through
 # a second command. The three write verbs had a guard each, spelled three times; this is it,
 # spelled once.
@@ -475,7 +475,7 @@ def fmt_dur:
 # stdout.
 ITEMS_JSON=""
 read_items() {
-    [[ -t 0 ]] && fail 1 invalid_input "--add reads items from stdin (try: yt-search -j -- QUERY | t-playlist --add NAME)"
+    [[ -t 0 ]] && fail 1 invalid_input "--add reads items from stdin (try: t-play --search -j -- QUERY | t-playlist --add NAME)"
     local raw items rc=0
     raw=$(cat)
     # A MATCH, not `${raw//[[:space:]]/}`. That substitution has a fast path when the pattern

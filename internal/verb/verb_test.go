@@ -56,10 +56,11 @@ func TestEngines(t *testing.T) {
 	seen := map[string]bool{}
 	for _, e := range engines {
 		seen[e.Name] = true
-		for _, p := range []string{e.Search, e.Resolve} {
-			if st, err := os.Stat(p); err != nil || st.Mode()&0o111 == 0 {
-				t.Errorf("%s: %q is not an executable", e.Name, p)
-			}
+		if st, err := os.Stat(e.Bin); err != nil || st.Mode()&0o111 == 0 {
+			t.Errorf("%s: %q is not an executable", e.Name, e.Bin)
+		}
+		if !e.Has("--search") {
+			t.Errorf("%s: flags %v do not include --search", e.Name, e.Flags)
 		}
 	}
 	for _, n := range []string{"yt", "bili", "ne"} {
@@ -90,20 +91,6 @@ func TestNotEffectiveIsTyped(t *testing.T) {
 	}
 }
 
-func TestCapabilities(t *testing.T) {
-	s := suite(t)
-	engines, err := s.Engines(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, e := range engines {
-		flags, err := Capabilities(context.Background(), e.Resolve)
-		if err != nil || len(flags) == 0 {
-			t.Errorf("%s: %v %v", e.Name, flags, err)
-		}
-	}
-}
-
 func TestStatusEmpty(t *testing.T) {
 	s := suite(t)
 	players, err := s.Status(context.Background())
@@ -124,7 +111,7 @@ func longTrack(ctx context.Context, t *testing.T, s *Suite) string {
 		if e.Name != "yt" {
 			continue
 		}
-		res, err := Search(ctx, e, "lofi hip hop mix", SearchOpts{N: 10})
+		res, err := s.Search(ctx, e.Name, "lofi hip hop mix", SearchOpts{N: 10})
 		if err != nil {
 			t.Fatal(err)
 		}

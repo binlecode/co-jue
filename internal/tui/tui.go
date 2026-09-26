@@ -142,10 +142,10 @@ func (m *Model) searchCmd() tea.Cmd {
 	m.searchGen++
 	m.searching = true
 	m.errMsg = ""
-	gen, eng, q, o := m.searchGen, m.engine(), m.query, m.opt.Search
-	ctx := m.ctx
+	gen, eng, q, o := m.searchGen, m.engine().Name, m.query, m.opt.Search
+	s, ctx := m.suite, m.ctx
 	return func() tea.Msg {
-		res, err := verb.Search(ctx, eng, q, o)
+		res, err := s.Search(ctx, eng, q, o)
 		return searchDoneMsg{gen: gen, res: res, err: err}
 	}
 }

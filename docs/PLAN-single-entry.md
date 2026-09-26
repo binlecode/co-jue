@@ -1,6 +1,6 @@
 # PLAN — `t-play` 成为唯一 CLI 入口，引擎退到底层（`t-engine-<site>`）
 
-> **Status**: 实施中（2026-09-26 开工）· §8 七项按建议定下（`ACCENT` 两键留到第 5 步再定）；第 1 步（`t-engine-yt`）、第 2 步（`t-engine-bili`、`t-engine-ne`）已落  
+> **Status**: 实施中（2026-09-26 开工）· §8 七项按建议定下（`ACCENT` 两键留到第 5 步再定）；第 1 步（`t-engine-yt`）、第 2 步（`t-engine-bili`、`t-engine-ne`）、第 3 步（`t-play` 入口，连同第 4 步的调用方切换）已落  
 > **Priority**: 第一梯队，**立即做**：先于 `PLAN-go-tui.md` 第 4 步，Go 那侧等本计划落地再继续  
 > **Target Branch**: main  
 > **Governing Docs**: [`ARCHITECTURE.md`](ARCHITECTURE.md)「命令拓扑与文件布局」、[`ARCH-engine.md`](ARCH-engine.md)、
@@ -214,3 +214,21 @@ yt 这一对 392 行（占 `yt-search` 代码的 63%），bili、ne 各约 214 �
 
 - 第 1、2 步期间 `--engines` 与 bash `ting` 仍按旧的一对找引擎：`t-play` 播放已走 `t-engine-<n> --stream`，
   TUI 的搜索与 `c`/`i` 仍调旧文件。两边同时在役，第 3 步删旧文件时一起收口。
+
+**实施中定下的几条**（第 3 步，2026-09-26）：
+
+- **调用方切换提前并进第 3 步**：删掉六个旧文件时 bash `ting` 与 Go `verb` 包还在调它们、读旧的 `--engines` 形状，
+  删了就坏，所以第 4 步里「调用方切到新入口」这一半与第 3 步同一轮做完。第 4 步剩下的只有 Go 侧跟进
+  （`internal/config` 属于第 5 步）。
+- **`-J` 是 `t-play` 转发时唯一自己拒的 flag**：引擎内部保留 `-J` 作调试，但转发是原样 `exec`，不拦就等于仍在公开面上。
+  其余 flag 门照旧只在引擎里。
+- **引擎动词也按 URL 认引擎**：没给 `--engine` 时，`--info`/`--items`/`--transcript` 的句柄若是 URL，按主机选引擎，
+  与播放同一条规则；否则取缺省引擎。`--search` 不认（查询不是句柄）。
+- **`-S` 从引擎里也删了**：`t-play` 不再转发它，引擎里的 `-S` 只剩死代码。
+- **`--engines` 的实测开销**：约 160 ms（此前约 110 ms；多出的是三次 `--capabilities` fork）。§2 写的「约 7 ms」不对，
+  `t-play` 单是起一次就约 100 ms（4400 行脚本的解析）。bash `ting` 启动因此多约 100 ms，但它不再自己 fork
+  `--capabilities`，能力直接取自注册表。
+- **TUI 的 `c` 键改按 `--items` 开放**：`--parts` 并入 `--items` 后，「这个引擎有分 P」不再是任何引擎能声明的能力
+  （三家都有 `--items`）。于是 `c` 在 yt / ne 上也出现，按下时显示引擎自己的拒绝（「not a container」），
+  不再是静默无反应。若要恢复「只在 B 站出现」，需要一个新的能力词，属于契约改动，待定。
+- **分 P 视图的总时长**：新信封不再带 `total_duration_fmt`，`ting` 在拿到全部分 P（无 `has_more`）且每个都有时长时自己加总。

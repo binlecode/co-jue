@@ -154,12 +154,12 @@ SELF="${BASH_SOURCE[0]}"
 
 # Optional custom mpv input.conf path; empty means use mpv defaults.
 
-# WHICH ENGINE turns a handle into bytes. An engine is a PAIR of executables sharing a name
-# prefix (`<engine>-search`, `<engine>-resolve`); the player calls only the resolve half,
-# and only by that name — it carries no table of sites, no URL sniffing, and no idea what a
-# format string looks like. Name == command prefix is what keeps the lookup a string
-# concatenation instead of a registry the player and the TUI would both have to hold.
-# Per-call override: --engine. ARCH-cli-contract.md「命令规格」
+# WHICH ENGINE turns a handle into bytes. An engine is ONE file per site, `t-engine-<name>`;
+# the player calls its --stream verb to play and forwards the public engine verbs to it, and
+# only by that name — it carries no idea what a format string or a cookie store looks like.
+# Name == file suffix is what keeps the lookup a string concatenation instead of a registry
+# the player and the TUI would both have to hold. Per-call override: --engine.
+# ARCH-cli-contract.md「命令规格」
 
 # THE LISTENING LOG, on by default; `UT_HISTORY=0` turns it off. A history that ships off is
 # not a history — nobody finds the knob that has to be found before the feature has ever
@@ -199,15 +199,13 @@ usage() {
     # this block is literal, so a `$` or a backtick meant as prose must be BACKSLASHED —
     # there are three of them today (the XDG path and two code spans).
     cat <<EOF
-t-play — the non-interactive PLAYER: play + detached-playback lifecycle. It is the
-source-agnostic half of the suite. It does not search, does not extract, and knows nothing
-about any one site: an ENGINE (a pair of executables, <engine>-search and <engine>-resolve)
-turns a handle into a stream URL, and this file plays it. It is the whole playback surface
-and it gates its own flags: no wrapper sits in front of it, and nothing else on PATH plays.
+t-play — the suite's one command-line entry: play, detached-playback lifecycle, and the
+engine verbs (search, metadata, containers, captions, auth). It knows nothing about any one
+site: an ENGINE (one file, t-engine-<name>) holds everything about a site, and this file
+forwards the engine verbs to it and plays what it resolves.
 
-  yt-search   search -> text list or JSON        (the YouTube engine, half one)
-  yt-resolve  handle -> stream URL + headers, metadata, captions   (half two)
-  ting      interactive terminal browser (pick + play)
+  t-playlist  saved playlists          t-history  the listening log
+  ting        interactive terminal browser (pick + play)
 
 A HANDLE is a URL or an engine media id (dQw4w9WgXcQ). Whether an id is well formed is the
 engine's knowledge, not this file's, so a bad one fails as an extraction (2+), not usage (1).
@@ -233,23 +231,31 @@ Usage (everything after -- is the handle, so it may start with '-'):
   t-play --queue-jump N --expect-url U [--id ID] [-j]    play one waiting track NOW
   t-play --queue-clear [--id ID] [-j]                    drop every waiting track
   t-play --undo --owner PID [--discard] [-j]             take back PID's last queue write
-  t-play --engines [-j]                                  the installed engines, and the
-                                                         two paths each would run
+  t-play --engines [-j]                                  the installed engines, the file
+                                                         each runs, and its engine flags
   t-play (no handle, no action)                          usage error; use ting to browse
 
-Not here, by design: metadata, captions and stream URLs are extraction, so they are the
-engine's verbs — yt-resolve --info / --transcript / (bare) resolve. Searching is yt-search.
+Engine verbs — forwarded to t-engine-<engine> unchanged; that engine gates its own flags,
+so a flag its site has no use for is refused (1), and --engines lists what each accepts:
+  t-play --search [--engine E] [-n N] [--min-duration S] [--max-duration S]
+                  [--sort relevance|view_count|duration] [-j] -- <query>
+  t-play --info [--engine E] [-j] -- <id|URL>            metadata, as a search row +
+                                                         chapters
+  t-play --items [--engine E] [--cursor C] [-j] -- <container>   a playlist / album /
+                                                         channel / a video's parts
+  t-play --transcript [--engine E] [--sub-lang L] [-j] -- <id|URL>   captions or lyrics
+  t-play --auth [--engine E] [-j]                        the engine's cookie decision
+  Without --engine a URL picks its own engine (as a play does), anything else uses
+  the default. -n counts what is FETCHED; the duration bounds shorten it.
 
 Options:
-  --engine N  Which engine resolves the handle (default: $UT_DEFAULT_ENGINE; set
-              UT_DEFAULT_ENGINE). The name is also the command prefix: --engine yt calls
-              yt-resolve.
-  -S SORT     Engine format-sort override, forwarded verbatim (e.g. res:720,fps)
+  --engine N  Which engine a play or an engine verb goes to (default: $UT_DEFAULT_ENGINE;
+              set UT_DEFAULT_ENGINE). The name is the file: --engine yt runs t-engine-yt.
   --start SEC Open at SEC seconds instead of the beginning. Whole seconds, 0 or more.
               A handle carrying its own timestamp (…&t=601s) starts there on its own;
               this overrides it, and in a queue it applies to the first track only.
   --quality TIER  Quality tier: auto|low|medium|high (default: UT_PLAY_QUALITY / auto).
-              The (mode, tier) -> format-sort table lives in the engine; -S overrides it
+              The (mode, tier) -> format table lives in the engine
   -f MODE     Playback mode (default: audio)
               audio|ba  audio-only          video|bv  high-quality video+audio
               fast|fst  progressive video   ascii|asc terminal video (mpv terminal VO)
@@ -265,8 +271,7 @@ Options:
               number reads as relative to some callers and absolute to others. --seek-to N
               is the absolute spelling. Past the end is not an error: mpv clamps and the
               envelope reports where it actually landed.
-  -l          Prose output (default)
-  -j          JSON output: one-line status JSON for play/lifecycle
+  -j          JSON output: one-line status JSON for play/lifecycle (prose is the default)
   --queue -   Start a detached player on a QUEUE read from stdin, which is any of: a JSON
               array of items, a \`t-playlist --show -j\` envelope, or a search envelope. An
               item is {engine, url, title?, duration?} — engine PER ITEM, so one queue can
@@ -306,17 +311,17 @@ Options:
               --pause/--resume/--seek/--enqueue/--next; follow it with --watch
   --watch     Stream a detached player's state until it ends: one line per change, never
               per frame. It follows the player across its queue, not one mpv.
-  --engines   List every installed engine — a <name>-search + <name>-resolve pair beside
-              this file, in \$UT_ENGINE_DIR, or on PATH (first sight of a name wins) — with
-              the path of each half a play would run. Needs no jq; touches no state.
+  --engines   List every installed engine — a t-engine-<name> file beside this file, in
+              \$UT_ENGINE_DIR, or on PATH (first sight of a name wins) — with the file a
+              call would run and the engine flags it accepts. Needs no jq; touches no state.
   --color M   auto|always|never (default: auto). No -c short form.
   -h          This help
   -V          Print the suite version (answered before any dependency check)
 
 Long-only flags: --engine --detach --status --stop --set-volume --pause --resume --seek
                  --seek-to --watch --queue --enqueue --next --queue-show --queue-rm --queue-mv
-                 --queue-jump --queue-clear --to --expect-url --id --all --engines --json --list
-                 --color --viz-color
+                 --queue-jump --queue-clear --to --expect-url --id --all --engines --json
+                 --color --viz-color, and every engine verb and modifier above but -n
                  --volume  (--help and --version also have short forms: -h, -V)
 
 Output contracts (one line of JSON each; the why behind each shape: ARCH-cli-contract.md):
@@ -381,8 +386,11 @@ Output contracts (one line of JSON each; the why behind each shape: ARCH-cli-con
   --undo    {status:"ok", undone:<verb>, id, queue:{…}}
             | {status:"error", reason:"undo_none"|"undo_expired"|"undo_stale"|"locked"}
   --undo --discard {status:"ok", discarded:<bool>}
-  --engines {status:"ok", engines:[{name, search, resolve}]}   discovery order; [] is an
-            answer (exit 0), not a failure. Prose: one "name<TAB>search<TAB>resolve" line each
+  --engines {status:"ok", engines:[{name, bin, flags}]}   discovery order; [] is an
+            answer (exit 0), not a failure. bin is for diagnosis (which copy is in use), not
+            for callers to run; flags are the engine verbs and modifiers it accepts ([] when
+            it does not say). Prose: one "name<TAB>bin<TAB>flags" line each
+  engine verbs  the engine's own envelope and exit code, passed through untouched
             \`queue\` is the same object --enqueue and --next publish, read back off the file
             after the write — never predicted from what the call asked for.
 
@@ -395,9 +403,10 @@ Playback keys (mpv, during a blocking 't-play -- <handle>' playback):
 
 Dependencies: mpv (playback) + jq; a unix-socket netcat — BSD/OpenBSD 'nc -U' or nmap's
               'ncat' — for every socket verb: --set-volume, --pause, --resume,
-              --seek, --seek-to, --watch (the queue verbs need only jq); an <engine>-resolve next to
-              this file, in \$UT_ENGINE_DIR, or on PATH. yt-dlp / curl / cookies are the
-              ENGINE's business, not the player's — see 'yt-resolve -h' for those.
+              --seek, --seek-to, --watch (the queue verbs need only jq); a t-engine-<name>
+              next to this file, in \$UT_ENGINE_DIR, or on PATH. yt-dlp / curl / cookies are
+              the ENGINE's business, not the player's; an engine verb needs none of mpv, jq
+              or nc from this file — only what that engine gates for itself.
 
 Environment:
   Defaults for every knob below live in <checkout>/config, declared once for the whole
@@ -406,7 +415,7 @@ Environment:
   one); TING_CONFIG relocates it, and UT_CONFIG still does. Chain: flag > environment > your
   config > the shipped defaults. See ARCH-cli-contract.md「配置面」.
   UT_DEFAULT_ENGINE    Engine used when --engine is not given (default: $UT_DEFAULT_ENGINE)
-  UT_ENGINE_DIR        Extra directory searched for <name>-resolve, after this file's own
+  UT_ENGINE_DIR        Extra directory searched for t-engine-<name>, after this file's own
                        directory and before PATH. ENVIRONMENT ONLY — it names programs the
                        player runs, so neither config file can set it.
                        (default: \${XDG_DATA_HOME:-~/.local/share}/ting/engines)
@@ -550,24 +559,22 @@ normalize_playback_mode() {
 # 3. THE ENGINE SEAM & PLAYBACK PIPELINES
 # ==============================================================================
 
-# An engine is a PAIR of executables sharing a name prefix. The player calls exactly one of
-# them — `<engine>-resolve` — with a mode and a handle, and gets an envelope back; it never
-# learns what a format string is, whether cookies exist, or what a media id looks like on
-# any given site. Name == command prefix is what makes this lookup a string concatenation
-# instead of a name->command registry that the player and the TUI would each have to carry.
-# Sibling first so a bare checkout runs with nothing on PATH, then PATH so an installed
-# engine works from anywhere.
+# An engine is ONE executable per site, `t-engine-<name>`. The player calls its --stream verb
+# with a mode and a handle and gets an envelope back; it never learns what a format string
+# is, whether cookies exist, or what a media id looks like on any given site. Name == file
+# suffix is what makes this lookup a string concatenation instead of a name->command
+# registry that the player and the TUI would each have to carry. Sibling first so a bare
+# checkout runs with nothing on PATH, then PATH so an installed engine works from anywhere.
 #
 # `ting` carries a function of the SAME NAME with the OPPOSITE failure contract, and the
 # split is deliberate. This one takes no argument (it reads $ENGINE), memoizes into a
 # global, validates the name, and DIES: the player has exactly one job, so an engine it
 # cannot find means there is nothing left to play. The TUI's takes the name as an argument,
-# PRINTS the path, and returns non-zero silently — it asks for engine halves it can live
-# without (refresh_engine_auth drops the whole auth field when a resolve half has no
-# --auth), so a die there would kill a working menu over an optional field. Merging them
-# would cost one side or the other exactly that.
+# PRINTS the path, and returns non-zero silently — it asks for engine verbs it can live
+# without (refresh_engine_auth drops the whole auth field when an engine has no --auth), so
+# a die there would kill a working menu over an optional field. Merging them would cost one
+# side or the other exactly that.
 ENGINE_RESOLVE=""
-ENGINE_STREAM_VERB=""  # "--stream" for a one-file engine, "" for a pair's resolve half
 # One gate for both spellings of the loop mode, because both take the same two values and a
 # caller who guesses the third has guessed a REAL feature under the wrong flag — so the
 # message routes them to it instead of just listing what is legal.
@@ -653,20 +660,15 @@ engine_resolve_bin() {
     if [[ ! "$ENGINE" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
         die "invalid engine name: '$ENGINE'"
     fi
-    # One file per site (`t-engine-<name>`, verb --stream) is found before the older pair's
-    # resolve half (verb: none), so an engine that has been merged plays through its merged
-    # file while the others still resolve through their pair.
-    if ENGINE_RESOLVE=$(engine_file_bin "$ENGINE"); then
-        ENGINE_STREAM_VERB="--stream"
-    elif ENGINE_RESOLVE=$(engine_half_bin "$ENGINE" resolve); then
-        ENGINE_STREAM_VERB=""
-    else
-        die "unknown engine '$ENGINE': no 't-engine-$ENGINE' or '$ENGINE-resolve' next to t-play, in $UT_ENGINE_DIR, or on PATH"
-    fi
+    ENGINE_RESOLVE=$(engine_file_bin "$ENGINE") ||
+        die "unknown engine '$ENGINE': no 't-engine-$ENGINE' next to t-play, in $UT_ENGINE_DIR, or on PATH"
     return 0
 }
 
-# An engine's one file, by name, from the same three places in the same order.
+# An engine's one file, by name: sibling, then the plugin dir, then PATH. The lookup the
+# player plays and forwards through AND the path --engines publishes, so what a caller is told
+# it would run is what this file does run. Prints the path; non-zero and silent when there is
+# none.
 engine_file_bin() { # <name>
     if [[ -x "$SCRIPT_DIR/t-engine-$1" ]]; then
         printf '%s\n' "$SCRIPT_DIR/t-engine-$1"
@@ -677,41 +679,23 @@ engine_file_bin() { # <name>
     fi
 }
 
-# One half of one engine, by name: sibling, then the plugin dir, then PATH. The lookup the
-# player plays through AND the paths --engines publishes, so what a caller is told it would
-# run is what this file does run. Prints the path; non-zero and silent when there is none.
-engine_half_bin() { # <name> <search|resolve>
-    if [[ -x "$SCRIPT_DIR/$1-$2" ]]; then
-        printf '%s\n' "$SCRIPT_DIR/$1-$2"
-    elif [[ -x "$UT_ENGINE_DIR/$1-$2" ]]; then
-        printf '%s\n' "$UT_ENGINE_DIR/$1-$2"
-    else
-        command -v "$1-$2" 2>/dev/null
-    fi
-}
-
-# THE ENGINE REGISTRY, published: `--engines` answers which sources are installed, so no caller
-# has to carry the rule below — the Go TUI runs the paths it is handed and never learns that
-# UT_ENGINE_DIR exists (PLAN-go-tui.md「未决」, decided 2026-09-25). Until the bash `ting` is
-# retired it still scans for itself, with this same rule; the contract suite holds the two to
-# one answer.
+# THE ENGINE REGISTRY, published: `--engines` answers which sources are installed and what each
+# accepts, so no caller has to carry the rule below — a TUI runs `t-play` and never learns
+# that UT_ENGINE_DIR exists (PLAN-go-tui.md「未决」, decided 2026-09-25).
 #
-# An engine is a PAIR in ONE directory — a lone -search would list results nothing resolves.
 # All three places are always scanned and the first sight of a name wins, so a plugin dir
 # cannot shadow a built-in. A name the player would refuse as `--engine` (the regex in
 # engine_resolve_bin) is not listed: listing a source the player then refuses is the
-# disagreement this verb exists to end. The paths are engine_half_bin's, i.e. what a play
-# would actually run, which for a name in two places is the higher-precedence copy.
+# disagreement this verb exists to end. The path is engine_file_bin's, i.e. what a call would
+# actually run, which for a name in two places is the higher-precedence copy.
 ENGINE_NAMES=()
 engines_scan_dir() {
     local dir=$1 f name e
     # No nullglob on 3.2: an unmatched glob is the pattern itself, and -x rejects it.
-    for f in "$dir"/*-search; do
+    for f in "$dir"/t-engine-*; do
         [[ -x "$f" ]] || continue
-        name=${f##*/}
-        name=${name%-search}
+        name=${f##*/t-engine-}
         [[ "$name" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || continue
-        [[ -x "$dir/$name-resolve" ]] || continue
         for e in ${ENGINE_NAMES[@]+"${ENGINE_NAMES[@]}"}; do
             [[ "$e" == "$name" ]] && continue 2
         done
@@ -720,18 +704,24 @@ engines_scan_dir() {
     return 0
 }
 
-# Answered before every dependency gate, jq included, the way the engines' --capabilities is:
-# it is the question a caller asks before it knows what to run, and it touches nothing — no
-# state dir, no socket. So the envelope is printf'd; a path is the only free text in it, and
-# one holding a control character is skipped rather than escaped (no real install has one).
+# Answered before every dependency gate, jq included: it is the question a caller asks before
+# it knows what to run, and it touches nothing — no state dir, no socket. So the envelope is
+# printf'd; a path is the only free text in it, and one holding a control character is
+# skipped rather than escaped (no real install has one).
+#
+# CAPABILITIES ARE THE ENGINE'S TO STATE, asked with one fork each (`--capabilities -j`,
+# about 7 ms). The answer is copied, not interpreted: its flags array is taken only when every
+# member is a quoted flag word, so a malformed answer cannot put text of its own into this
+# envelope. An engine that does not answer lists with flags [] — installed, claiming nothing.
 json_path() {
     local s=$1
     s=${s//\\/\\\\}
     s=${s//\"/\\\"}
     printf '"%s"' "$s"
 }
+ENGINE_FLAGS_RE='^("-[-a-z0-9_]*"(,"-[-a-z0-9_]*")*)?$'
 do_engines() {
-    local d name search resolve sep="" out=""
+    local d name bin caps flags sep="" out=""
     engines_scan_dir "$SCRIPT_DIR"
     engines_scan_dir "$UT_ENGINE_DIR"
     local saved_ifs=$IFS
@@ -741,23 +731,91 @@ do_engines() {
     done
     IFS=$saved_ifs
     for name in ${ENGINE_NAMES[@]+"${ENGINE_NAMES[@]}"}; do
-        search=$(engine_half_bin "$name" search) || continue
-        resolve=$(engine_half_bin "$name" resolve) || continue
-        [[ "$search$resolve" == *[[:cntrl:]]* ]] && continue
-        if [[ "$OUTPUT_MODE" == "json" ]]; then
-            out+="$sep{\"name\":\"$name\",\"search\":$(json_path "$search"),\"resolve\":$(json_path "$resolve")}"
-            sep=","
-        else
-            printf '%s\t%s\t%s\n' "$name" "$search" "$resolve"
-            sep=","
+        bin=$(engine_file_bin "$name") || continue
+        [[ "$bin" == *[[:cntrl:]]* ]] && continue
+        caps=$("$bin" --capabilities -j 2>/dev/null </dev/null) || caps=""
+        flags=""
+        if [[ "$caps" == *'"flags":['*']'* ]]; then
+            flags=${caps#*\"flags\":\[}
+            flags=${flags%%\]*}
+            [[ "$flags" =~ $ENGINE_FLAGS_RE ]] || flags=""
         fi
+        if [[ "$OUTPUT_MODE" == "json" ]]; then
+            out+="$sep{\"name\":\"$name\",\"bin\":$(json_path "$bin"),\"flags\":[$flags]}"
+        else
+            flags=${flags//\"/}
+            printf '%s\t%s\t%s\n' "$name" "$bin" "${flags//,/ }"
+        fi
+        sep=","
     done
     if [[ "$OUTPUT_MODE" == "json" ]]; then
         printf '{"status":"ok","engines":[%s]}\n' "$out"
     elif [[ -z "$sep" ]]; then
-        echo "no engines: need a <name>-search and <name>-resolve pair beside t-play, in $UT_ENGINE_DIR, or on PATH" >&2
+        echo "no engines: need a t-engine-<name> file beside t-play, in $UT_ENGINE_DIR, or on PATH" >&2
     fi
     exit 0
+}
+
+# THE ENGINE VERBS, FORWARDED. t-play is the one public entry, so searching, metadata,
+# containers, captions and the cookie decision are asked of it — and answered by the engine,
+# because they are site knowledge. The forward is an `exec` of `t-engine-<name>` with the argv
+# as given, less --engine: this file recognises only WHICH verb it is and which engine, so the
+# flag gate exists once, inside the engine (a --sub-lang to an engine without captions, a -d
+# next to --search, two verbs at once — each is the engine's refusal, exit 1). The envelope and
+# the exit code are the engine's own, untouched, because nothing is left running to touch them.
+#
+# Called before argv parsing and before every dependency gate: searching must not need mpv
+# installed. The internal verbs (--stream, --capabilities) are not in the table, so asked of
+# t-play they fall through to the ordinary unknown-flag refusal. Only argv ahead of `--` is
+# looked at, so a query that happens to read `--info` is still a query.
+#
+# Without --engine, a URL handle picks its engine by host, exactly as a play does; a bare id
+# or a query takes the default. ARCH-cli-contract.md「命令规格」.
+forward_engine_verb() {
+    local a verb="" engine="$UT_DEFAULT_ENGINE" specified=0 last="" bin sniffed
+    for a in "$@"; do
+        [[ "$a" == "--" ]] && break
+        case "$a" in
+        --search | --info | --items | --transcript | --auth) verb=$a; break ;;
+        esac
+    done
+    [[ -n "$verb" ]] || return 0
+
+    local fwd=()
+    while (($#)); do
+        case "$1" in
+        --)
+            fwd+=("$@")
+            break
+            ;;
+        --engine)
+            [[ $# -ge 2 ]] || die "--engine requires a value"
+            engine=$2
+            specified=1
+            shift 2
+            continue
+            ;;
+        --engine=*)
+            engine=${1#*=}
+            specified=1
+            ;;
+        # The one flag refused HERE: -J is an engine's raw site record, kept inside the engine
+        # for debugging. Site fields cannot be versioned, so it is not something a caller of
+        # the one public entry can ask for — -j is the contract.
+        -J) die "-J is not part of t-play — use -j (the engine's own -J is a debugging aid, not a contract)" ;;
+        *) fwd+=("$1") ;;
+        esac
+        shift
+    done
+    last=${fwd[${#fwd[@]} - 1]}
+    if ((! specified)) && [[ "$verb" != "--search" ]] && is_url_target "$last"; then
+        sniffed=$(sniff_engine_from_url "$last") || sniffed=""
+        [[ -z "$sniffed" ]] || engine=$sniffed
+    fi
+    [[ "$engine" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || die "invalid engine name: '$engine'"
+    bin=$(engine_file_bin "$engine") ||
+        die "unknown engine '$engine': no 't-engine-$engine' next to t-play, in $UT_ENGINE_DIR, or on PATH"
+    exec "$bin" "${fwd[@]}"
 }
 
 # Out-params of resolve_media. Globals rather than a return value because bash 3.2 arrays do
@@ -799,12 +857,10 @@ resolve_media() {
     RESOLVED_RC=0
     PLAYBACK_RETRIED=0
 
-    # -S and --quality are forwarded because format-sort is the engine's concept and the
-    # caller may have overridden it; everything else the engine decides for itself. -S wins
-    # over --quality INSIDE the engine (ARCH-player.md「模式 → 格式 → mpv」), so both are forwarded
-    # unchanged.
+    # --quality is forwarded because the (mode, tier) -> format table is the engine's concept;
+    # everything else the engine decides for itself (ARCH-player.md「模式 → 格式 → mpv」).
     local out rc=0
-    out=$("$ENGINE_RESOLVE" ${ENGINE_STREAM_VERB:+"$ENGINE_STREAM_VERB"} -j -f "$mode" ${FORMAT_SORT:+-S "$FORMAT_SORT"} \
+    out=$("$ENGINE_RESOLVE" --stream -j -f "$mode" \
         ${PLAY_QUALITY:+--quality "$PLAY_QUALITY"} -- "$handle" 2>/dev/null) || rc=$?
 
     if ((rc != 0)) || [[ -z "$out" ]]; then
@@ -1173,7 +1229,7 @@ play_mode_url() {
 play_url_directly() {
     local url=$1
     if ! resolve_media "$url" "$PLAYBACK_MODE"; then
-        echo "t-play: $ENGINE-resolve could not resolve $url (yt_reason=$RESOLVED_REASON)" >&2
+        echo "t-play: t-engine-$ENGINE could not resolve $url (yt_reason=$RESOLVED_REASON)" >&2
         return "$RESOLVED_RC"
     fi
     play_mode_url "$url" "$PLAYBACK_MODE"
@@ -1743,7 +1799,7 @@ detached_epitaph() {
 # STORAGE IS NOT OURS. t-history is called BY NAME, exactly as an engine is; the player owns
 # the row, never the file, and knows nothing about JSONL or month shards. Not on PATH, nothing
 # is written and nothing is said: a capability this suite does not have is stated by not
-# having the command, the rule that also gives bili-resolve no --transcript.
+# having the command, the rule that also gives t-engine-bili no --transcript.
 HISTORY_BIN=""
 HISTORY_LOOKED=0
 history_bin() {
@@ -2375,13 +2431,12 @@ detach_play() {
     # YT_DETACHED tells the child's run_mpv there is no terminal to draw on (quiet mpv,
     # no stderr filter); YT_DETACHED_LOG hands it the path its own stdout goes to, which is
     # all detached_epitaph needs to read back what mpv said before classifying its own death.
-    # -S and --quality are forwarded like --volume so a format-sort override or a quality
-    # tier isn't silently lost on the detached path; `--` guards a URL that begins with a
-    # dash. -S wins over --quality inside the engine (ARCH-player.md「模式 → 格式 → mpv」).
+    # --quality is forwarded like --volume so a quality tier isn't silently lost on the
+    # detached path; `--` guards a URL that begins with a dash.
     set -m
     YT_IPC_SOCK="$sock" YT_DETACHED=1 YT_DETACHED_LOG="$log" YT_PLAYER_ID="$id" \
         nohup bash "$SELF" --engine "$ENGINE" -f "$PLAYBACK_MODE" --loop "$LOOP_MODE" \
-        ${VOLUME:+--volume "$VOLUME"} ${FORMAT_SORT:+-S "$FORMAT_SORT"} \
+        ${VOLUME:+--volume "$VOLUME"} \
         ${PLAY_QUALITY:+--quality "$PLAY_QUALITY"} ${PLAY_START:+--start "$PLAY_START"} \
         -- "$url" >"$log" 2>&1 &
     pid=$!
@@ -3565,18 +3620,17 @@ do_set_loop() {
 # The `-f` and `--volume` defaults, both cross-engine: set-once choices about how this user
 # listens, not about where the bytes came from. ARCH-cli-contract.md「配置面」.
 PLAYBACK_MODE="$UT_PLAY_MODE"
-FORMAT_SORT=""
 PLAY_QUALITY="$UT_PLAY_QUALITY" # --quality flag overrides; the engine maps (mode, tier)
 VOLUME="$UT_VOLUME"
 PLAY_START=""        # --start: seconds to open at, beating the handle's own offset
 VIZ_COLOR="${UT_VIZ_COLOR:-cyan}"
 VIZ_COLOR_FLAG=0
 COLOR_MODE="auto"
-# Default output is prose; -j/-J select a machine envelope.
+# Default output is prose; -j selects the machine envelope.
 OUTPUT_MODE="list"
 # Playback lifecycle / structured-output state.
 DETACH=0
-ENGINE="$UT_DEFAULT_ENGINE"  # which <engine>-resolve turns a handle into bytes
+ENGINE="$UT_DEFAULT_ENGINE"  # which t-engine-<name> turns a handle into bytes
 ENGINE_SPECIFIED=0
 ACTION=""            # "" (normal) | status | stop | set-volume | pause | resume | seek |
                      # seek-to | enqueue | next | set-loop | queue-show | queue-rm |
@@ -3625,6 +3679,8 @@ set_action() {
     ACTION="$want"
     ACTION_FLAG="$flag"
 }
+
+((! $#)) || forward_engine_verb "$@"
 
 normalized_args=()
 while (($#)); do
@@ -3706,10 +3762,6 @@ while (($#)); do
         PLAY_START="${1#*=}"
         shift
         ;;
-    --list|-l)
-        normalized_args+=("-l")
-        shift
-        ;;
     --json|-j)
         normalized_args+=("-j")
         shift
@@ -3727,24 +3779,15 @@ while (($#)); do
         shift
         ;;
     --get-url)
-        # Retired, not renamed: resolving a stream URL is what a bare `<engine>-resolve`
-        # call IS, so the player forwarding a verb of its own was a second spelling of one
-        # contract.
-        #
-        # ORDER-DEPENDENT, and accepted as such: this die and the extraction-verb one below
-        # both name $ENGINE, which --engine (above) only has had a chance to set when it was
-        # written FIRST. `t-play --transcript --engine bili` therefore still says
-        # `yt-resolve`. Moving these dies past the parse would be holding a usage error to
-        # report it late — a worse trade than a stale engine name in one flag order. The
-        # getopts pass further down has no such dependency.
-        die "--get-url is gone — resolve a stream URL with '${ENGINE}-resolve -j -- <id|URL>'"
+        # Retired: a stream URL is the engine's internal hand-off to the player, not a
+        # public verb — what a caller wants from a handle is to play it or to read about it.
+        die "--get-url is gone — play the handle ('t-play -- <id|URL>'), or read about it with 't-play --info -- <id|URL>'"
         ;;
-    --info | --transcript | --subtitles | --sub-lang | --sub-langs \
-        | --sub-lang=* | --sub-langs=*)
-        # Extraction verbs, forwarded from here until the wrapper merge — and a forward is
-        # the copy the split exists to remove. Name the engine rather than reporting an
-        # unknown flag: the caller has the right suite, wrong half.
-        die "${1%%=*} is an engine verb — run '${ENGINE}-resolve ${1%%=*} -- <id|URL>' (metadata and captions are extraction)"
+    --sub-lang | --sub-langs | --sub-lang=* | --sub-langs=* | --cursor | --cursor=* \
+        | --min-duration | --max-duration | --sort | --min-duration=* | --max-duration=* | --sort=*)
+        # An engine verb's modifier without its verb. The verbs themselves never get here —
+        # forward_engine_verb has exec'd them — so the caller has the right flag and no verb.
+        die "${1%%=*} modifies an engine verb — see --search, --items and --transcript in 't-play -h'"
         ;;
     --set-volume)
         [[ $# -ge 2 ]] || die "--set-volume requires a value"
@@ -3955,7 +3998,7 @@ while (($#)); do
         # an unmatched one can never be valid — and left to fall through it reached getopts
         # as `-`, which reported the useless "invalid option: --". The wrapper used to hold
         # this arm; naming the real flags is the half of a gate that helps a caller recover.
-        die "unknown flag '$1' (play flags: -f -S --quality -d -j -l --engine --volume --start --loop --status --stop --set-volume --pause --resume --seek --seek-to --set-loop --queue --enqueue --next --queue-show --queue-rm --queue-mv --queue-jump --queue-clear --undo --owner --discard --to --expect-url --id --all --engines --color --viz-color)"
+        die "unknown flag '$1' (play flags: -f --quality -d -j --engine --volume --start --loop --status --stop --set-volume --pause --resume --seek --seek-to --set-loop --queue --enqueue --next --queue-show --queue-rm --queue-mv --queue-jump --queue-clear --undo --owner --discard --to --expect-url --id --all --engines --color --viz-color)"
         ;;
     *)
         normalized_args+=("$1")
@@ -3969,12 +4012,10 @@ else
     set --
 fi
 
-while getopts ":f:S:dljhV" opt; do
+while getopts ":f:djhV" opt; do
     case "$opt" in
     f) PLAYBACK_MODE=$(normalize_playback_mode "$OPTARG") ;;
-    S) FORMAT_SORT="$OPTARG" ;;
     d) DETACH=1 ;;
-    l) OUTPUT_MODE="list" ;;
     j) OUTPUT_MODE="json" ;;
     h)
         usage
@@ -3993,8 +4034,7 @@ while getopts ":f:S:dljhV" opt; do
         # The gate the yt-play wrapper used to hold: a search flag here is a caller who
         # picked the wrong verb, and "invalid option: -n" does not say which verb is right.
         case "$OPTARG" in
-        n | m | M | s) die "-$OPTARG is a search flag — use ${ENGINE}-search for searching" ;;
-        J) die "-J (full raw record) is an engine flag — try '${ENGINE}-resolve --info -J'" ;;
+        n) die "-n is a search flag — search with 't-play --search [-n N] -- <query>'" ;;
         esac
         die "invalid option: -$OPTARG"
         ;;
@@ -4176,9 +4216,9 @@ fi
 
 # A bare invocation (no handle, no lifecycle action) is a usage error (ARCHITECTURE.md「调用形状」). Report it before
 # the heavier mpv dependency check so the message is about the missing input, not a missing
-# player. Searching lives in yt-search; interactive browsing in ting.
+# player. Searching is --search; interactive browsing is ting.
 if ((! IS_HANDLE)) && [[ "$QUERY" != *[![:space:]]* ]] && [[ -z "$ACTION" ]]; then
-    die "provide a video id or URL (to search, run ${ENGINE}-search; for interactive browsing, ting)"
+    die "provide a video id or URL (to search, run 't-play --search -- <query>'; for interactive browsing, ting)"
 fi
 
 # Every call, whatever it is for, sweeps away the undo copies of owners that are gone (the
@@ -4346,7 +4386,7 @@ if { [[ "$PLAYBACK_MODE" == "viz" ]] ||
 fi
 
 # =-----------------------------------------------------------------------------
-# ROUTING: play a handle. Search lives in yt-search; extraction in yt-resolve.
+# ROUTING: play a handle. The engine verbs were forwarded before the parse.
 # =-----------------------------------------------------------------------------
 if ((IS_HANDLE)); then
     if ((DETACH)); then
@@ -4372,9 +4412,7 @@ if ((IS_HANDLE)); then
 fi
 
 # =-----------------------------------------------------------------------------
-# Not a handle: nothing left to route. Search moved out to the engine (yt-search) when the
-# suite split into player + engines, and the core's old bare-query contract (`yt "query"` ->
-# list) went with it. Anything reaching here is a caller holding the wrong tool.
-# docs/ARCH-engine.md「搜索子系统」.
+# Not a handle: nothing left to route. A bare query is not a play — searching is its own
+# verb, so a query reaching here is a caller who left it out. docs/ARCH-engine.md「搜索子系统」.
 # =-----------------------------------------------------------------------------
-die "'$QUERY' is not a video id or URL — run '${ENGINE}-search -- $QUERY' to search for it"
+die "'$QUERY' is not a video id or URL — run 't-play --search -- $QUERY' to search for it"

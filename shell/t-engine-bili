@@ -317,7 +317,6 @@ FILTERED_JSON=""
 # --stream. The `-f` default is cross-engine too: a user who listens rather than watches
 # says so once.
 PLAYBACK_MODE="$UT_PLAY_MODE"
-FORMAT_SORT=""
 QUALITY="auto"       # auto | low | medium | high — the tier abstraction (--quality)
 FMT=""               # the yt-dlp format string the mode resolves to
 
@@ -1385,8 +1384,7 @@ format_for_mode() {
 
 # The yt-dlp format-sort a quality tier resolves to, for a given playback mode. Same rule as
 # format_for_mode: a caller sends a canonical TIER, and the yt-dlp sort string exists only
-# here. auto (or any pair this table maps to "") sends no --format-sort. -S, when the player
-# still forwards one, EXPLICITLY wins (ARCH-engine.md「解析」).
+# here. auto (or any pair this table maps to "") sends no --format-sort (ARCH-engine.md「解析」).
 quality_sort_for_tier() {
     local mode=$1 tier=$2
     case "$mode" in
@@ -1416,13 +1414,9 @@ quality_sort_for_tier() {
 # in the URL (`?p=7`), which is what --items hands back per part.
 dump_once() {
     local cmd=(yt-dlp --dump-single-json --no-playlist -f "$FMT")
-    if [[ -n "$FORMAT_SORT" ]]; then
-        cmd+=(--format-sort "$FORMAT_SORT")
-    else
-        local sort
-        sort=$(quality_sort_for_tier "$PLAYBACK_MODE" "$QUALITY")
-        [[ -n "$sort" ]] && cmd+=(--format-sort "$sort")
-    fi
+    local sort
+    sort=$(quality_sort_for_tier "$PLAYBACK_MODE" "$QUALITY")
+    [[ -n "$sort" ]] && cmd+=(--format-sort "$sort")
     (($#)) && cmd+=("$@")
     cmd+=(--no-warnings --quiet "$TARGET_URL")
     "${cmd[@]}" 2>>"$ERR_FILE"
@@ -2197,12 +2191,6 @@ while (($#)); do
         validate_enum "$2" audio video fast ascii viz ||
             die "-f must be one of: audio, video, fast, ascii, viz"
         PLAYBACK_MODE="$2"
-        shift 2
-        ;;
-    -S)
-        need_value "$@"
-        add_modifier "$1" stream
-        FORMAT_SORT="$2"
         shift 2
         ;;
     --quality)

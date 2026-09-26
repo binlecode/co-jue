@@ -71,9 +71,9 @@ UT_HISTORY=1                        # 0 = a detached player writes no listening 
 UT_DEFAULT_ENGINE=yt                # which engine --engine defaults to
 
 # Ceiling on rows one query may return, counted in ROWS because that is what the envelope
-# contains. Each engine spends it its own way: bili-search converts it to a page plan against
+# contains. Each engine spends it its own way: bili's search converts it to a page plan against
 # a server that pages at 20 (200 = the ten pages it always spent, and requests are the scarce
-# resource there); yt-search clamps its ytsearchN. 0 = no ceiling.
+# resource there); yt's clamps its ytsearchN. 0 = no ceiling.
 UT_MAX_SEARCH_RESULTS=200
 UT_SEARCH_RESULTS=20                # the -n default for <engine>-search; one bili page
 UT_SORT_FIELD=relevance             # the -s default: relevance | view_count | duration
@@ -196,21 +196,21 @@ YT_VIDEO_FORMAT_FAST=b[height<=720][ext=mp4]/b[height<=720]/b[ext=mp4]/b
 YT_SUB_LANG_CHAIN=en,zh-Hans,zh,ja  # --transcript language priority; yt only (bili has none)
 
 # ── scope: engine bili ──────────────────────────────────────────────────────────────────
-BILI_COOKIE_BROWSER=chrome          # read by bili-resolve only — bili-search sends no cookie
+BILI_COOKIE_BROWSER=chrome          # read by t-engine-bili's resolving verbs — its search sends no cookie
 BILI_AUDIO_FORMAT=ba/b
 BILI_VIDEO_FORMAT=bv*+ba/b
 BILI_VIDEO_FORMAT_FAST=b[height<=720]/bv*[height<=720]+ba/b
 # A browser User-Agent; must not contain curl or python — the site refuses those.
 BILI_UA=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36
-BILI_BUVID=                         # a device id; bili-search only, generated per process when unset
+BILI_BUVID=                         # a device id; t-engine-bili's search only, generated per process when unset
 BILI_RETRY_PAUSE=1                  # seconds before the one retry of a 412 burst
 
 # ── scope: engine ne ────────────────────────────────────────────────────────────────────
-NE_COOKIE_BROWSER=chrome            # read by ne-resolve only — ne-search sends no cookie
+NE_COOKIE_BROWSER=chrome            # read by t-engine-ne's resolving verbs — its search sends no cookie
 NE_AUDIO_FORMAT=ba/b                # this site serves audio only; every -f mode lands here
 # A browser User-Agent for the weapi search request.
 NE_UA=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36
-NE_INCLUDE_VIP=0                    # 1 = ne-search also returns rows whose access is not
+NE_INCLUDE_VIP=0                    # 1 = ne's search also returns rows whose access is not
                                     # "full" (a VIP-only track, an album purchase). Off by
                                     # default because a stored row is a CALL and must run
 

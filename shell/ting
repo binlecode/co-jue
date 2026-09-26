@@ -4,7 +4,7 @@
 # headless verbs with jq.
 #
 # Delegates core jobs to headless binaries:
-#   search (network fetch) → <engine>-search -j <query>   (JSON envelope)
+#   search (network fetch) → t-play --search -j <query>   (JSON envelope)
 #   play                   → t-play -d -j -f MODE -- url  (ASYNCHRONOUS: detached background player)
 #   filter (narrow rows)   → pure bash, no external tool
 #
@@ -18,7 +18,7 @@ set -euo pipefail
 # empty-array expansions ("${arr[@]}" on an empty array aborts under set -u on 3.2). ARCHITECTURE.md「可移植性契约」.
 
 # Resolve this script's OWN symlink chain before looking for its siblings. The PATH entries
-# (yt-search / t-play / ting) are symlinks into a checkout that can live anywhere, so
+# (t-play / ting / …) are symlinks into a checkout that can live anywhere, so
 # `dirname $0` is the symlink's directory, not the code's. This walks the chain to the real file and takes ITS
 # directory — which is the one holding the rest of the suite.
 #
@@ -378,59 +378,28 @@ relocate_tools() {
     return 0
 }
 
-# THE ENGINE REGISTRY — discovered, not listed. The suite's whole claim is that adding a
-# source is adding a PAIR of scripts and changing nothing else; a hardcoded list of engine
-# names in this file would make that claim false at the third source, and it would be false
-# in the one place nobody looks, because the TUI would still run and simply not offer the
-# new one.
+# THE ENGINE REGISTRY — discovered, not listed, and not by this file. The suite's whole claim
+# is that adding a source is adding ONE file (`t-engine-<name>`) and changing nothing else; a
+# hardcoded list of engine names here would make that claim false at the fourth source, in
+# the one place nobody looks, because the TUI would still run and simply not offer the new
+# one.
 #
-# So an engine is anything that presents BOTH halves: `<name>-search` and `<name>-resolve`.
-# Requiring the pair is not pedantry — a lone `-search` would list results the player cannot
-# then resolve, i.e. a source that looks browsable and is not.
+# `t-play --engines` answers it: where engines may live (sibling, $UT_ENGINE_DIR, PATH, the
+# first sight of a name winning so a plugin cannot shadow a built-in) and which verbs each
+# accepts are the player's rule and the engine's statement, and a TUI that re-derived either
+# would be a second copy that drifts. The PROSE form is read (name TAB bin TAB flags), not -j:
+# this runs before the jq gate, and every field in it is a name, a path or a flag word.
 #
-# THREE PLACES, ONE ORDER: sibling directory, then $UT_ENGINE_DIR, then PATH — the same
-# precedence `t-play` uses to find a resolver, and the two files have to agree or this UI
-# offers a source the player cannot open. A bare checkout runs with nothing installed; an
-# installed suite works from anywhere; a third-party pair has somewhere to live that is
-# neither the source tree nor the whole of PATH.
-#
-# ALL THREE are always scanned, and the SIBLING wins a name collision (`engine_seen` keeps
-# the first sight of a name). So a plugin directory cannot shadow a built-in engine, and that
-# is the point rather than a limitation: $UT_ENGINE_DIR is reachable by anything that can
-# write one directory, and letting it replace `yt-resolve` would make "which yt am I running"
-# a question the user has no way to ask.
-#
-# Scanning PATH only when the checkout came up empty was the cheaper spelling — one glob in
-# the ordinary case — and it quietly made the installed-engine case unreachable: any checkout
-# carrying its own engines, which is every real one, could never see a fourth pair on PATH,
-# while `t-play --engine` could. The two faces disagreed about what sources exist. The glob
-# it saves is not worth that: a full sweep of a 44-entry PATH measures 9ms on the 3.2 floor,
-# once, at startup.
-#
-# The default chains through XDG_DATA_HOME, so it is inline here rather than in the shipped
-# `config` (a flat KEY=value file cannot express a chain — UT_STATE_DIR is the precedent),
-# and it is refused from both config files: it names programs this UI RUNS, which is the one
-# thing the config reader's prefix rule exists to keep a file away from (ut_read_config).
+# UT_ENGINE_DIR is still resolved here, for this file's usage text only; t-play resolves its
+# own, from the same environment.
 ENGINES=()
+ENGINE_FLAG_SETS=()   # parallel to ENGINES: " --search -n … " as the engine states it
 engine_seen() {
     local e
     for e in ${ENGINES[@]+"${ENGINES[@]}"}; do
         if [[ "$e" == "$1" ]]; then return 0; fi
     done
     return 1
-}
-scan_engines() {
-    local dir=$1 f name
-    # An unmatched glob expands to the pattern itself (no `nullglob` on the 3.2 floor), and
-    # the -x test then rejects it, so no guard is needed.
-    for f in "$dir"/*-search; do
-        [[ -x "$f" ]] || continue
-        name=${f##*/}
-        name=${name%-search}
-        [[ -x "$dir/$name-resolve" ]] || continue
-        engine_seen "$name" || ENGINES+=("$name")
-    done
-    return 0
 }
 if [[ -z "${UT_ENGINE_DIR:-}" ]]; then
     if [[ -d "${XDG_DATA_HOME:-$HOME/.local/share}/uting/engines" ]] &&
@@ -441,61 +410,38 @@ if [[ -z "${UT_ENGINE_DIR:-}" ]]; then
     fi
 fi
 TING_ENGINE_DIR="$UT_ENGINE_DIR"
-scan_engines "$SCRIPT_DIR"
-scan_engines "$UT_ENGINE_DIR"
-_saved_ifs=$IFS
-IFS=:
-for _pdir in $PATH; do
-    [[ -n "$_pdir" && -d "$_pdir" ]] && scan_engines "$_pdir"
-done
-IFS=$_saved_ifs
-unset _saved_ifs _pdir
+while IFS=$'\t' read -r _name _bin _flags; do
+    [[ -n "$_name" ]] || continue
+    ENGINES+=("$_name")
+    ENGINE_FLAG_SETS+=(" $_flags ")
+done < <("$PLAY_BIN" --engines 2>/dev/null)
+unset _name _bin _flags
 if ((${#ENGINES[@]} == 0)); then
-    echo "ting: no engine found — need a <name>-search and <name>-resolve pair beside this file, in $UT_ENGINE_DIR, or on PATH" >&2
+    echo "ting: no engine found — need a t-engine-<name> file beside t-play, in $UT_ENGINE_DIR, or on PATH" >&2
     exit 1
 fi
 
-# Resolve ONE engine's search half, by name, with the same sibling-then-PATH precedence.
-# `<name>-search` is a string concatenation, not a table lookup: the engine name IS the
-# command prefix, which is exactly what lets this file hold no registry of its own.
-engine_search_bin() {
-    if [[ -x "$SCRIPT_DIR/$1-search" ]]; then
-        printf '%s\n' "$SCRIPT_DIR/$1-search"
-        return 0
-    fi
-    if [[ -x "$UT_ENGINE_DIR/$1-search" ]]; then
-        printf '%s\n' "$UT_ENGINE_DIR/$1-search"
-        return 0
-    fi
-    command -v "$1-search" 2>/dev/null
+# One engine verb, asked the way any caller asks: through t-play, which forwards it to the
+# engine and hands back the engine's own envelope and exit code. The name is safe to pass
+# because every caller passes one that already passed engine_seen.
+engine_verb() { # <name> <verb> [args…]
+    local eng=$1
+    shift
+    "$PLAY_BIN" --engine "$eng" "$@"
 }
 
-# The same lookup for the other half. Two functions rather than one taking a suffix: the
-# call sites read as what they fetch, and neither is a table.
-#
-# `t-play` has a function of the SAME NAME that DIES when the lookup fails; this one
-# returns non-zero and says nothing. Both are right for their own file: the player cannot
-# play without an engine, while this file asks for halves it can live without —
-# refresh_engine_auth below simply drops the auth field for an engine whose resolve half
-# has no --auth, which is how a third engine is never blocked on implementing it. The
-# argument is safe to paste into a path because every caller passes a name that already
-# passed engine_seen (membership in the discovered registry — stricter than the player's
-# name regex), never raw user input.
-engine_resolve_bin() {
-    if [[ -x "$SCRIPT_DIR/$1-resolve" ]]; then
-        printf '%s\n' "$SCRIPT_DIR/$1-resolve"
-        return 0
-    fi
-    if [[ -x "$UT_ENGINE_DIR/$1-resolve" ]]; then
-        printf '%s\n' "$UT_ENGINE_DIR/$1-resolve"
-        return 0
-    fi
-    command -v "$1-resolve" 2>/dev/null
+# An engine's stderr line, cut to what a person reads: the engine's own "Error: " label (and
+# the program-name prefix its advisory lines carry) says nothing the notice does not.
+engine_msg() { # <name> <text>
+    local m=${2##*$'\n'}
+    m=${m#Error: }
+    m=${m#t-engine-"$1": }
+    printf '%s' "$m"
 }
 
 # The auth token in the status line comes from the ENGINE, never from this file: which
 # browser a source reads cookies from is site knowledge, and ting holds none. It asks
-# `<engine>-resolve --auth`, a local fork with no network and no yt-dlp.
+# `t-play --auth`, which the engine answers with a local fork: no network and no yt-dlp.
 #
 # It reports the cookie DECISION, not a valid login — an expired session still answers
 # "cookie". The status line therefore says which profile playback will READ, which is the
@@ -504,20 +450,18 @@ engine_resolve_bin() {
 # at all (`cookie_readable`, one read of the cookie file): a terminal app macOS will not let
 # into the browser's folder gets the anonymous client whatever the decision said.
 #
-# An engine whose resolve half has no --auth exits non-zero and the field simply
+# An engine without --auth exits non-zero and the field simply
 # disappears — the same way a missing --transcript states a missing capability by not
 # existing, so a third engine is never blocked on implementing this.
 #
 # Recomputed on each source switch rather than kept in a map: bash 3.2 has no associative
-# array, and one fork (~50 ms, a directory listing and a one-byte read) is cheaper than
-# keeping parallel arrays correct.
+# array, and one fork (a directory listing and a one-byte read, behind t-play's own start) is
+# cheaper than keeping parallel arrays correct.
 ENGINE_AUTH=""
 refresh_engine_auth() {
     ENGINE_AUTH=""
-    local bin out a b
-    bin=$(engine_resolve_bin "$ENGINE") || return 0
-    [[ -n "$bin" ]] || return 0
-    out=$("$bin" --auth -j 2>/dev/null) || return 0
+    local out a b
+    out=$(engine_verb "$ENGINE" --auth -j 2>/dev/null) || return 0
     a=$(printf '%s' "$out" | jq -r '.auth // empty' 2>/dev/null) || return 0
     case "$a" in
     cookie)
@@ -534,27 +478,24 @@ refresh_engine_auth() {
     return 0
 }
 
-# Which read-only verbs does this engine have? `c` needs `--parts` and `i` needs `--info`, and
-# both are asked of the engine the way any caller asks: `<engine>-resolve --capabilities -j`
-# (ARCH-cli-contract.md「命令规格」). No request, no handle, no dependency on the engine's side.
-# An engine without --capabilities (one written outside this repo before the verb existed)
-# exits 1 and is treated as having only the minimum set, so neither key is offered for it —
-# a missing key costs less than a key that answers "unknown flag".
+# Which read-only verbs does this engine have? `c` needs `--items` (a video's parts are its
+# items) and `i` needs `--info`, and both were stated by the engine in the registry above
+# (ARCH-cli-contract.md「命令规格」) — no fork here at all. An engine that stated nothing lists
+# with an empty set, so neither key is offered for it: a missing key costs less than a key
+# that answers "unknown flag".
 #
-# One fork per source switch, cached, exactly like ENGINE_AUTH above: the hint block is
-# measured on every redraw and cannot afford to ask, and `c` must not probe on the selection
-# moving.
+# Looked up per source switch, cached, exactly like ENGINE_AUTH above: the hint block is
+# measured on every redraw and cannot afford to ask.
 ENGINE_PARTS_OK=0
 ENGINE_INFO_OK=0
 refresh_engine_flags() {
     ENGINE_PARTS_OK=0
     ENGINE_INFO_OK=0
-    local bin out flags
-    bin=$(engine_resolve_bin "$ENGINE") || return 0
-    [[ -n "$bin" ]] || return 0
-    out=$("$bin" --capabilities -j 2>/dev/null) || return 0
-    flags=" $(printf '%s' "$out" | jq -r '.flags // [] | join(" ")' 2>/dev/null) " || return 0
-    case "$flags" in *" --parts "*) ENGINE_PARTS_OK=1 ;; esac
+    local i flags=""
+    for ((i = 0; i < ${#ENGINES[@]}; i++)); do
+        [[ "${ENGINES[$i]}" == "$ENGINE" ]] && flags=${ENGINE_FLAG_SETS[$i]}
+    done
+    case "$flags" in *" --items "*) ENGINE_PARTS_OK=1 ;; esac
     case "$flags" in *" --info "*) ENGINE_INFO_OK=1 ;; esac
     return 0
 }
@@ -572,7 +513,6 @@ refresh_engine_caps() {
 # a user who set a default source once should not have to set it again per surface.
 ENGINE="$UT_DEFAULT_ENGINE"
 engine_seen "$ENGINE" || ENGINE="${ENGINES[0]}"
-ENGINE_SEARCH=""
 
 print_usage() {
     cat <<'EOF'
@@ -583,15 +523,15 @@ Usage:
 
 With no query, prompts for one (interactive). Requires a terminal.
 
-Search options (forwarded to <engine>-search):
+Search options (forwarded to t-play --search):
   -n NUM    Number of results to fetch (default: 20)
   -m SEC    Minimum duration in seconds
   -M SEC    Maximum duration in seconds
   -s FIELD  Sort field: relevance | view_count | duration (default: relevance)
   --engine NAME  Which source to search. Defaults to UT_DEFAULT_ENGINE (the same variable
-            t-play reads), falling back to the first one installed. An engine is a
-            <name>-search + <name>-resolve PAIR found beside this file or on PATH — nothing
-            here lists them, so whatever is installed is what the e key offers.
+            t-play reads), falling back to the first one installed. An engine is one
+            t-engine-<name> file, as 't-play --engines' lists them — nothing here lists
+            them, so whatever is installed is what the e key offers.
 
 Menu options:
   -f MODE   Playback mode (default: audio): audio | video | fast
@@ -656,7 +596,7 @@ Keys (List View):
   h        open the listening log as the row source; h again
            returns to the search results                    (needs t-history)
   c        open the focused row's parts as the row source; c again returns to the
-           search results          (only when the engine has --parts; Bilibili does)
+           search results          (only when the engine has --items)
   i        open the focused row's CHAPTERS as the row source, with one metadata
            fetch (upload date and likes land on the status line); i again returns
            to the search results. A chapter row is a call: Enter plays from it,
@@ -689,8 +629,8 @@ Environment:
   per line, # comments; the pre-rename .../uting/config is read when there is no ting
   one); TING_CONFIG relocates it, and UT_CONFIG still does. Chain: flag > environment > your
   config > the shipped defaults. See ARCH-cli-contract.md「配置面」.
-  UT_ENGINE_DIR    Extra directory scanned for <name>-search + <name>-resolve pairs, after
-                   this file's own directory and before PATH; a pair there is a source the
+  UT_ENGINE_DIR    Extra directory scanned for t-engine-<name> files, after t-play's own
+                   directory and before PATH; an engine there is a source the
                    e key rotates through. A name already installed beside this file wins,
                    so a plugin cannot replace a built-in engine. ENVIRONMENT ONLY — it
                    names programs this UI runs, so neither config file can set it.
@@ -775,13 +715,13 @@ resolve_nc_unix() {
 
 is_uint() { [[ "$1" =~ ^[0-9]+$ ]]; }
 
-# Parse: search-shaping flags forwarded to <engine>-search (and captured for status line);
+# Parse: search-shaping flags forwarded to t-play --search (and captured for status line);
 # -f/-p/--color are menu-local. The rest is query. Reject anything else.
 SEARCH_ARGS=()
 # THE FETCH BATCH — the STEP the two edges move by: → past the last page adds one, ← on page
 # one drops one. One knob, not two: they were the same 20 for the same reason, so a user who
 # wants bigger bites should not have to say it twice. 20 because Bilibili's endpoint pages at
-# 20 with no page-size knob (bili-search PAGE_SIZE), so it keeps the first fetch — and every
+# 20 with no page-size knob (t-engine-bili PAGE_SIZE), so it keeps the first fetch — and every
 # re-fetch — an exact page count. Cross-engine: this is the TUI's appetite, not a site's page
 # size. Separate from UT_SEARCH_RESULTS even though that is 20 too: that one is a TOTAL an
 # engine returns once, this one is the STEP each press moves by, so widening one must not
@@ -855,7 +795,7 @@ BG_R=""; BG_G=""; BG_B=""
 [[ -n "${YT_BG:-}" ]] && BG_MODE="$YT_BG"
 IMAGE_MODE="${UT_IMAGE:-auto}"   # auto | on | off — the focused row's cover art
 # ROWS PER SCREEN PAGE — the display page, which is a different thing from both the fetch
-# batch above and bili-search's PAGE_SIZE (the remote API's own page, which is not a knob at
+# batch above and t-engine-bili's PAGE_SIZE (the remote API's own page, which is not a knob at
 # all). It is only a request: display_list_menu reflows it down against terminal height.
 PAGE_OPT=$UT_PAGE_ROWS
 # The order the o key steps through. Space- or comma-separated, like UT_MODE_CYCLE.
@@ -931,10 +871,10 @@ while (($#)); do
         SORT_FIELD="$2"; shift 2 ;;
     -m)
         [[ $# -ge 2 ]] || die "$1 requires a value"
-        MIN_DISP="$2"; SEARCH_ARGS+=("$1" "$2"); shift 2 ;;
+        MIN_DISP="$2"; SEARCH_ARGS+=(--min-duration "$2"); shift 2 ;;
     -M)
         [[ $# -ge 2 ]] || die "$1 requires a value"
-        MAX_DISP="$2"; SEARCH_ARGS+=("$1" "$2"); shift 2 ;;
+        MAX_DISP="$2"; SEARCH_ARGS+=(--max-duration "$2"); shift 2 ;;
     -f)
         [[ $# -ge 2 ]] || die "$1 requires a value"
         PLAY_MODE="$2"; shift 2 ;;   # validated against MODE_CYCLE below
@@ -986,7 +926,8 @@ validate_cycle UT_QUALITY_CYCLE "auto low medium high" ${QUALITY_CYCLE[@]+"${QUA
 validate_cycle UT_LOOP_CYCLE "off seq one" ${LOOP_CYCLE[@]+"${LOOP_CYCLE[@]}"}
 validate_cycle UT_THEME_CYCLE "$THEME_NAMES" \
     ${THEME_CYCLE[@]+"${THEME_CYCLE[@]}"}
-# Duration bounds and volume are forwarded verbatim (-m/-M to yt-search, --volume to t-play),
+# Duration bounds and volume are forwarded (-m/-M as t-play --search's --min/--max-duration,
+# --volume to t-play),
 # so the core would reject them anyway — but only at the first fetch or the first Enter, where
 # it reads as "search failed" / a play that silently does not start. Same three checks the core
 # makes (yt's is_non_negative_int), up front, in the core's own wording.
@@ -1003,8 +944,6 @@ case "$SORT_FIELD" in relevance | view_count | duration) ;; *) die "-s must be o
 # first fetch as "search failed". The message lists what there is, because the answer to
 # "which sources do I have" is not written down anywhere else.
 engine_seen "$ENGINE" || die "--engine must be one of: ${ENGINES[*]}"
-ENGINE_SEARCH=$(engine_search_bin "$ENGINE") || ENGINE_SEARCH=""
-[[ -n "$ENGINE_SEARCH" ]] || die "engine '$ENGINE' has no '$ENGINE-search' beside this file, in $UT_ENGINE_DIR, or on PATH"
 refresh_engine_caps
 # Playback is DETACHED here (t-play -d), and a detached player has no terminal, so the
 # terminal-rendering modes (ascii/viz) cannot work — the core rejects them for -d. Validate
@@ -1064,7 +1003,7 @@ require_cmd jq
 resolve_nc_unix || die_dep "requires a unix-socket netcat: 'nc' with -U support, or 'ncat'"
 # The self-rendered menu reads keys from stdin and draws to stdout, so BOTH must be a real
 # terminal; refuse cleanly rather than hang/garble when piped (e.g. an agent).
-{ [[ -t 0 ]] && [[ -t 1 ]]; } || die "requires a terminal (interactive menu); use ${UT_DEFAULT_ENGINE}-search / t-play headless"
+{ [[ -t 0 ]] && [[ -t 1 ]]; } || die "requires a terminal (interactive menu); use 't-play --search' / t-play headless"
 
 # ── Theme & Colors (init_theme): palette family + light/dark + protocol knobs ───────────
 # Minimalist palette, terminal-native: minimal/mono use ANSI 16 indexed codes only, so the
@@ -2518,7 +2457,7 @@ CURRENT_PLAY_STARTED=0     # epoch seconds when WE attached, for the elapsed rea
 CURRENT_PLAY_ADOPTED=0
 QUIT_KEEP_PLAYING=0
 
-# ── The item one `<engine>-resolve --info` describes (key: i) ───────────────────────────
+# ── The item one `t-play --info` describes (key: i) ─────────────────────────────────────
 # `i` is the DOOR, and the fetch behind it is what keeps this from being a second spelling of
 # the row: title, channel, duration, views, id, mode and quality are all on the list screen
 # already. What the round trip buys is what the list cannot hold — the upload date and the
@@ -2839,7 +2778,7 @@ layout_cols() {
 #
 # The chrome's own glyphs are one such table, and they are safe to table because the suite's
 # glyph inventory is deliberately all text-presentation — "non-graphical". There is no emoji
-# in t-play / yt-search / yt-resolve, and exactly one in ting: the 🎧 face of the header icon
+# in t-play / t-engine-*, and exactly one in ting: the 🎧 face of the header icon
 # (init_glyphs). It is deliberately in NO table — U+1F3A7 is East-Asian Wide, so the default two
 # is already its true width, and it is a lone codepoint that carries no selector. Nothing that IS
 # tabled can therefore pick up a U+FE0F and silently become a 2-cell emoji behind the table's
@@ -4400,7 +4339,7 @@ fetch_json() {
     local out cnt errfile rc=0
     errfile=$(mktemp "${TMPDIR:-/tmp}/ting-search-err.XXXXXX" 2>/dev/null) || errfile="${TMPDIR:-/tmp}/ting-search-err.$$"
     spin_start
-    out=$("$ENGINE_SEARCH" -j -n "$RESULT_N" -s "$SORT_FIELD" ${SEARCH_ARGS[@]+"${SEARCH_ARGS[@]}"} -- "$QUERY_LABEL" 2>"$errfile") || rc=$?
+    out=$(engine_verb "$ENGINE" --search -j -n "$RESULT_N" --sort "$SORT_FIELD" ${SEARCH_ARGS[@]+"${SEARCH_ARGS[@]}"} -- "$QUERY_LABEL" 2>"$errfile") || rc=$?
     spin_stop
     SEARCH_ERR=$(<"$errfile")
     rm -f "$errfile"
@@ -4410,8 +4349,8 @@ fetch_json() {
     # bare "search failed" with both thrown away. Now the reason leads and the advice follows.
     # On SUCCESS the same line is a notice: results that came back without the login the
     # status line promised are the case that most needs saying, and it is the quiet one.
-    local note="${SEARCH_ERR##*$'\n'}"
-    note=${note#"${ENGINE_SEARCH##*/}: "}
+    local note
+    note=$(engine_msg "$ENGINE" "$SEARCH_ERR")
     if ((rc != 0)); then
         local why
         why=$(printf '%s' "$out" | jq -r '.reason // empty' 2>/dev/null) || why=""
@@ -4608,7 +4547,7 @@ chapter_sec() {
 # play but cannot store; and the caller must be able to fail AFTER this returns without having
 # touched ALL_ROWS, the way open_parts reshapes before it stashes. One jq call for the whole
 # table, fed US-joined lines — the shape t-playlist and t-play --enqueue already read, and
-# the same shape open_parts reshapes --parts into.
+# the same shape a part list's --items envelope already has.
 #
 # A CHAPTER IS A SPAN, AND THE RAIL PRINTS IT AS ONE (`2:30 → 5:42`). It used to print the
 # start alone, in the same column, the same spelling and the same place a search row prints
@@ -5129,7 +5068,8 @@ display_list_menu() {
         fi
     fi
     # The same rule a fourth time, off a CAPABILITY and a VIEW: `c` needs the session engine
-    # to have --parts (yt never will — one id there is one file) AND search rows to act on
+    # to have --items (a video's parts are its items; on a site where one id is one file the
+    # engine answers that the row is not a container) AND search rows to act on
     # (open_parts is search_only: a part belongs to the video a search row names, and the
     # return stack is one deep by decision). The probe was paid at the last source switch,
     # not here: this block runs on every redraw.
@@ -6078,7 +6018,7 @@ play_selected() {
     # the first engine's resolver — which since ARCHITECTURE.md「站点知识的边界」 is a hard usage error rather
     # than the silent mislabel it used to be.
     # The ROW's engine, not the session's: a playlist can mix sources, and passing the
-    # session engine would hand a bili URL to yt-resolve — a hard usage error since ARCHITECTURE.md「站点知识的边界」.
+    # session engine would hand a bili URL to t-engine-yt — a hard usage error since ARCHITECTURE.md「站点知识的边界」.
     # Falls back to the session engine for a row that predates the field (an empty string
     # never reaches t-play, which would reject it).
     local row_engine="${R_ENGINE[$selected]:-}"
@@ -6746,7 +6686,7 @@ open_playlist() {
 # one predicate is what stops that from becoming three copies of a two-way test that drift
 # apart the way F11/F12 did (ARCHITECTURE.md).
 # `parts` belongs here even though no store holds it: what this predicate actually asks is
-# "does `.items[]` read this envelope", and open_parts reshapes `--parts` to exactly that.
+# "does `.items[]` read this envelope", and a part list's --items envelope is exactly that.
 # `chapters` is the same answer for the same reason — build_chapter_rows writes that envelope
 # from the chapter table. The name outlived its first meaning by two row sources; the
 # behaviour it selects did not.
@@ -7214,8 +7154,8 @@ play_queued_now() {
 
 # Open the focused row's parts (?p=N) as the row source (key: c). Third of the row-source
 # family — b, h and c all do one job, replace the rows — and built like the other two: no new
-# renderer, no new keys, no new item shape. `<engine>-resolve --parts` answers with elements
-# that ARE item records, so `{items: .parts}` is the whole adaptation; after it
+# renderer, no new keys, no new item shape. A video's parts are its items, so `t-play --items`
+# answers with the same container envelope a playlist has, and no adaptation at all is needed:
 # build_playlist_rows walks the envelope unchanged, focused_payload cuts one item out of it
 # unchanged, and every key that already works on a stored row works here.
 #
@@ -7246,21 +7186,18 @@ play_queued_now() {
 PARTS_CACHE_KEY=""
 PARTS_CACHE_JSON=""
 fetch_item_parts() {
-    local eng=$1 url=$2 bin key out rc=0 errfile msg
-    bin=$(engine_resolve_bin "$eng") || bin=""
-    [[ -n "$bin" ]] || return 1
+    local eng=$1 url=$2 key out rc=0 errfile msg
     key="$eng:$url"
     if [[ "$key" != "$PARTS_CACHE_KEY" || -z "$PARTS_CACHE_JSON" ]]; then
         errfile=$(mktemp "${TMPDIR:-/tmp}/ting-parts-err.XXXXXX" 2>/dev/null) || errfile="${TMPDIR:-/tmp}/ting-parts-err.$$"
         printf '\n  %s%s%s' "$C_DIM" "$S_PARTS_ACT$GL_ELL" "$C_RESET"
         spin_start
-        out=$("$bin" --parts -j -- "$url" 2>"$errfile") || rc=$?
+        out=$(engine_verb "$eng" --items -j -- "$url" 2>"$errfile") || rc=$?
         spin_stop
         msg=$(<"$errfile")
         rm -f "$errfile"
         if ((rc != 0)) || [[ -z "$out" ]]; then
-            msg=${msg##*$'\n'}
-            msg=${msg#"$eng"-resolve: }
+            msg=$(engine_msg "$eng" "$msg")
             store_notice "$S_PARTS_ACT:" "${msg:-$S_PL_FAILED}"
             return 1
         fi
@@ -7292,8 +7229,8 @@ open_parts() {
     [[ -n "$row_engine" ]] || row_engine="$CURRENT_ENGINE"
     fetch_item_parts "$row_engine" "$url" || return 1
     out="$PARTS_CACHE_JSON"
-    cnt=$(printf '%s' "$out" | jq -r '.count // 0' 2>/dev/null || echo 0)
-    # One part is not an error — the engine says so by answering count 1 rather than failing —
+    cnt=$(printf '%s' "$out" | jq -r '.total // .count // 0' 2>/dev/null || echo 0)
+    # One part is not an error — the engine says so by answering total 1 rather than failing —
     # and it is not a view either: the row already on screen IS that one part, so opening a
     # one-row list would cost a keypress and a redraw to say nothing. The notice answers the
     # question the key actually asks, which is "is there more of this than the row shows?".
@@ -7301,16 +7238,19 @@ open_parts() {
         store_notice "$S_PARTS_ACT:" "$S_PARTS_ONE"
         return 1
     fi
-    # The collection's own two facts, read off the envelope before it is reshaped: the title
-    # is this view's label, and the total is the number the search row was showing (P8).
+    # The collection's own two facts: the title is this view's label, and the total length is
+    # the number the search row was showing (P8). The envelope no longer carries that sum, so
+    # it is added up here — and only when every part is in hand (no has_more) and has a
+    # length, because a partial sum shown as "total" would be a wrong number.
     title=$(printf '%s' "$out" | jq -r '.title // empty' 2>/dev/null) || title=""
-    PARTS_TOTAL_FMT=$(printf '%s' "$out" | jq -r '.total_duration_fmt // empty' 2>/dev/null) || PARTS_TOTAL_FMT=""
+    PARTS_TOTAL_FMT=$(printf '%s' "$out" | jq -r "$JQ_TEXT_DEFS"'
+        if .has_more != true and (.items | length) > 0 and all(.items[]; (.duration | type) == "number")
+        then [.items[].duration] | add | fmt_dur else empty end' 2>/dev/null) || PARTS_TOTAL_FMT=""
     [[ -n "$title" ]] || title="${R_TITLE[$selected]}"
-    # The same one-liner the agent surface pipes through (`--parts -j | jq '{items:.parts}' |
-    # t-playlist --add`), so a shell caller and the TUI adapt this envelope identically.
-    # Built BEFORE the stash: a reshape that failed after it would leave the search stashed
-    # behind rows that do not exist.
-    reshaped=$(printf '%s' "$out" | jq -c '{status: "ok", count: .count, items: .parts}' 2>/dev/null) || reshaped=""
+    # The envelope as-is: `t-play --items -j | t-playlist --add` is the agent surface's same
+    # pipe, so a shell caller and the TUI read it identically. Checked BEFORE the stash: an
+    # unreadable one after it would leave the search stashed behind rows that do not exist.
+    reshaped=$(printf '%s' "$out" | jq -ce 'select((.items | type) == "array")' 2>/dev/null) || reshaped=""
     if [[ -z "$reshaped" ]]; then
         store_notice "$S_PARTS_ACT:" "$S_PL_FAILED"
         return 1
@@ -7500,9 +7440,7 @@ chapter_follow() {
 # this file already keep their spinner, their error vocabulary and their cache key in one
 # place each.
 fetch_item_info() {
-    local eng=$1 url=$2 bin key out rc=0 errfile msg
-    bin=$(engine_resolve_bin "$eng") || bin=""
-    [[ -n "$bin" ]] || return 1
+    local eng=$1 url=$2 key out rc=0 errfile msg
     key="$eng:$url"
     if [[ "$key" != "$INFO_CACHE_KEY" || -z "$INFO_CACHE_JSON" ]]; then
         errfile=$(mktemp "${TMPDIR:-/tmp}/ting-info-err.XXXXXX" 2>/dev/null) || errfile="${TMPDIR:-/tmp}/ting-info-err.$$"
@@ -7511,13 +7449,12 @@ fetch_item_info() {
         # theirs. The frame after this is a full in-place repaint, so the line needs no cleanup.
         printf '\n  %s%s%s' "$C_DIM" "$S_INFO_ACT$GL_ELL" "$C_RESET"
         spin_start
-        out=$("$bin" --info -j -- "$url" 2>"$errfile") || rc=$?
+        out=$(engine_verb "$eng" --info -j -- "$url" 2>"$errfile") || rc=$?
         spin_stop
         msg=$(<"$errfile")
         rm -f "$errfile"
         if ((rc != 0)) || [[ -z "$out" ]]; then
-            msg=${msg##*$'\n'}
-            msg=${msg#"$eng"-resolve: }
+            msg=$(engine_msg "$eng" "$msg")
             store_notice "$S_INFO_ACT:" "${msg:-$S_PL_FAILED}"
             return 1
         fi
@@ -7781,18 +7718,19 @@ sniff_target_kind() {
 }
 
 load_container_url() {
-    local eng=$1 bin=$2 target_url=$3 out errfile rc=0
+    local eng=$1 target_url=$2 out errfile rc=0
     errfile=$(mktemp "${TMPDIR:-/tmp}/ting-url-err.XXXXXX" 2>/dev/null) || errfile="${TMPDIR:-/tmp}/ting-url-err.$$"
     spin_start
     printf '\n%s%s %s...%s' "$C_BOLD" "$GL_CARET" "$S_CONTAINER_ACT" "$C_RESET"
-    out=$("$bin" --items -j -- "$target_url" 2>"$errfile") || rc=$?
+    out=$(engine_verb "$eng" --items -j -- "$target_url" 2>"$errfile") || rc=$?
     spin_stop
     local err_msg; err_msg=$(<"$errfile"); rm -f "$errfile"
     if ((rc != 0)); then
         if [[ "$err_msg" == *"not a"* || "$err_msg" == *"drop --items"* || "$err_msg" == *"video id"* || "$err_msg" == *"BV id"* ]]; then
-            load_track_url "$eng" "$bin" "$target_url" 1
+            load_track_url "$eng" "$target_url" 1
             return $?
         fi
+        err_msg=$(engine_msg "$eng" "$err_msg")
         store_notice "$S_CONTAINER_ACT:" "${err_msg:-failed to expand container}"
         return 1
     fi
@@ -7822,39 +7760,45 @@ load_container_url() {
 }
 
 load_track_url() {
-    local eng=$1 bin=$2 target_url=$3 no_fallback=${4:-0} out errfile rc=0
+    local eng=$1 target_url=$2 no_fallback=${3:-0} out errfile rc=0
     errfile=$(mktemp "${TMPDIR:-/tmp}/ting-url-err.XXXXXX" 2>/dev/null) || errfile="${TMPDIR:-/tmp}/ting-url-err.$$"
     spin_start
     printf '\n%s%s %s...%s' "$C_BOLD" "$GL_CARET" "$S_URL_ACT" "$C_RESET"
-    out=$("$bin" --info -J -- "$target_url" 2>"$errfile") || rc=$?
+    out=$(engine_verb "$eng" --info -j -- "$target_url" 2>"$errfile") || rc=$?
     spin_stop
     local err_msg; err_msg=$(<"$errfile"); rm -f "$errfile"
     if ((rc != 0)); then
         if ((! no_fallback)) && [[ "$err_msg" == *"container"* || "$err_msg" == *"--items"* || "$err_msg" == *"not a song URL"* ]]; then
-            load_container_url "$eng" "$bin" "$target_url"
+            load_container_url "$eng" "$target_url"
             return $?
         fi
+        err_msg=$(engine_msg "$eng" "$err_msg")
         store_notice "$S_URL_ACT:" "${err_msg:-failed to resolve URL}"
         return 1
     fi
 
+    # The --info envelope IS a search row plus a few fields (ARCH-cli-contract.md「数据契约」),
+    # so the one-row search envelope is a projection of it — no site's raw record is read here.
     local synth_json
     synth_json=$(printf '%s' "$out" | jq -c --arg eng "$eng" "$JQ_TEXT_DEFS"'
-        . as $raw
-        | {
+        {
             status: "ok",
-            engine: ($raw.engine // $eng),
-            query: ($raw.url // $raw.webpage_url // ""),
+            engine: (.engine // $eng),
+            query: (.url // ""),
             count: 1,
             results: [{
-                url: ($raw.url // $raw.webpage_url // ""),
-                title: ($raw.title // $raw.name // "" | clean),
-                duration_fmt: ($raw.duration_fmt // ($raw.duration | fmt_dur) // ""),
-                view_count: ($raw.view_count // null),
-                channel: ($raw.channel // $raw.uploader // ($raw.ar[0].name // null) // "?" | oneline),
-                live_status: ($raw.live_status // null),
-                description: ($raw.description // "" | clean),
-                thumbnail: ($raw.thumbnail // $raw.pic // ($raw.al.picUrl // null) // (($raw.url // $raw.webpage_url // "") | yt_thumb) // "")
+                id: .id,
+                url: (.url // ""),
+                title: (.title // "" | clean),
+                duration: .duration,
+                duration_fmt: (.duration_fmt // (.duration | fmt_dur) // ""),
+                view_count: .view_count,
+                channel: (.channel // .uploader // "?" | oneline),
+                live_status: .live_status,
+                kind: .kind,
+                access: .access,
+                description: (.description // "" | clean),
+                thumbnail: (.thumbnail // "")
             }]
         }' 2>/dev/null) || synth_json=""
     if [[ -z "$synth_json" ]]; then
@@ -7871,24 +7815,23 @@ load_track_url() {
 }
 
 load_url() {
-    local target_url=$1 eng kind bin
+    local target_url=$1 eng kind
     target_url=$(extract_url_target "$target_url")
     eng=$(sniff_engine_from_url "$target_url") || eng=""
     if [[ -z "$eng" ]]; then
         store_notice "$S_URL_ACT:" "unsupported media source ($target_url)"
         return 1
     fi
-    bin=$(engine_resolve_bin "$eng") || bin=""
-    if [[ -z "$bin" ]]; then
+    if ! engine_seen "$eng"; then
         store_notice "$S_URL_ACT:" "engine '$eng' is not installed"
         return 1
     fi
 
     kind=$(sniff_target_kind "$eng" "$target_url")
     if [[ "$kind" == "container" ]]; then
-        load_container_url "$eng" "$bin" "$target_url"
+        load_container_url "$eng" "$target_url"
     else
-        load_track_url "$eng" "$bin" "$target_url"
+        load_track_url "$eng" "$target_url"
     fi
 }
 
@@ -7992,33 +7935,24 @@ fewer_results() {
 # page/selection reset: a different engine puts entirely different videos under the old
 # index, so keeping the highlight would point it at a track the user never saw.
 #
-# Both the name and the resolved binary are rolled back on a failed fetch. Rolling back only
-# the name would leave ENGINE_SEARCH pointing at the engine we just left, so the next fetch
-# would query one source under the other's label — the exact confusion the `engine` field
-# exists to prevent.
+# The name is rolled back on a failed fetch, so the next fetch never queries one source under
+# the other's label — the exact confusion the `engine` field exists to prevent.
 cycle_engine() {
     search_only || return 0
     if ((${#ENGINES[@]} < 2)); then
         return 0
     fi
-    local prev="$ENGINE" prev_bin="$ENGINE_SEARCH" i n=${#ENGINES[@]} cur=0 rc=0 bin
+    local prev="$ENGINE" i n=${#ENGINES[@]} cur=0 rc=0
     for (( i = 0; i < n; i++ )); do
         if [[ "${ENGINES[$i]}" == "$ENGINE" ]]; then cur=$i; break; fi
     done
     ENGINE="${ENGINES[$(( (cur + 1) % n ))]}"
-    bin=$(engine_search_bin "$ENGINE") || bin=""
-    if [[ -z "$bin" ]]; then
-        ENGINE="$prev"
-        return 0
-    fi
-    ENGINE_SEARCH="$bin"
     printf '\n%s%s%s %s %s %s %s "%s"%s' \
         "$C_BOLD" "$S_ENGINE_ACT" "$C_RESET" "$GL_ARROW" "$ENGINE" "$GL_DASH" \
         "$S_REFETCH" "$QUERY_LABEL" "$GL_ELL"
     fetch_json || rc=$?
     if ((rc != 0)); then
         ENGINE="$prev"
-        ENGINE_SEARCH="$prev_bin"
         report_fetch_failure "$rc"
         return 0
     fi

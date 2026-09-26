@@ -67,10 +67,10 @@ tests/playback.sh                         # 真实 detached 播放器生命周�
 tests/drive.sh -x 62 -y 20                # tmux 窄终端 TUI 键盘自动化驱动与截屏测试
 
 # 核心入口功能抽检（bash 3.2 下运行）
-/bin/bash shell/yt-search -j -n 5 -- "lofi hip hop"       # YouTube 搜索
-shell/bili-search -j -n 5 -- "周杰伦"                     # Bilibili 搜索
-shell/ne-search -j -n 5 -- "钢琴"                         # 网易云搜索
-shell/ne-resolve --transcript -j -- 1824020871           # 歌词字幕提取
+/bin/bash shell/t-play --search -j -n 5 -- "lofi hip hop" # YouTube 搜索（缺省引擎）
+shell/t-play --search --engine bili -j -n 5 -- "周杰伦"   # Bilibili 搜索
+shell/t-play --search --engine ne -j -n 5 -- "钢琴"       # 网易云搜索
+shell/t-play --transcript --engine ne -j -- 1824020871   # 歌词字幕提取
 shell/t-play -d -j --engine yt -- "URL"                   # 后台启动播放
 shell/t-play --status -j                                  # 查看全部播放状态
 shell/t-play --stop -j --id <player-id>                   # 停止播放

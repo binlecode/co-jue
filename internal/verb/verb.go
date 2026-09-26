@@ -2,8 +2,8 @@
 // suite's commands, runs it, decodes the one-line envelope, and maps the exit code onto a
 // typed error. Every key handler goes through it, which makes it where the layering rule is
 // enforced (PLAN-go-tui.md「切分原则」): nothing here, and so nothing in the binary, names mpv,
-// yt-dlp, a socket path or a site. Engine names pass through as opaque strings, and engine
-// halves are run by the paths `t-play --engines -j` hands back.
+// yt-dlp, a socket path or a site. Engine names pass through as opaque strings, and every
+// engine verb is asked of t-play, which forwards it to the engine.
 package verb
 
 import (
@@ -152,11 +152,22 @@ func lastLine(b []byte) []byte {
 	return b
 }
 
-// Engine is one installed source: its opaque name and the two paths a play would run.
+// Engine is one installed source: its opaque name, the file t-play runs for it (for
+// diagnosis, not for running), and the engine flags it accepts through t-play.
 type Engine struct {
-	Name    string `json:"name"`
-	Search  string `json:"search"`
-	Resolve string `json:"resolve"`
+	Name  string   `json:"name"`
+	Bin   string   `json:"bin"`
+	Flags []string `json:"flags"`
+}
+
+// Has reports whether the engine accepts one flag, e.g. "--transcript".
+func (e Engine) Has(flag string) bool {
+	for _, f := range e.Flags {
+		if f == flag {
+			return true
+		}
+	}
+	return false
 }
 
 // Engines asks t-play for the registry. An empty list is an answer, not an error.
@@ -168,22 +179,6 @@ func (s *Suite) Engines(ctx context.Context) ([]Engine, error) {
 		return nil, err
 	}
 	return env.Engines, nil
-}
-
-// Capabilities is the flag list one engine half publishes. A half without the verb (an
-// out-of-tree engine that predates it) answers with the minimum set: nil, no error.
-func Capabilities(ctx context.Context, half string) ([]string, error) {
-	var env struct {
-		Flags []string `json:"flags"`
-	}
-	if err := run(ctx, []string{half, "--capabilities", "-j"}, &env); err != nil {
-		var ve *Error
-		if errors.As(err, &ve) && ve.Kind() == Usage {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return env.Flags, nil
 }
 
 // Result is one search row: the fields the TUI draws, not the whole envelope.
@@ -208,7 +203,7 @@ type SearchResult struct {
 	Results []Result `json:"results"`
 }
 
-// SearchOpts are the flags forwarded to <engine>-search; zero values are left to its defaults.
+// SearchOpts are the flags of t-play --search; zero values are left to the engine's defaults.
 type SearchOpts struct {
 	N      int
 	MinDur int
@@ -216,20 +211,20 @@ type SearchOpts struct {
 	Sort   string
 }
 
-// Search runs one engine's search half.
-func Search(ctx context.Context, e Engine, query string, o SearchOpts) (*SearchResult, error) {
-	argv := []string{e.Search, "-j"}
+// Search asks one engine, through t-play.
+func (s *Suite) Search(ctx context.Context, engine, query string, o SearchOpts) (*SearchResult, error) {
+	argv := []string{s.TPlay, "--search", "--engine", engine, "-j"}
 	if o.N > 0 {
 		argv = append(argv, "-n", fmt.Sprint(o.N))
 	}
 	if o.MinDur > 0 {
-		argv = append(argv, "-m", fmt.Sprint(o.MinDur))
+		argv = append(argv, "--min-duration", fmt.Sprint(o.MinDur))
 	}
 	if o.MaxDur > 0 {
-		argv = append(argv, "-M", fmt.Sprint(o.MaxDur))
+		argv = append(argv, "--max-duration", fmt.Sprint(o.MaxDur))
 	}
 	if o.Sort != "" {
-		argv = append(argv, "-s", o.Sort)
+		argv = append(argv, "--sort", o.Sort)
 	}
 	argv = append(argv, "--", query)
 	var r SearchResult
