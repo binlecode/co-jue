@@ -2998,6 +2998,7 @@ WATCH_MERGE='{status: "watch", event: $m.event, id, pid, url, engine, mode,
     cpu: $cpu, mem: $mem, sock, log}
     + (if $m.ended then {ended: $m.ended} else {} end)'
 WATCH_NC_PID=""
+WATCH_GUARD_PID=""
 WATCH_FIFO=""
 WATCH_LAST=""
 WATCH_CPU=""
@@ -3013,6 +3014,7 @@ WATCH_BEATS=0
 # player's own life, and measured to clear on that next event. A caller that owns the process
 # (ting) kills it instead of waiting.
 watch_bail() {
+    [[ -n "$WATCH_GUARD_PID" ]] && kill "$WATCH_GUARD_PID" 2>/dev/null
     [[ -n "$WATCH_NC_PID" ]] && kill "$WATCH_NC_PID" 2>/dev/null
     [[ -n "$WATCH_FIFO" ]] && rm -f "$WATCH_FIFO" 2>/dev/null
     exit 0
@@ -3097,6 +3099,24 @@ watch_connect() {
     "${NC_UNIX[0]}" -U "$sock" <&3 >"$WATCH_FIFO" 2>/dev/null &
     WATCH_NC_PID=$!
     exec 3>&-
+    # THE CONNECTION ENDS WHEN THIS TRACK'S MPV DOES, whatever the client makes of it. BSD and
+    # OpenBSD nc leave when the peer closes; nmap's ncat does not while its stdin is still open —
+    # and the FIFO above holds it open on purpose — so under ncat this loop sat on a dead
+    # connection: no next track, and no `end` once the player was gone. ncat's -i would end it,
+    # but -i is an idle timeout and a paused player is idle. Measured on Debian trixie, ncat
+    # 7.95, 2026-09-26; Debian's ncat also takes over /usr/bin/nc through alternatives, so the
+    # nc branch of resolve_nc_unix can be ncat too. Hence a guard for every client rather than
+    # a branch on which one it is: it polls the mpv that owns this socket (the one mpv in the
+    # player's group — tracks run one after another) and takes the client down when it exits.
+    # No mpv found means it is already gone and the connect was refused; nothing to guard.
+    p=$(pgrep -g "$pid" -x mpv 2>/dev/null | head -1)
+    if [[ -n "$p" ]]; then
+        (
+            while kill -0 "$p" 2>/dev/null && kill -0 "$WATCH_NC_PID" 2>/dev/null; do sleep 0.2; done
+            kill "$WATCH_NC_PID" 2>/dev/null
+        ) </dev/null >/dev/null 2>&1 &
+        WATCH_GUARD_PID=$!
+    fi
     # The event name arrives in front of its line so the stride below costs no jq.
     while IFS=$'\037' read -r ev line; do
         case "$ev" in
@@ -3114,6 +3134,11 @@ watch_connect() {
     done < <(jq -n -r --unbuffered --argjson want "${#WATCH_OBSERVE[@]}" "$WATCH_JQ" <"$WATCH_FIFO" 2>/dev/null)
     wait "$WATCH_NC_PID" 2>/dev/null || true
     WATCH_NC_PID=""
+    if [[ -n "$WATCH_GUARD_PID" ]]; then
+        kill "$WATCH_GUARD_PID" 2>/dev/null
+        wait "$WATCH_GUARD_PID" 2>/dev/null || true
+        WATCH_GUARD_PID=""
+    fi
     rm -f "$WATCH_FIFO" 2>/dev/null
     WATCH_FIFO=""
     ((got))
@@ -4017,7 +4042,8 @@ fi
 # it plays on with NO IPC server — so the launch used to answer `started` for a player every
 # socket verb then answered 4 about, and --watch polled for a socket that would never exist.
 # Go's per-test temp dirs (…/T/TestName123456789/001/) put "$STATE_DIR/mpv-XXXXXX.sock" at
-# 111 bytes. Linux's 106 is the same rule over its 108, not a measurement.
+# 111 bytes. Linux's 106 is the same rule over its 108, measured on mpv 0.40 / Linux 7.0
+# (Debian trixie container), 2026-09-26: 106 bytes gets a socket, 107 does not.
 #
 # Refused HERE, before a player or even an id exists, because the path is known from the
 # environment alone: the id is always mktemp's six characters. Exit 1 like every other

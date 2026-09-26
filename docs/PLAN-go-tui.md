@@ -202,4 +202,6 @@ ASCII 模式、亮暗背景探测；同步重绘（今天是 DCS `1q/2q`，tmux 
 
 ## 7. 未决
 
-- Linux 上 openbsd `nc` / `ncat` 对 `--watch` 那条长连接的行为还没实测。
+- 无。Linux 上 `--watch` 的长连接与 106 字节门限已在 Debian trixie 容器里实测（2026-09-26）：
+  openbsd `nc` 下 `tests/playback.sh` 全过。ncat 下原本会卡死，已修
+  （ARCH-player.md「状态流」里的看守），修后 `--watch` 一段在 ncat 下全过。

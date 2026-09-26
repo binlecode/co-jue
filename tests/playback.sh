@@ -989,7 +989,7 @@ rpid=$!
 IFS= read -r _first <"$RFIFO"
 # ITS nc, by parent, taken while it is still attached: the first watcher holds an nc on the
 # same socket, so counting every nc in the state dir would count that one too.
-rnc=$(pgrep -P "$rpid" -f "nc -U" 2>/dev/null | head -1)
+rnc=$(pgrep -P "$rpid" -f "nc(at)? -U" 2>/dev/null | head -1)
 report "a second watcher gets its own snapshot" snapshot \
     "$(printf '%s' "$_first" | jq -r '.event' 2>/dev/null)"
 shell/t-play --set-volume 10 --id "$wid" -j >/dev/null 2>&1
@@ -1023,7 +1023,7 @@ report "the last line is end, with no failure to report" 0 \
 # Whole state on every line: a reader that joins late, or drops a line, is wrong about nothing.
 report "every line is the whole record" 0 \
     "$(jq -e -s 'all(.[]; has("title") and has("queue") and has("media") and has("volume") and has("position") and has("cpu"))' "$WOUT" >/dev/null 2>&1; echo $?)"
-report "no nc outlives the stream" 0 "$(pgrep -f "nc -U $STATE_DIR" 2>/dev/null | wc -l | tr -d ' ')"
+report "no nc outlives the stream" 0 "$(pgrep -f "nc(at)? -U $STATE_DIR" 2>/dev/null | wc -l | tr -d ' ')"
 
 echo "── the death record: real player failure and reaping ───────────────"
 # An unresolvable handle fails in the ENGINE, before any mpv exists: the detached child's
