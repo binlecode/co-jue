@@ -358,7 +358,9 @@ undo_pane() {
         # Row numbers on, so "the cursor is on row 2" is a thing the frame can say.
         tmux send-keys -t "$TS" '#'
         tmux send-keys -t "$TS" b
-        poll_until 10 pane_has '1\. undo-list' >/dev/null
+        # Asserted, not waited on blind: every step below rides on this picker, and a poll
+        # whose answer was thrown away made a slow picker read as "the list did not open".
+        report "b lists the stored list" 1 "$(poll_until 10 pane_has '1\. undo-list')"
         tmux send-keys -t "$TS" 1 Enter
         report "undo: the list opens" 1 "$(poll_until 10 pane_has "playlist='undo-list'")"
         U_BEFORE=$(ul_show undo-list)
@@ -607,7 +609,7 @@ if [ "$ONLY" = undo ]; then
         echo "  skip  (needs tmux for a real tty)"
         summary
     fi
-    YT_S=$(shell/yt-search -j -n 10 -- lofi 2>/dev/null)
+    YT_S=$(shell/t-engine-yt --search -j -n 10 -- lofi 2>/dev/null)
     [ "$(printf '%s' "$YT_S" | jq -r '.count // 0' 2>/dev/null)" -ge 3 ] ||
         { echo "contract.sh: the search for the undo pane returned too little — suite error, not a failure" >&2; exit 1; }
     undo_pane
@@ -631,9 +633,13 @@ fi
 # Moving a section is therefore a deliberate act.
 echo "── rejections (1 = usage error) ───────────────────────────────────"
 report "core no args"             1 "$(rc /bin/bash shell/t-play)"
-report "yt-search no args"        1 "$(rc /bin/bash shell/yt-search)"
-report "yt-search --detach"       1 "$(rc shell/yt-search --detach -- x)"
-report "yt-search -f audio"       1 "$(rc shell/yt-search -f audio -- x)"
+report "t-engine-yt no verb"      1 "$(rc /bin/bash shell/t-engine-yt)"
+report "--search no query"        1 "$(rc /bin/bash shell/t-engine-yt --search)"
+report "--search -d"              1 "$(rc shell/t-engine-yt --search -d -- x)"
+report "--search -f audio"        1 "$(rc shell/t-engine-yt --search -f audio -- x)"
+report "…refused as another verb's" 0 "$(err_has 'applies only to --stream' shell/t-engine-yt --search -f audio -- x)"
+report "two verbs are refused"    0 "$(err_has 'two verbs' shell/t-engine-yt --info --transcript -- x)"
+report "-l is gone"               1 "$(rc shell/t-engine-yt --search -l -- x)"
 report "t-play bare query"       1 "$(rc shell/t-play "a query")"
 report "t-play -n"               1 "$(rc shell/t-play -n 5 -- URL)"
 report "t-play two actions"      1 "$(rc shell/t-play --status --stop)"
@@ -1256,15 +1262,15 @@ YT_CHANNEL="https://www.youtube.com/@RickAstleyYT/videos"
 YT_BIG="https://www.youtube.com/@TED/videos"
 
 # Shape validation lives in the ENGINE now — the player cannot tell a good id from a bad one.
-report "resolve rejects a non-id" 1 "$(rc shell/yt-resolve -j -- "not an id")"
-report "resolve rejects -d"       1 "$(rc shell/yt-resolve -d -- "$MEDIA_ID")"
-report "resolve rejects -n"       1 "$(rc shell/yt-resolve -n 5 -- "$MEDIA_ID")"
+report "resolve rejects a non-id" 1 "$(rc shell/t-engine-yt --stream -j -- "not an id")"
+report "resolve rejects -d"       1 "$(rc shell/t-engine-yt --stream -d -- "$MEDIA_ID")"
+report "resolve rejects -n"       1 "$(rc shell/t-engine-yt --stream -n 5 -- "$MEDIA_ID")"
 # The read-only verb refuses the two flags that would make it write or play. Asserted on the
 # plain handle, not on the captioned handle the envelope checks use: the gate is decided
 # before the handle is looked at, and that handle's reason to exist (it must HAVE captions)
 # belongs to the live check that needs it.
-report "transcript rejects -f"    1 "$(rc shell/yt-resolve --transcript -f audio -- "$MEDIA_ID")"
-report "transcript rejects -d"    1 "$(rc shell/yt-resolve --transcript -d -- "$MEDIA_ID")"
+report "transcript rejects -f"    1 "$(rc shell/t-engine-yt --transcript -f audio -- "$MEDIA_ID")"
+report "transcript rejects -d"    1 "$(rc shell/t-engine-yt --transcript -d -- "$MEDIA_ID")"
 report "bili-resolve rejects a non-id" 1 "$(rc shell/bili-resolve -j -- "not an id")"
 report "bili-resolve rejects audio menu URL" 1 \
     "$(rc shell/bili-resolve -j -- "https://www.bilibili.com/audio/am10624")"
@@ -1294,8 +1300,8 @@ report "ne-resolve has no --sub-lang" 1 \
 # which is why what these pin is the stderr WORDING, not the exit code.
 report "bili-resolve has --parts"  1 "$(err_has 'unknown flag' shell/bili-resolve --parts)"
 report "bili --parts needs a handle" 1 "$(rc shell/bili-resolve --parts)"
-report "yt-resolve has no --parts"  0 "$(err_has 'unknown flag' shell/yt-resolve --parts)"
-report "yt --parts is usage"        1 "$(rc shell/yt-resolve --parts)"
+report "t-engine-yt has no --parts" 0 "$(err_has 'unknown flag' shell/t-engine-yt --parts)"
+report "yt --parts is usage"        1 "$(rc shell/t-engine-yt --parts)"
 # A flag that cannot act is REJECTED, not ignored: -f and -S select a stream format, and
 # enumerating parts resolves no stream. Same rule --info is already held to above.
 report "bili --parts takes ONE handle" 1 \
@@ -1307,13 +1313,13 @@ report "bili --parts takes ONE handle" 1 \
 # claim (a container verb that had to ask the site whether a handle was a container would
 # cost a request per typo).
 report "--items refuses a video id"     0 \
-    "$(err_has 'not a container' shell/yt-resolve --items -- "$MEDIA_ID")"
+    "$(err_has 'not a container' shell/t-engine-yt --items -- "$MEDIA_ID")"
 # A MIX IS REFUSED BY NAME, and it is the one shape that stayed refused after channels were let
 # in: a mix is regenerated on every request, so two calls are not two pages of one list and a
 # cursor over it could promise nothing. A channel's uploads measured identical across segmented
 # reads, which is exactly the property that made them admissible.
 report "--items refuses an endless list" 0 \
-    "$(err_has 'no last item' shell/yt-resolve --items -- RDdQw4w9WgXcQ)"
+    "$(err_has 'no last item' shell/t-engine-yt --items -- RDdQw4w9WgXcQ)"
 report "--items refuses a BV id"        0 \
     "$(err_has 'not a Bilibili container' shell/bili-resolve --items -- "$BILI_ID")"
 # A SERIES IS NOT A COLLECTION on this site — different endpoint, same-looking URL — so it is
@@ -1706,6 +1712,13 @@ for f in shell/*-resolve; do
     [ -x "shell/$n-search" ] && ENGINES="$ENGINES $n"
 done
 NENG=$(echo "$ENGINES" | wc -w | tr -d ' ')
+# An engine's search and its stream, as a command prefix: its one file where it has been merged
+# into one (`t-engine-<name>`), its pair otherwise. Used unquoted, so the verb splits off; no
+# path here holds a space.
+search_cmd() { if [ -x "shell/t-engine-$1" ]; then echo "shell/t-engine-$1 --search"; else echo "shell/$1-search"; fi; }
+stream_cmd() { if [ -x "shell/t-engine-$1" ]; then echo "shell/t-engine-$1 --stream"; else echo "shell/$1-resolve"; fi; }
+# …and the file its read-only verbs (--info --items --transcript --auth) are asked of.
+verb_cmd() { if [ -x "shell/t-engine-$1" ]; then echo "shell/t-engine-$1"; else echo "shell/$1-resolve"; fi; }
 # >= 2, not == 2: this section's whole premise is that engine #3 is covered the day its pair
 # lands, and a hardcoded count is the one line that would go red on exactly that day. What it
 # has to rule out is NENG=0, which would make every `refusals` check below pass vacuously.
@@ -1719,14 +1732,14 @@ NENG=$(echo "$ENGINES" | wc -w | tr -d ' ')
 # the wrong one. Engine #3 is covered the day it lands.
 _sdash=0
 for n in $ENGINES; do
-    [ "$(rc "shell/$n-search" -S abr -- q)" = 1 ] && _sdash=$((_sdash + 1))
+    [ "$(rc $(search_cmd "$n") -S abr -- q)" = 1 ] && _sdash=$((_sdash + 1))
 done
 report "every search half refuses -S" "$NENG" "$_sdash"
 # The tier abstraction is held to the same two shapes as -S: a flag that cannot act is
 # rejected (--parts resolves no stream), and a search half resolves no format at all.
 _qdash=0
 for n in $ENGINES; do
-    [ "$(rc "shell/$n-search" --quality high -- q)" = 1 ] && _qdash=$((_qdash + 1))
+    [ "$(rc $(search_cmd "$n") --quality high -- q)" = 1 ] && _qdash=$((_qdash + 1))
 done
 report "every search half refuses --quality" "$NENG" "$_qdash"
 # --items' cross-engine obligations, stated over every discovered engine because the verb is
@@ -1739,9 +1752,9 @@ report "every search half refuses --quality" "$NENG" "$_qdash"
 # all exit 1, so a count of exit codes could not tell them apart.
 _items_gate=0
 for n in $ENGINES; do
-    [ "$(rc "shell/$n-resolve" --items)" = 1 ] &&
-        [ "$(rc "shell/$n-resolve" --items -- x y)" = 1 ] &&
-        [ "$(err_has 'two verbs' "shell/$n-resolve" --items --info -- x)" = 0 ] &&
+    [ "$(rc $(verb_cmd "$n") --items)" = 1 ] &&
+        [ "$(rc $(verb_cmd "$n") --items -- x y)" = 1 ] &&
+        [ "$(err_has 'two verbs' $(verb_cmd "$n") --items --info -- x)" = 0 ] &&
         _items_gate=$((_items_gate + 1))
 done
 report "every --items refuses no handle, two handles, two verbs" "$NENG" "$_items_gate"
@@ -1753,9 +1766,9 @@ report "every --items refuses no handle, two handles, two verbs" "$NENG" "$_item
 # a cursor decided before anything is spent.
 _cursor_gate=0
 for n in $ENGINES; do
-    [ "$(rc "shell/$n-resolve" --cursor o:10 -- x)" = 1 ] &&
-        [ "$(rc "shell/$n-resolve" --items --cursor nope -- x)" = 1 ] &&
-        [ "$(err_has 'is not a cursor' "shell/$n-resolve" --items --cursor p:2 -- x)" = 0 ] &&
+    [ "$(rc $(verb_cmd "$n") --cursor o:10 -- x)" = 1 ] &&
+        [ "$(rc $(verb_cmd "$n") --items --cursor nope -- x)" = 1 ] &&
+        [ "$(err_has 'is not a cursor' $(verb_cmd "$n") --items --cursor p:2 -- x)" = 0 ] &&
         _cursor_gate=$((_cursor_gate + 1))
 done
 report "every --cursor needs --items and one token shape" "$NENG" "$_cursor_gate"
@@ -1819,6 +1832,30 @@ done
 [ "$_caps_true_n" -ge "$((NENG * 10))" ] ||
     { echo "contract.sh: --capabilities discovered fewer than $((NENG * 10)) flag cases" >&2; exit 1; }
 report "every --capabilities answer matches what the parser accepts" "$_caps_true_n" "$_caps_true"
+# The merged file's answer is held to the same truth. Listed: handed alone, a flag is not
+# unknown. And the spellings the merge retired (the pair's one-letter search flags, -l, the
+# --parts / --subtitles / --sub-langs aliases) are unknown, not quietly accepted.
+_one_n=0
+_one_ok=0
+for _e in shell/t-engine-*; do
+    [ -x "$_e" ] || continue
+    for _f in $("$_e" --capabilities -j 2>/dev/null | jq -r '.flags[]'); do
+        _one_n=$((_one_n + 1))
+        [ "$(err_has 'unknown flag' "$_e" "$_f")" = 1 ] && _one_ok=$((_one_ok + 1))
+    done
+    for _f in -m -M -s -l --parts --subtitles --sub-langs --json-full; do
+        _one_n=$((_one_n + 1))
+        [ "$(err_has 'unknown flag' "$_e" "$_f")" = 0 ] && _one_ok=$((_one_ok + 1))
+    done
+    # The internal verbs work and are not advertised: the registry reports what a caller of
+    # t-play can ask for, and --stream is the player's own pipe.
+    _one_n=$((_one_n + 1))
+    [ "$(jqv '(.flags|index("--stream"))==null and (.flags|index("--capabilities"))==null
+              and (.flags|index("--search"))!=null' "$("$_e" --capabilities -j 2>/dev/null)")" = 0 ] &&
+        _one_ok=$((_one_ok + 1))
+done
+[ "$_one_n" -ge 10 ] || { echo "contract.sh: no t-engine-* file was found to check" >&2; exit 1; }
+report "every t-engine-* --capabilities tells the truth" "$_one_n" "$_one_ok"
 
 # A flag that cannot act is REJECTED, not ignored (ARCH-cli-contract.md「门模型」): the verb asks
 # about the engine, so a handle or a query is a usage error; nothing is resolved or searched,
@@ -1889,7 +1926,7 @@ report "t-play --engines -j needs no jq" "$(echo $ENGINES)" \
 # ORDER — a flag error must not need a good handle to be reported.
 _ro_verb_has() {
     local _caps
-    _caps=" $("shell/$1-resolve" --capabilities -j 2>/dev/null | jq -r '.flags | join(" ")' 2>/dev/null) " || true
+    _caps=" $($(verb_cmd "$1") --capabilities -j 2>/dev/null | jq -r '.flags | join(" ")' 2>/dev/null) " || true
     case "$_caps" in *" $2 "*) return 0 ;; *) return 1 ;; esac
 }
 _ro=0
@@ -1899,7 +1936,10 @@ for n in $ENGINES; do
         _ro_verb_has "$n" "$_v" || continue
         for _bad in "-f audio" "-S abr" "--quality low"; do
             _ro_n=$((_ro_n + 1))
-            [ "$(err_has "does not apply to $_v" "shell/$n-resolve" $_v $_bad -- "$VIZ_URL")" = 0 ] &&
+            # The merged file words it from the flag's side ("-f applies only to --stream").
+            _pat="does not apply to $_v"
+            [ -x "shell/t-engine-$n" ] && _pat="applies only to --stream"
+            [ "$(err_has "$_pat" $(verb_cmd "$n") $_v $_bad -- "$VIZ_URL")" = 0 ] &&
                 _ro=$((_ro + 1))
         done
     done
@@ -1950,7 +1990,7 @@ for n in $ENGINES; do
         --transcript) _ro_verb_has "$n" "--sub-lang" && _with="--sub-lang zh-Hans" ;;
         esac
         _ro_host_n=$((_ro_host_n + 1))
-        [ "$(err_has "needs its own engine" "shell/$n-resolve" -j $_v $_with -- "$VIZ_URL")" = 0 ] &&
+        [ "$(err_has "needs its own engine" $(verb_cmd "$n") -j $_v $_with -- "$VIZ_URL")" = 0 ] &&
             _ro_host=$((_ro_host + 1))
     done
 done
@@ -1982,7 +2022,7 @@ for n in $ENGINES; do
                 and (.cookie_browser|type)=="string"
                 and (.profile_found|type)=="boolean"
                 and ((.auth=="cookie") == (.cookie_browser!="none" and .profile_found))' \
-            "shell/$n-resolve" --auth -j)" = 0 ] && _auth=$((_auth + 1))
+            $(verb_cmd "$n") --auth -j)" = 0 ] && _auth=$((_auth + 1))
 done
 report "every engine answers --auth -j" "$NENG" "$_auth"
 
@@ -1995,7 +2035,7 @@ _anon=0
 for n in $ENGINES; do
     _v="$(echo "$n" | tr '[:lower:]' '[:upper:]')_COOKIE_BROWSER"
     [ "$(jq_ok '.auth=="anonymous" and .cookie_browser=="none" and .profile_found==false' \
-            env "$_v=none" "shell/$n-resolve" --auth -j)" = 0 ] && _anon=$((_anon + 1))
+            env "$_v=none" $(verb_cmd "$n") --auth -j)" = 0 ] && _anon=$((_anon + 1))
 done
 report "every engine honours _BROWSER=none" "$NENG" "$_anon"
 
@@ -2010,7 +2050,7 @@ for n in $ENGINES; do
     _v="$(echo "$n" | tr '[:lower:]' '[:upper:]')_COOKIE_BROWSER"
     [ "$(jq_ok '.auth=="anonymous" and .cookie_browser=="definitely-not-a-browser"
                 and .profile_found==false' \
-            env "$_v=definitely-not-a-browser" "shell/$n-resolve" --auth -j)" = 0 ] &&
+            env "$_v=definitely-not-a-browser" $(verb_cmd "$n") --auth -j)" = 0 ] &&
         _bogus=$((_bogus + 1))
 done
 report "an unknown browser is anonymous" "$NENG" "$_bogus"
@@ -2022,7 +2062,7 @@ for _bad in "--auth -- HANDLE" "--auth -f video" "--auth -J"; do
     _r=0
     for n in $ENGINES; do
         # shellcheck disable=SC2086
-        [ "$(rc "shell/$n-resolve" $_bad)" = 1 ] && _r=$((_r + 1))
+        [ "$(rc $(verb_cmd "$n") $_bad)" = 1 ] && _r=$((_r + 1))
     done
     report "every engine refuses ${_bad}" "$NENG" "$_r"
 done
@@ -2042,7 +2082,7 @@ for n in $ENGINES; do
     # `env`, not a `VAR=x rc …` prefix: an assignment in front of a FUNCTION call persists
     # in bash after the call returns, and a leaked PATH would silently reshape every check
     # below this line.
-    [ "$(env "PATH=$NODEP_PATH" "shell/$n-resolve" --auth >/dev/null 2>&1; echo $?)" = 0 ] &&
+    [ "$(env "PATH=$NODEP_PATH" $(verb_cmd "$n") --auth >/dev/null 2>&1; echo $?)" = 0 ] &&
         _nod=$((_nod + 1))
 done
 report "every engine --auth needs no yt-dlp" "$NENG" "$_nod"
@@ -2059,7 +2099,7 @@ report "every engine --auth needs no yt-dlp" "$NENG" "$_nod"
 refusals() {
     local u=$1 n r=0
     for n in $ENGINES; do
-        [ "$(http_proxy=$NOPROXY https_proxy=$NOPROXY rc "shell/$n-resolve" -j -- "$u")" = 1 ] && r=$((r + 1))
+        [ "$(http_proxy=$NOPROXY https_proxy=$NOPROXY rc $(stream_cmd "$n") -j -- "$u")" = 1 ] && r=$((r + 1))
     done
     echo $r
 }
@@ -2093,8 +2133,8 @@ done
 # same dead proxy a gate that ACCEPTS this host reaches the transport and fails 2, and a gate
 # that dropped it dies at 1 without one. Extraction itself is proved on the canonical URL
 # form by the resolve envelope, live, in the half below.
-report "yt-resolve still takes youtu.be" 1 \
-    "$([ "$(http_proxy=$NOPROXY https_proxy=$NOPROXY rc shell/yt-resolve -j -- https://youtu.be/$MEDIA_ID)" != 1 ] && echo 1 || echo 0)"
+report "t-engine-yt still takes youtu.be" 1 \
+    "$([ "$(http_proxy=$NOPROXY https_proxy=$NOPROXY rc shell/t-engine-yt --stream -j -- https://youtu.be/$MEDIA_ID)" != 1 ] && echo 1 || echo 0)"
 
 # ── ONE SONG, FOUR SPELLINGS, ONE CANONICAL URL ────────────────────────────────────────────
 # Every handle grammar in this suite is per-engine and duplicated (each `normalize_target` is
@@ -2305,7 +2345,7 @@ printf 'UT_MAX_SEARCH_RESULTS=-5\n' > "$CFG"
 # driving one of them would be green while the other spent an unbounded fetch.
 for n in $ENGINES; do
     report "$n-search rejects a negative ceiling" "1" \
-        "$(UT_CONFIG="$CFG" rc "shell/$n-search" -j -- q)"
+        "$(UT_CONFIG="$CFG" rc $(search_cmd "$n") -j -- q)"
 done
 
 # A restricted cycle must still START. The -f and -s defaults are validated against their
@@ -2519,14 +2559,14 @@ ck() { local h=$1; shift
        HOME="$CK_BASE/$h" YT_COOKIE_BROWSER=chrome BILI_COOKIE_BROWSER=chrome NE_COOKIE_BROWSER=chrome \
            http_proxy=$NOPROXY https_proxy=$NOPROXY "$@" 2>"$CK_ERR" | jq -r '.reason // "none"' 2>/dev/null; }
 ck_said() { grep -c "$1" "$CK_ERR" 2>/dev/null | awk '{print ($1 > 0) ? 1 : 0}'; }
-report "search retries without an unreadable store" network "$(ck missing shell/yt-search -j -n 3 -- lofi)"
+report "search retries without an unreadable store" network "$(ck missing shell/t-engine-yt --search -j -n 3 -- lofi)"
 report "…and says the store is missing, and the fix" 1 "$(ck_said 'no chrome cookies: chrome has no cookie database - sign in')"
-report "--info retries without it too" network "$(ck missing shell/yt-resolve --info -j -- "$YT_WATCH")"
+report "--info retries without it too" network "$(ck missing shell/t-engine-yt --info -j -- "$YT_WATCH")"
 # The permission twin reaches the classifier as a raw OS error on the cookie file, not as
 # "could not find" — so it is driven through the OTHER wrapped call site, and the pair covers
 # both call sites and both wordings with one launch each.
 report "--transcript retries on a cookie file it may not open" network \
-    "$(ck denied shell/yt-resolve --transcript -j -- "$YT_WATCH")"
+    "$(ck denied shell/t-engine-yt --transcript -j -- "$YT_WATCH")"
 report "…and names the error and the file" 1 "$(ck_said 'no chrome cookies: Permission denied reading ')"
 # The probe, the diagnosis and the wrapper are COPIED into every engine that reads cookies
 # (site knowledge stays per engine), so each copy is driven, not only yt's: its own --info,
@@ -2543,7 +2583,7 @@ done
 # whether the store can be read, in both directions so an always-false field fails too —
 # over every engine that has --auth.
 ck_auth() { HOME="$CK_BASE/$1" YT_COOKIE_BROWSER=chrome BILI_COOKIE_BROWSER=chrome NE_COOKIE_BROWSER=chrome \
-                "shell/$2-resolve" --auth -j 2>/dev/null | jq -r '.cookie_readable'; }
+                $(verb_cmd "$2") --auth -j 2>/dev/null | jq -r '.cookie_readable'; }
 for n in $ENGINES; do
     report "$n --auth: a missing store is not readable" false "$(ck_auth missing "$n")"
     report "$n --auth: a file it may not open is not readable" false "$(ck_auth denied "$n")"
@@ -2667,25 +2707,25 @@ printf 'UT_SEARCH_RESULTS=4\n'     > "$UT_TEST_TMP/cfg-dflt"
 # other for no reason.
 SEARCH_PIDS=""
 for n in $ENGINES; do
-    spawn "search-$n" shell/"$n"-search -j -n 10 -- lofi
+    spawn "search-$n" $(search_cmd "$n") -j -n 10 -- lofi
     SEARCH_PIDS="$SEARCH_PIDS $!"
 done
 for n in $ENGINES; do
-    spawn "searchJ-$n"   shell/"$n"-search  -J -n 5  -- lofi
-    spawn "cap-$n"       env UT_CONFIG="$UT_TEST_TMP/cfg-cap"  shell/"$n"-search -j -n 20 -- lofi
-    spawn "dflt-$n"      env UT_CONFIG="$UT_TEST_TMP/cfg-dflt" shell/"$n"-search -j -- lofi
+    spawn "searchJ-$n"   $(search_cmd "$n") -J -n 5  -- lofi
+    spawn "cap-$n"       env UT_CONFIG="$UT_TEST_TMP/cfg-cap"  $(search_cmd "$n") -j -n 20 -- lofi
+    spawn "dflt-$n"      env UT_CONFIG="$UT_TEST_TMP/cfg-dflt" $(search_cmd "$n") -j -- lofi
 done
-spawn yt-resolve   shell/yt-resolve   -j -- "$MEDIA_ID"
-spawn yt-info      shell/yt-resolve   --info -j -- "$MEDIA_ID"
-spawn yt-trans     shell/yt-resolve   --transcript -j -- "$CAPTIONED"
-spawn yt-transJ    shell/yt-resolve   --transcript -J -- "$CAPTIONED"
-spawn yt-nocap     shell/yt-resolve   --transcript -j -- "$BARE"
-spawn yt-argv      shell/yt-search    -j -n 1 -- --status
+spawn yt-resolve   shell/t-engine-yt --stream -j -- "$MEDIA_ID"
+spawn yt-info      shell/t-engine-yt --info -j -- "$MEDIA_ID"
+spawn yt-trans     shell/t-engine-yt --transcript -j -- "$CAPTIONED"
+spawn yt-transJ    shell/t-engine-yt --transcript -J -- "$CAPTIONED"
+spawn yt-nocap     shell/t-engine-yt --transcript -j -- "$BARE"
+spawn yt-argv      shell/t-engine-yt --search -j -n 1 -- --status
 spawn yt-dead      shell/t-play      -j -- AAAAAAAAAAA
 spawn bili-resolve shell/bili-resolve -j -- "$BILI_ID"
 spawn bili-info    shell/bili-resolve --info -j -- "$BILI_ID"
 spawn bili-zh      shell/bili-search  -j -n 20 -M 600 -- 周杰伦
-spawn yt-zh        shell/yt-search    -J -n 15 -- 周杰伦
+spawn yt-zh        shell/t-engine-yt --search -J -n 15 -- 周杰伦
 spawn bili-offset  shell/bili-resolve -j -- "https://www.bilibili.com/video/$BILI_PARTS_ID?p=2&t=601"
 spawn bili-parts   shell/bili-resolve --parts -j -- "$BILI_PARTS_ID"
 spawn bili-part1   shell/bili-resolve --parts -j -- "$BILI_ID"
@@ -2695,24 +2735,24 @@ spawn ne-vip       env NE_INCLUDE_VIP=1 shell/ne-search -j -n 20 -- 周杰伦
 spawn ne-trans     shell/ne-resolve --transcript -j -- "$NE_LYRIC"
 spawn ne-notrans   shell/ne-resolve --transcript -j -- "$NE_SILENT"
 spawn ne-novip     shell/ne-search  -j -n 20 -- 周杰伦
-spawn yt-items     shell/yt-resolve   --items -j -- "$YT_LIST"
+spawn yt-items     shell/t-engine-yt --items -j -- "$YT_LIST"
 spawn bili-items   shell/bili-resolve --items -j -- "$BILI_MENU"
 spawn ne-items     env NE_INCLUDE_VIP=1 shell/ne-resolve --items -j -- "$NE_LIST"
 spawn ne-items-def shell/ne-resolve   --items -j -- "$NE_LIST"
 spawn bili-fav     shell/bili-resolve --items -j -- "$BILI_FAV"
 spawn bili-season  shell/bili-resolve --items -j -- "$BILI_SEASON"
-spawn yt-channel   shell/yt-resolve   --items -j -- "$YT_CHANNEL"
+spawn yt-channel   shell/t-engine-yt --items -j -- "$YT_CHANNEL"
 # The two halves of one cursor round trip, fired TOGETHER: the second is not waiting on the
 # first's token, it asserts that the token the first hands out is the offset the second reads.
-spawn yt-big1      shell/yt-resolve   --items -j -- "$YT_BIG"
-spawn yt-big2      shell/yt-resolve   --items -j --cursor o:500 -- "$YT_BIG"
-spawn yt-nolist    shell/yt-resolve   --items -j -- PLzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
+spawn yt-big1      shell/t-engine-yt --items -j -- "$YT_BIG"
+spawn yt-big2      shell/t-engine-yt --items -j --cursor o:500 -- "$YT_BIG"
+spawn yt-nolist    shell/t-engine-yt --items -j -- PLzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
 spawn bili-nofav   shell/bili-resolve --items -j -- ml999999999999
 spawn bili-nomenu  shell/bili-resolve --items -j -- am999999999
 spawn ne-nolist    shell/ne-resolve   --items -j -- "https://music.163.com/album?id=999999999"
 for n in $ENGINES; do
-    spawn_once "net-j-$n" env http_proxy="$NOPROXY" https_proxy="$NOPROXY" shell/"$n"-search -j -n 2 -- lofi
-    spawn_once "net-t-$n" env http_proxy="$NOPROXY" https_proxy="$NOPROXY" shell/"$n"-search    -n 2 -- lofi
+    spawn_once "net-j-$n" env http_proxy="$NOPROXY" https_proxy="$NOPROXY" $(search_cmd "$n") -j -n 2 -- lofi
+    spawn_once "net-t-$n" env http_proxy="$NOPROXY" https_proxy="$NOPROXY" $(search_cmd "$n")    -n 2 -- lofi
 done
 
 # The dependent four, fired as soon as their handle exists rather than after the whole batch.
@@ -2725,8 +2765,8 @@ for n in $ENGINES; do
     [ -n "$SU" ] ||
         { echo "contract.sh: $n-search returned no non-live row — no handle to test the offset on" >&2; exit 1; }
     case "$SU" in *\?*) SEP='&' ;; *) SEP='?' ;; esac
-    spawn "off601-$n" shell/"$n"-resolve -j -- "${SU}${SEP}t=601"
-    spawn "off0-$n"   shell/"$n"-resolve -j -- "${SU}${SEP}t=0"
+    spawn "off601-$n" $(stream_cmd "$n") -j -- "${SU}${SEP}t=601"
+    spawn "off0-$n"   $(stream_cmd "$n") -j -- "${SU}${SEP}t=0"
 done
 wait   # …and now everything, both waves
 
@@ -2827,7 +2867,7 @@ echo "── argv order: a flag-shaped query after -- is SEARCHED ────�
 # Asserted POSITIVELY, on the query the engine echoes back. The old form folded stderr into
 # the pipe and asked only "is line one not JSON?", so `Error: search failed (network)` — a
 # yt-search that did not run at all — satisfied it. It was also the one live call in this file
-report "yt-search -- --status searches" 0 \
+report "--search -- --status searches" 0 \
     "$(jqv '.status=="ok" and .query=="--status"' "$(out yt-argv)")"
 
 echo "── --transcript: the read-only verb, both envelopes (gate above) ──"
@@ -3244,6 +3284,16 @@ report "info envelopes agree" \
     "$(printf '%s' "$YT_I" | jq -Sc 'keys' 2>/dev/null)" \
     "$(printf '%s' "$BILI_I" | jq -Sc 'keys' 2>/dev/null)"
 report "--info -j is one line" 1 "$(lines "$YT_I")"
+# …and --info carries every key a search ROW carries, so a caller holding a URL instead of a
+# search result builds the same row out of it. Without that the TUI read the raw -J record for
+# a cover, which is site knowledge leaking out of the engine. Asserted as a set difference
+# against the engine's own search row, so a row field added later is covered the day it lands.
+report "yt --info carries every search-row key" "[]" \
+    "$(jq -nc --argjson s "$YT_S" --argjson i "$YT_I" '($s.results[0]|keys) - ($i|keys)' 2>/dev/null)"
+report "bili --info carries every search-row key" "[]" \
+    "$(jq -nc --argjson s "$BILI_S" --argjson i "$BILI_I" '($s.results[0]|keys) - ($i|keys)' 2>/dev/null)"
+report "--info's cover is a https url" 0 \
+    "$(jqv '(.thumbnail|type)=="string" and (.thumbnail|startswith("https://"))' "$YT_I")"
 
 report "bili-search names its engine" 0 \
     "$(jqv '.status=="ok" and .engine=="bili"' "$BILI_S")"

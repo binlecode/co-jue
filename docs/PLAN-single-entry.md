@@ -1,7 +1,6 @@
 # PLAN — `t-play` 成为唯一 CLI 入口，引擎退到底层（`t-engine-<site>`）
 
-> **Status**: 草案（2026-09-26）· 方向已定：`t-play` 为唯一入口，引擎叫 `t-engine-<site>`，词汇沿用 `engine`；
-> §8 的待确认项定下之前不动代码  
+> **Status**: 实施中（2026-09-26 开工）· §8 七项按建议定下（`ACCENT` 两键留到第 5 步再定）；第 1 步（`t-engine-yt`）已落  
 > **Priority**: 第一梯队，**立即做**：先于 `PLAN-go-tui.md` 第 4 步，Go 那侧等本计划落地再继续  
 > **Target Branch**: main  
 > **Governing Docs**: [`ARCHITECTURE.md`](ARCHITECTURE.md)「命令拓扑与文件布局」、[`ARCH-engine.md`](ARCH-engine.md)、
@@ -189,13 +188,19 @@ yt 这一对 392 行（占 `yt-search` 代码的 63%），bili、ne 各约 214 �
 
 ---
 
-## 8. 待你确认（定了再动代码）
+## 8. 已定（2026-09-26）
 
-1. **存储**：`t-playlist`、`t-history` 是否也并进 `t-play`。建议不并：它们有自己的语义，并进来只会让 `t-play` 的 flag 面更大。
-2. **名字**：入口是否还叫 `t-play`。建议不改：agent 已经会用它，「找到东西、然后播放」也说得通。
-3. **过渡别名**：旧的六个命令名留不留。建议不留：唯一的用户就是你，改 README、`CLAUDE.md` 与 memory 即可；
-   留的话每个要一个三行的转发脚本，一个版本后再删。
-4. **`--parts` 并入 `--items`**：建议并。
-5. **`-m`/`-M`/`-s` 改长名**：建议改；不改则保持原样只换宿主。
-6. **配置删并清单（§4 表）**：逐条签字，`ACCENT` 两个键给个去留。
-7. **版本号**：0.x 下 SemVer 允许破坏性变更走 minor，建议 `0.18.0`；若把这次当作契约定型，也可以直接 `1.0.0`。
+1. **存储**：`t-playlist`、`t-history` 不并进 `t-play`。
+2. **名字**：入口仍叫 `t-play`。
+3. **过渡别名**：旧的六个命令名不留，第 3 步末尾直接删。
+4. **`--parts` 并入 `--items`**：并。
+5. **`-m`/`-M`/`-s` 改长名**：改为 `--min-duration` / `--max-duration` / `--sort`；`t-engine-*` 从第一天就只认长名。
+6. **配置删并清单（§4 表）**：照表执行；`UT_ACCENT`、`UT_ACCENT_LIGHT` 的去留在第 5 步动配置时再定。
+7. **版本号**：`0.18.0`。
+
+**实施中定下的两条**（第 1 步）：
+
+- `--info` 补齐的字段是 `kind`、`access`、`thumbnail`。bili 的 `--info` 在第 1 步一并补上（与它的搜索同一判断），
+  ne 留到第 2 步：它的 `access` 由搜索接口的 `fee` 算出，而 `--info` 走的 yt-dlp 记录里没有 `fee`，印 `full` 就是猜。
+- 第 1、2 步期间 `--engines` 与 bash `ting` 仍按旧的一对找引擎：`t-play` 播放已走 `t-engine-<n> --stream`，
+  TUI 的搜索与 `c`/`i` 仍调旧文件。两边同时在役，第 3 步删旧文件时一起收口。

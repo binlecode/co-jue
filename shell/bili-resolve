@@ -1199,6 +1199,9 @@ resolve_info() {
         # `channel` falls back to `uploader`: this extractor fills the uploader field and
         # leaves channel null on some records, and the envelope's shape must not depend on
         # which. live_status is passed through as whatever the record says, or null.
+        # `kind`, `access` and `thumbnail` are here so the envelope carries every key a search
+        # row does: the same judgement bili-search makes (track/full), and the cover under the
+        # same https rule, read from yt-dlp's `thumbnail` where search reads the site's `pic`.
         printf '%s\n' "$raw" | jq -c --arg engine "$ENGINE_NAME" --arg df "$duration_fmt" \
             --argjson start "${TARGET_START:-null}" \
             "$JQ_PRELUDE"'{
@@ -1215,6 +1218,13 @@ resolve_info() {
             like_count: (.like_count // null),
             live_status: (.live_status // null),
             description: (.description // null),
+            kind: "track", access: "full",
+            thumbnail: ((.thumbnail // "") as $p
+                        | if ($p | type) != "string" or $p == "" then null
+                          elif ($p | startswith("//")) then "https:" + $p
+                          elif ($p | startswith("http://")) then ($p | sub("^http://"; "https://"))
+                          elif ($p | startswith("https://")) then $p
+                          else null end),
             chapters: (if (.chapters | type) == "array"
                        then [.chapters[] | {start_time, end_time, title}]
                        else null end)

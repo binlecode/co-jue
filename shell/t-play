@@ -567,6 +567,7 @@ normalize_playback_mode() {
 # --auth), so a die there would kill a working menu over an optional field. Merging them
 # would cost one side or the other exactly that.
 ENGINE_RESOLVE=""
+ENGINE_STREAM_VERB=""  # "--stream" for a one-file engine, "" for a pair's resolve half
 # One gate for both spellings of the loop mode, because both take the same two values and a
 # caller who guesses the third has guessed a REAL feature under the wrong flag — so the
 # message routes them to it instead of just listing what is legal.
@@ -652,9 +653,28 @@ engine_resolve_bin() {
     if [[ ! "$ENGINE" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
         die "invalid engine name: '$ENGINE'"
     fi
-    ENGINE_RESOLVE=$(engine_half_bin "$ENGINE" resolve) ||
-        die "unknown engine '$ENGINE': no '$ENGINE-resolve' next to t-play, in $UT_ENGINE_DIR, or on PATH"
+    # One file per site (`t-engine-<name>`, verb --stream) is found before the older pair's
+    # resolve half (verb: none), so an engine that has been merged plays through its merged
+    # file while the others still resolve through their pair.
+    if ENGINE_RESOLVE=$(engine_file_bin "$ENGINE"); then
+        ENGINE_STREAM_VERB="--stream"
+    elif ENGINE_RESOLVE=$(engine_half_bin "$ENGINE" resolve); then
+        ENGINE_STREAM_VERB=""
+    else
+        die "unknown engine '$ENGINE': no 't-engine-$ENGINE' or '$ENGINE-resolve' next to t-play, in $UT_ENGINE_DIR, or on PATH"
+    fi
     return 0
+}
+
+# An engine's one file, by name, from the same three places in the same order.
+engine_file_bin() { # <name>
+    if [[ -x "$SCRIPT_DIR/t-engine-$1" ]]; then
+        printf '%s\n' "$SCRIPT_DIR/t-engine-$1"
+    elif [[ -x "$UT_ENGINE_DIR/t-engine-$1" ]]; then
+        printf '%s\n' "$UT_ENGINE_DIR/t-engine-$1"
+    else
+        command -v "t-engine-$1" 2>/dev/null
+    fi
 }
 
 # One half of one engine, by name: sibling, then the plugin dir, then PATH. The lookup the
@@ -784,7 +804,7 @@ resolve_media() {
     # over --quality INSIDE the engine (ARCH-player.md「模式 → 格式 → mpv」), so both are forwarded
     # unchanged.
     local out rc=0
-    out=$("$ENGINE_RESOLVE" -j -f "$mode" ${FORMAT_SORT:+-S "$FORMAT_SORT"} \
+    out=$("$ENGINE_RESOLVE" ${ENGINE_STREAM_VERB:+"$ENGINE_STREAM_VERB"} -j -f "$mode" ${FORMAT_SORT:+-S "$FORMAT_SORT"} \
         ${PLAY_QUALITY:+--quality "$PLAY_QUALITY"} -- "$handle" 2>/dev/null) || rc=$?
 
     if ((rc != 0)) || [[ -z "$out" ]]; then
