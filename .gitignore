@@ -3,3 +3,6 @@
 .DS_Store
 __pycache__/
 *.pyc
+# The Go TUI's development build: beside the scripts so it finds its siblings, dot-named so
+# no shell/* glob (bash -n, the hooks, the suite's entry points) ever sees the binary.
+/shell/.ting-go

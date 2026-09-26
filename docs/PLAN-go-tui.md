@@ -179,6 +179,13 @@ ASCII 模式、亮暗背景探测；同步重绘（今天是 DCS `1q/2q`，tmux 
    跨曲目、播放器死亡，全部轮询真实事件，不 sleep）。bump。
 2. **`--capabilities -j`**（shell）：三个引擎 + 契约段的跨引擎门。bump。
 3. **Go 骨架**：先落 `t-play --engines -j`（shell，bump）；再 `verb` 包、`--watch` 消费、配置链，先能搜、能播、能停。
+   **已落地**：`cmd/ting`、`internal/verb`（`Error` 按退出码分三类；`Watch` 把 `--watch` 放进自己的进程组，
+   `Close` 连 nc/jq 一起收走，播放器不受影响）、`internal/config`（读链，含 TING_ 环境名只认那张改名清单的怪癖）、
+   `internal/tui`（搜 / 播 / 暂停 / 停 / 换源 / 新搜索，启动时接管最新那个在跑的播放器，退出只停本会话起的）。
+   `go test ./...` 驱动真实命令；带网络与 mpv 的两例在 `-short` 下跳过。测试的 `TMPDIR` 放在仓内 `tmp/`：
+   macOS 的 unix socket 路径上限 104 字节，Go 每个测试的临时目录会超，mpv 于是**不建 socket 就起播**，
+   `--watch` 永远等不到可连的 socket（t-play 这一侧的既有问题，见「未决」）。
+   偏好写回、键表其余部分、主题与封面归第 4 步。
 4. **对齐**：按 §5 清单逐项。
 5. **测试迁移**：`tests/contract.sh` 的 tmux 段与 `tests/drive.sh` 改为驱动 Go 二进制；
    断言针对行为与帧结构，不针对 bash 实现细节。
@@ -196,3 +203,6 @@ ASCII 模式、亮暗背景探测；同步重绘（今天是 DCS `1q/2q`，tmux 
 ## 7. 未决
 
 - Linux 上 openbsd `nc` / `ncat` 对 `--watch` 那条长连接的行为还没实测。
+- `$TMPDIR` 长到 socket 路径超过 104 字节时，`t-play -d` 照样报 `started`，mpv 却没有 IPC socket：
+  之后每个 socket 动词都 4，`--watch` 无限轮询。是在 `-d` 门口拒掉（退 1 并说出路径长度），还是换一个
+  更短的 socket 位置，待定。
