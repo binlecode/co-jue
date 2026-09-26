@@ -1,12 +1,12 @@
 # PLAN — TUI 改用 Go，CLI 契约成为唯一接缝
 
-> **Status**: 实施中 · 三项决定已确认（2026-09-24），`--watch` 形状四项已确认（2026-09-25），`--capabilities` 形状已确认（2026-09-25），引擎发现与分发已定（2026-09-25）  
+> **Status**: 实施中 · 三项决定已确认（2026-09-24），`--watch` 形状四项已确认（2026-09-25），`--capabilities` 形状已确认（2026-09-25），引擎发现与分发已定（2026-09-25）· **暂停于第 4 步之前**：引擎形状与配置键由 [`PLAN-single-entry.md`](PLAN-single-entry.md) 重定（2026-09-26），它先做完，本计划再继续  
 > **Priority**: 第一梯队  
 > **Target Branch**: main  
 > **Roadmap 关联**: [`docs/ROADMAP.md`](ROADMAP.md)「Go 重写 NO」（TUI 一半已由本计划反转）  
 > **Governing Docs**: [`docs/ARCHITECTURE.md`](ARCHITECTURE.md)「分析：驱动决定的六条发现」、[`docs/ARCH-cli-contract.md`](ARCH-cli-contract.md)「`ting` —— 交互式终端 UI」、[`docs/ARCH-player.md`](ARCH-player.md)「运行时 IPC 控制」、[`docs/ARCH-tui.md`](ARCH-tui.md)  
 > **Verification**: `bash -n shell/*`、`tests/contract.sh --offline`、`tests/contract.sh`、`tests/playback.sh`、`go test ./...`、tmux 驱动段  
-> **Scope Boundary**: 只换人机那张脸。引擎对（`*-search` / `*-resolve`）、播放器 `t-play`、两个存储（`t-playlist` / `t-history`）留在 shell、bash 3.2、零新增运行时依赖，既有 argv、信封字段、reason 与退出码一字不改。契约只**加**三样东西（`t-play --watch`、`--capabilities -j`、`t-play --engines -j`），各自是一次 minor。
+> **Scope Boundary**: 只换人机那张脸。引擎对（`*-search` / `*-resolve`）、播放器 `t-play`、两个存储（`t-playlist` / `t-history`）留在 shell、bash 3.2、零新增运行时依赖，既有 argv、信封字段、reason 与退出码一字不改。契约只**加**三样东西（`t-play --watch`、`--capabilities -j`、`t-play --engines -j`），各自是一次 minor。引擎对与配置键的形状随后由 PLAN-single-entry.md 改写（那是它的范围，不是本计划的）。
 
 ---
 
@@ -35,9 +35,10 @@ yt-dlp/mpv 在任何语言里都是子进程，生命周期的回归无法二分
               +-----------------+------------------+
                                 v
   +----------------------------------------------------------+
-  |  t-play | <engine>-search | <engine>-resolve             |
-  |  t-playlist | t-history          (shell, bash 3.2)       |
+  |  t-play | t-playlist | t-history   (shell, bash 3.2)     |
   +----------------------------+-----------------------------+
+                               v
+        t-engine-<site>（底层，经 t-play 转发，PLAN-single-entry.md）
                                v
                   mpv socket / yt-dlp / curl   (private)
 ```
@@ -60,8 +61,8 @@ yt-dlp/mpv 在任何语言里都是子进程，生命周期的回归无法二分
 | `fetch_play_res` 对播放器的**进程组**跑 `ps` 读 CPU/内存——依赖 `t-play` 内部的 `set -m`（pgid == 记录里的 pid） | 没有动词答这个 | `--watch` 的心跳按 `UT_RESOURCE_TICKS` 取样带出 `cpu`/`mem`；进程组知识留在 `t-play` |
 | `-`/`=` 音量走 `send_mpv_ipc`，先 `get_property volume` 再 set | 按住连发：socket 10 ms/次，`--set-volume` 60 ms/次 | Go 端合并连按（只保留最新目标值、同一时刻最多一个在途调用），走 `--set-volume`；当前音量来自 `--watch` |
 | 封面：TUI 自己起一个 `mpv --vo=image` 做转码 | bash 解不了图 | Go 解码搜索信封里的 `thumbnail`，自己发 Kitty 协议；mpv 从 TUI 里消失（细节见 §5「封面」） |
-| `--parts` / `--info` 支不支持，靠调一次、嗅 stderr 的用法错 | 没有发现动词 | `<engine>-resolve --capabilities -j`（§4.2） |
-| 引擎发现：本目录 → `UT_ENGINE_DIR` → PATH 三处扫描，与 `t-play` 各写一份 | 没有动词答这个 | `t-play --engines -j`（§4.3）；Go 只跑它给的路径 |
+| `--parts` / `--info` 支不支持，靠调一次、嗅 stderr 的用法错 | 没有发现动词 | 先是 `<engine>-resolve --capabilities -j`（§4.2）；之后归 `t-play --engines -j` 的 `flags[]`（PLAN-single-entry.md §2） |
+| 引擎发现：本目录 → `UT_ENGINE_DIR` → PATH 三处扫描，与 `t-play` 各写一份 | 没有动词答这个 | `t-play --engines -j`（§4.3）；之后 Go 根本不执行引擎文件，引擎动词一律经 `t-play` 转发（PLAN-single-entry.md） |
 
 **已经干净、原样沿用的**：起播/停止/暂停/seek/循环/队列八个动词、`--undo --owner PID`
 （Go 进程传自己的 PID）、`--status` 接管已在跑的播放器、`t-playlist` / `t-history` 全部动词。
@@ -109,6 +110,9 @@ yt-dlp/mpv 在任何语言里都是子进程，生命周期的回归无法二分
 
 ### 4.2 `<engine>-search` / `<engine>-resolve --capabilities -j`
 
+> **被 PLAN-single-entry.md 取代**：公开面上不再有各半边的 `--capabilities`，能力清单并进 `t-play --engines -j` 的 `flags[]`；
+> `t-engine-<site> --capabilities` 留作 `t-play` 与引擎之间的内部协议。下文记的是已落地的 0.16.0 形状。
+
 一次调用答出这个引擎半边支持的动词与选项（`--parts`、`--info`、`--transcript`、
 `--items`……），替代嗅探 stderr。三个内置引擎都加；`ARCH-cli-contract.md`
 「加一个引擎 —— 清单」把它列为必备项，仓外引擎缺它时调用方按"只有最小集"处理。
@@ -120,6 +124,9 @@ yt-dlp/mpv 在任何语言里都是子进程，生命周期的回归无法二分
   `shell/ting` 的 `c`/`i` 门改读它（ARCH-tui.md），套件的动词发现也改读它，并对每个引擎验它说的是真话。
 
 ### 4.3 `t-play --engines -j`
+
+> **形状被 PLAN-single-entry.md 改写**：`{status, engines:[{name, bin, flags[]}]}`，每个引擎一个文件（`t-engine-<name>`）；
+> `bin` 只供诊断，Go 不执行它。下文记的是已落地的 0.17.0 形状。
 
 - **形状（已定 2026-09-25）**：`{status, engines:[{name, search, resolve}]}`，发现顺序，两条都是
   一次播放真正会跑的绝对路径。放在 `t-play`：它本来就拥有 resolver 查找与 `UT_ENGINE_DIR`，
@@ -149,12 +156,13 @@ yt-dlp/mpv 在任何语言里都是子进程，生命周期的回归无法二分
   所有键处理器只调它。它同时是"Go 里不许出现 mpv"那条判据的落点。
 - **找兄弟动词**：与今天的 shell 脚本同一条规则——先解开 Go 二进制自身的符号链接
   （`os.Executable` + `filepath.EvalSymlinks`），在它真实所在的目录找，再回落 PATH。
-  这只用来找 `t-play` / `t-playlist` / `t-history`；引擎的两半一律用 `t-play --engines -j` 给的路径。
-  不加新环境变量；十个命令继续作为 `bin/` 下的公开命令安装（tap formula 今天就是这样），
-  因为它们是 agent 的产品面，不是藏进 `libexec` 的内部件。`t-playlist` / `t-history` 缺席时
+  这只用来找 `t-play` / `t-playlist` / `t-history`；引擎动词（搜索、`--info`、容器、字幕）一律调 `t-play` 的转发动词，
+  Go 不执行引擎文件（PLAN-single-entry.md）。不加新环境变量；公开命令收成四个（`t-play`、`t-playlist`、`t-history`、`ting`）
+  装在 `bin/` 下，`t-engine-*` 留在 `libexec/shell/`，由 `t-play` 在自己真实目录里找到。`t-playlist` / `t-history` 缺席时
   按契约降级，不是启动失败。
-- **配置面**：Go 实现同一条继承链（flag > `TING_*` > `UT_*` > 用户配置 > 出厂配置）与
-  11 个偏好键的原地写回。文件格式是既有契约，不改。写回不用任何配置库（它们会在
+- **配置面**：Go 实现同一条继承链（flag > 环境变量 > 用户配置 > 出厂配置）与
+  偏好键的原地写回。键名按 PLAN-single-entry.md §4 统一为 `TING_*`（旧名兜底一个版本，写回时原地改成新名），
+  所以 Go 的配置移植在那份计划的第 5 步之后按新键表重做，「TING_ 只认改名清单」的怪癖随之消失。文件格式是既有契约，不改。写回不用任何配置库（它们会在
   反序列化-序列化之间丢掉注释），逐行搬运，并保住今天 bash 版的每一条保证：
   值后面的行内注释与它的对齐空白原样保留；文件里还没有的键追加到末尾；文件不存在时
   带说明头新建；写临时文件后 rename，且保持原文件权限（今天是 `cp -p`）；环境变量里
@@ -186,7 +194,8 @@ ASCII 模式、亮暗背景探测；同步重绘（今天是 DCS `1q/2q`，tmux 
    Go 每个测试的临时目录会把 mpv 的 socket 路径推过上限，mpv 于是**不建 socket 就起播**；
    `t-play -d` 现在在门口退 1 拒掉这种 `TMPDIR`（ARCH-player.md「运行时 IPC」，2026-09-26 定）。
    偏好写回、键表其余部分、主题与封面归第 4 步。
-4. **对齐**：按 §5 清单逐项。
+4. **对齐**：按 §5 清单逐项。**先等 PLAN-single-entry.md 全部落地**：它改的正是这一步要消费的东西
+   （搜索与 `c`/`i` 走 `t-play` 的转发动词、`--engines` 新形状、配置新键名、删掉的五个 `*_CYCLE` 键）。
 5. **测试迁移**：`tests/contract.sh` 的 tmux 段与 `tests/drive.sh` 改为驱动 Go 二进制；
    断言针对行为与帧结构，不针对 bash 实现细节。
 6. **替换**：Go 接过 `ting` 这个名字、`git rm shell/ting`、更新 tap formula。
