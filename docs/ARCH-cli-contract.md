@@ -224,6 +224,8 @@ detached 播放器）、生命周期与控制动词附带未被消费的 positio
   并指向 `t-play` —— 包括在 `--` 之后，那正是这项检查必须**重新施加**一次的地方，
   因为 `--` 停掉的是标志解析，不是参数校验。
 - **信封：** `{status, engine, query, count, results[]}`，一行（「数据契约」）。
+- **`--capabilities`**：与 resolve 半边同一个动词、同一个信封（见下），答的是这一半接受的 flag。
+  它问的是引擎，不跑搜索，所以查询词与 `-n -m -M -s`、`-J` 都是用法错误（1）。
 - **今天：** `yt-search`（yt-dlp）与 `bili-search`（curl + jq）。同一个信封，不同的传输 ——
   接缝是信封，不是它背后的工具（ARCHITECTURE.md「站点知识的边界」）。
 
@@ -237,7 +239,8 @@ detached 播放器）、生命周期与控制动词附带未被消费的 positio
   `yt-resolve`** —— 一条字幕轨和一次语言选择是两件能力，ARCH-engine.md「字幕」）、
   `--parts`（只有 `bili-resolve`，ARCHITECTURE.md「站点知识的边界」 同一条能力规矩）、
   `--items`（每个引擎都有 —— 容器展开，各站的容器形态与请求数在 ARCH-engine.md「容器（`--items`）」；
-  **伴随的 `--cursor` 也是每个引擎都有**，它续的是 `--items` 的批，所以不配 `--items` 就退 1）
+  **伴随的 `--cursor` 也是每个引擎都有**，它续的是 `--items` 的批，所以不配 `--items` 就退 1）、
+  `--capabilities`（每个引擎都有，两个半边都有，见下）
   —— 以及流格式选择器 `--quality TIER`
   （`auto|low|medium|high`，每个引擎都有）。
 - **`--quality` 是流格式选择器，只配 `resolve_stream` 用。** 它撞上 `--info` / `--parts` /
@@ -258,6 +261,11 @@ detached 播放器）、生命周期与控制动词附带未被消费的 positio
   信封见 「数据契约」。
 - **行为：** ARCH-engine.md「解析」。非本站 host → 用法错误（1）。
 - **以"有没有"声明能力（ARCHITECTURE.md「站点知识的边界」）：** 一个引擎做不到的事，它就不为它准备动词。
+- **`--capabilities` —— 把"有没有"变成一次可问的调用。** 调用方要知道 `c` / `i` / 字幕给不给，
+  以前只能无句柄地调一次那个动词、从 stderr 里分辨"缺句柄"还是"unknown flag"，那句文案不在契约里。
+  现在问 `--capabilities -j`。它与 `--auth` 同一种门，理由也相同：它问的是引擎，所以句柄、`-f`/`-S`/`--quality`、
+  `-J`、另一个动词都退 1；而且它在**一切**依赖门之前作答，连 jq 都不要，因为调用方靠它决定问什么。
+  仓外引擎没有它时退 1，调用方按"只有最小集"处理，不去猜。信封见「数据契约」。
 
 ### `ting` —— 交互式终端 UI（唯一一个没有 agent 面的命令）
 
@@ -532,6 +540,14 @@ auth 信封（`<engine>-resolve --auth -j`）—— 一行，不发包，也不�
   （ARCHITECTURE.md「站点知识的边界」）。要那个的话，升级路径是把网络调用放到一个 `--auth --probe` 后面，
   让这个信封的含义保持不变。
 
+capabilities 信封（`<engine>-search --capabilities -j` 与 `<engine>-resolve --capabilities -j`）—— 一行，
+不发包，不要任何依赖：
+- **`flags`** = 这一半接受的每一个 flag 的规范拼写（每个命令都有的 `-l --color -h -V` 除外），`--capabilities`
+  自己也在里面。只有 flag，没有它们的取值：`-f` 的模式、`--quality` 的档位、`-s` 的字段今天在每个引擎里都一样，
+  哪天某个引擎只支持其中一部分，再加一个键，不改这个键的含义。
+- **一份清单，两个出口。** 这个数组就是 unknown-flag 拒绝里印的那一份，两者在脚本里是同一个变量，不会分叉。
+  调用方问的是"有没有"（`.flags | index("--parts")`），不读顺序。
+
 播放状态（`t-play -j -- <handle>`）—— 播放器自己的信封，也是唯一一个没有 `engine` 键的：
 播放器与站点无关，它回声出来的那个句柄就是别人给它的那个（ARCHITECTURE.md「命令拓扑」）。
 `reason` 枚举：`forbidden | unavailable | format_unavailable | network | cookies |
@@ -691,7 +707,8 @@ search、resolve、`--info`、`--transcript`、`-d`、`--status`、`--stop`、`-
         `bili-resolve` 流解析拿到容器句柄（`am` / `ml` / 合集 URL，指路 `--items`）、
         --items 拿到一个不是容器的句柄（一个单曲 id、一张每次现生成的 Mix、网易云的裸数字）、
         --cursor 不配 --items、或 --cursor 拿到一个不是本套件签发形状的 token、
-        --items 与另一个动词同时给出（ARCH-engine.md「容器（`--items`）」）
+        --items 与另一个动词同时给出（ARCH-engine.md「容器（`--items`）」）、
+        --capabilities 带句柄或查询、带一个它无从作用的 flag、或与另一个动词同时给出
    2+   传播上来的 yt-dlp / mpv / HTTP 失败（播放、resolve -j、**搜索**失败 ——
         搜索即使 yt-dlp 退出 1 也报 2，好让一次工具失败永远不会与 1 混淆）。
         --parts 的取数失败同样落在这里（网络 / 记录里没有 parts —— 一次工具失败，
@@ -952,12 +969,12 @@ Cookie 处理：`YT_COOKIE_BROWSER` 是按平台做存在性检查的（那个�
 只有指针；每一项义务上面都已经陈述过一次。一个新来源 `foo` 恰好交付两个可执行文件，
 别的什么也不改（ARCHITECTURE.md「平级动词，没有内核」）：
 
-1. **`foo-search`** —— 「命令规格」`<engine>-search` 那个面：标志 `-n -m -M -s -l -j -J --color -h -V`，
+1. **`foo-search`** —— 「命令规格」`<engine>-search` 那个面：标志 `-n -m -M -s -l -j -J --capabilities --color -h -V`，
    一个 QUERY 位置参数（拒绝 URL，`--` 之后重新检查），「数据契约」 那个搜索信封且
    `engine:"foo"`，错误按 「数据契约」 且退出 2+（「退出码」）。**每一行还要算出 `kind` 与 `access`**
    （「数据契约」 的两问、封闭枚举、`-j` 与 `-J` 都要；没有信号就如实印默认值，不猜），
    并且**不把 `url` 建不出来的记录放进信封**。
-2. **`foo-resolve`** —— 「命令规格」`<engine>-resolve` 那个面：标志 `-f -S -l -j -J --color -h -V`
+2. **`foo-resolve`** —— 「命令规格」`<engine>-resolve` 那个面：标志 `-f -S -l -j -J --capabilities --color -h -V`
    加上**仅仅**这个站点支持的那些动词（以"有没有"声明能力）；`-f` 只收那五个
    规范模式 —— 别名是 `t-play` 的；「数据契约」 那个解析信封
    （`stream_urls[]` 视频在前、`http_headers{}` 必需且不含凭据、`format` 不透明、
@@ -982,7 +999,11 @@ Cookie 处理：`YT_COOKIE_BROWSER` 是按平台做存在性检查的（那个�
    外加那批冻结的遗留套件级名字（「配置面」 结尾）—— 它不是模板。
 6. **两半都要：** `ENGINE_NAME` 从一个常量印出来；每一个信封（包括错误）里都有 `status` 与
    `engine`；一个信封一行（「数据契约」）；`-V` 在任何依赖门之前回答（「退出码」）；
-   门把跨界标志指向正确的动词（「门模型」）。
+   门把跨界标志指向正确的动词（「门模型」）。**`--capabilities -j` 两半都要**，
+   答案与 unknown-flag 拒绝出自同一个数组，并且在一切依赖门之前作答（「命令规格」）。仓外引擎缺它时，
+   调用方按"只有最小集"处理，所以缺它不会坏事，只会让 `ting` 少提供几个键。
+   `tests/contract.sh` 对每一个被发现的引擎验它说的是真话：列出的 flag 被解析器接受，
+   别的引擎有而它没列的 flag 被拒。
 7. **别的什么也没有：** 没有播放，没有生命周期，不写 `players/` —— 播放器靠名字找到
    `foo-resolve`（「命令规格」的 `t-play` 一节），而 `ting` 靠扫描 `foo-search` + `foo-resolve`
    这一对来发现它（ARCH-tui.md）。

@@ -60,7 +60,7 @@ mpv 选项集旁边（`ARCH-player.md`「模式 → 格式 → mpv」）。
 **能力靠"有没有那个动词"声明。** `--parts` 只在 `bili-resolve` 有，`--transcript` 在
 `yt-resolve` 与 `ne-resolve` 有而 `bili-resolve` 没有（同一个动词底下是两种东西：一条字幕轨，
 一份歌词 ——「字幕」）；一个永远答"没有"的动词会让调用方分不清"这个站没有"与"今天不走运/被限流了"。
-调用方**探**一个动词的办法，就是无句柄地调用它 —— 退 1 且点名它要什么，或者根本不被接受。
+调用方要知道一个引擎有哪些动词，就问 `--capabilities -j`（下文「探一个引擎有哪些动词」）。
 
 ### 调用面 —— 选项的乘积
 
@@ -90,6 +90,7 @@ NE_INCLUDE_VIP=1 ne-search -j -n 20 -- 周杰伦       # 已证 · 连非 full �
 ne-resolve  --transcript -j -- <歌曲 id>            # 已证 · 同一个动词，底下是歌词
 ne-resolve  -j -- <歌曲 id | song?id=N 的 URL>      # 已证 · 四种拼法归一到同一个 url
 yt-resolve  --auth -j                              # 已证 · cookie 决策：无句柄、无请求、无 yt-dlp
+bili-resolve --capabilities -j                     # 已证 · 这一半接受哪些 flag：什么依赖都不要
 ```
 
 守着那几条只读动词的是 `every read-only verb reaches the host gate`：给一个没有引擎认领的句柄，
@@ -114,6 +115,7 @@ yt-resolve  --auth -j                              # 已证 · cookie 决策：�
 | `bili-resolve --items -- <?type=series 的 URL>` | 系列与合集是两个端点，拿错端点会读出别人的视频 |
 | `ne-resolve --items -- <裸数字>` | 一个裸数字说不出自己是专辑、歌单还是歌 |
 | `--auth` + 句柄 / `-f` / `-J` | 它不接句柄也不发请求 |
+| `--capabilities` + 句柄或查询 / `-f` / `-n` / `-J` / 另一个动词 | 它问的是引擎，不解析也不搜索；两个动词就是没说要哪个 |
 | `--parts` + 两个句柄 | 一次一个 |
 | 句柄属于**别的**站点 | host allowlist：一个引擎一个站，否则 `engine` 字段会说谎 |
 | `bili-resolve --transcript` / `ne-resolve --parts` | 能力靠「没有那个动词」声明 |
@@ -122,18 +124,31 @@ yt-resolve  --auth -j                              # 已证 · cookie 决策：�
 | `ne-resolve --sub-lang` | 一首歌一条歌词，没有可挑的东西（「字幕」） |
 | `ne-resolve -- <非 song 路径的本站 URL>` | 这个站每一种资源都是 `?id=N`，只读 query 会把 `/artist?id=6452` 解成**歌曲** 6452 |
 
-**探一个引擎有哪些动词，别读 `-h`，给它一个不存在的 flag。** 它会把自己接受的那一套列出来：
+**探一个引擎有哪些动词，问 `--capabilities -j`，别读 `-h`，也别嗅 stderr。** 两个半边都有这个动词，
+答的是这一半接受的全部 flag（每个命令都有的 `-l --color -h -V` 除外）：
 
 ```
-$ yt-resolve --nope
-yt-resolve: unknown flag '--nope' (resolve flags: -f -S --quality -j -J --info --transcript --sub-lang --items --cursor --auth)
+$ bili-resolve --capabilities -j
+{"status":"ok","engine":"bili","flags":["-f","-S","--quality","-j","-J","--info","--parts","--items","--cursor","--auth","--capabilities"]}
 ```
 
-那是唯一权威的枚举。两条更近的路都会骗人，而且都真骗过（2026-09-01）：**错误文案**——缺失
-动词有两种报法（`yt-resolve --parts` 说 unknown flag，`bili-resolve --transcript` 说这个
-站没有字幕轨），按任一种去判都会对另一个引擎得出反的结论；**`-h`**——`bili-resolve -h` 里
-写着「There is no --transcript」，能力靠缺席声明的说明本身会让朴素的 grep 命中它**没有**的
-动词。两种错法的下场一样：把「动词不存在导致的退 1」当成「flag 被拒」的证据。
+**清单只写一次。** 每个脚本里一个数组，unknown-flag 那句拒绝印给人看，`--capabilities` 答给调用方，
+两边读的是同一个数组，所以不会各说各的。这句拒绝以前就是唯一权威的枚举，`ting` 和套件都从 stderr
+里读它。现在它仍然照印，只是没有调用方再去解析它。
+
+**它在一切依赖门之前作答，连 jq 都不要**：调用方靠它决定问什么，所以在一台什么都还没装的机器上
+也得答得出来。flag 都是固定的 ASCII 词，信封直接印，不用 jq 拼。
+
+两条更近的路都骗过人（2026-09-01），这也是这个动词存在的原因。**错误文案**：缺失的动词有两种报法
+（`yt-resolve --parts` 说 unknown flag，`bili-resolve --transcript` 说这个站没有字幕轨），按任一种
+去判，都会对另一个引擎得出相反的结论。**`-h`**：`bili-resolve -h` 里写着「There is no --transcript」，
+靠缺席声明能力的这句说明，本身就会让朴素的 grep 命中它**没有**的动词。两种错法的下场一样：
+把「动词不存在导致的退 1」当成「flag 被拒」的证据。
+
+套件证它说的是真话，证据取自解析器的**行为**，不取自那份清单（两边同一个数组，拿来比只能证明数组等于自己）。
+列出的 flag 单独给出时，不能落进 unknown-flag 分支；别的引擎同一半列出而本引擎没列的 flag，必须在
+host 门之前被拒。允许用一句更友好的具名拒绝来拒（`ne-resolve --sub-lang` 就是这样），所以检查看的是
+"被拒"，不看"unknown flag"这几个字。
 
 ---
 

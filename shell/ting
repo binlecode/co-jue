@@ -534,57 +534,38 @@ refresh_engine_auth() {
     return 0
 }
 
-# Does this engine have `--parts`? Asked the way the suite says an engine declares a
-# capability — by whether the VERB exists (ARCH-cli-contract.md「命令规格」) — and asked without
-# spending a request: the probe is a HANDLE-LESS call, so an engine that HAS the verb dies in
-# its own argv gate ("a BV id … is required") while one that does not dies in the flag gate,
-# with the wording every gate in this suite shares. Both exit 1; the stderr is the answer.
+# Which read-only verbs does this engine have? `c` needs `--parts` and `i` needs `--info`, and
+# both are asked of the engine the way any caller asks: `<engine>-resolve --capabilities -j`
+# (ARCH-cli-contract.md「命令规格」). No request, no handle, no dependency on the engine's side.
+# An engine without --capabilities (one written outside this repo before the verb existed)
+# exits 1 and is treated as having only the minimum set, so neither key is offered for it —
+# a missing key costs less than a key that answers "unknown flag".
 #
-# One I/O-free fork per source switch, cached, exactly like ENGINE_AUTH above: the hint block
-# is measured on every redraw and cannot afford to ask, and `c` must not probe on the
-# selection moving.
+# One fork per source switch, cached, exactly like ENGINE_AUTH above: the hint block is
+# measured on every redraw and cannot afford to ask, and `c` must not probe on the selection
+# moving.
 ENGINE_PARTS_OK=0
-refresh_engine_parts() {
-    ENGINE_PARTS_OK=0
-    local bin err
-    bin=$(engine_resolve_bin "$ENGINE") || return 0
-    [[ -n "$bin" ]] || return 0
-    err=$("$bin" --parts 2>&1 >/dev/null) || true
-    case "$err" in
-    *"unknown flag"*) ;;
-    *) ENGINE_PARTS_OK=1 ;;
-    esac
-    return 0
-}
-
-# Does this engine have `--info`? Asked exactly as --parts is asked, and for the same reason
-# the hint block cannot pay for it per redraw: a handle-less call, the argv gate answering for
-# an engine that has the verb and the flag gate for one that does not. Both of today's engines
-# have it — the probe is here because a capability is read off the VERB in this suite, never
-# assumed from the engine list, and `i` must not offer itself to an engine that would answer
-# "unknown flag".
 ENGINE_INFO_OK=0
-refresh_engine_info() {
+refresh_engine_flags() {
+    ENGINE_PARTS_OK=0
     ENGINE_INFO_OK=0
-    local bin err
+    local bin out flags
     bin=$(engine_resolve_bin "$ENGINE") || return 0
     [[ -n "$bin" ]] || return 0
-    err=$("$bin" --info 2>&1 >/dev/null) || true
-    case "$err" in
-    *"unknown flag"*) ;;
-    *) ENGINE_INFO_OK=1 ;;
-    esac
+    out=$("$bin" --capabilities -j 2>/dev/null) || return 0
+    flags=" $(printf '%s' "$out" | jq -r '.flags // [] | join(" ")' 2>/dev/null) " || return 0
+    case "$flags" in *" --parts "*) ENGINE_PARTS_OK=1 ;; esac
+    case "$flags" in *" --info "*) ENGINE_INFO_OK=1 ;; esac
     return 0
 }
 
-# Every probe, one name for the callers. Three functions because they ask three questions about
-# three verbs; one caller-facing name because the two places that switch engines would
-# otherwise each list every probe — the shape that drifts the day a fourth one lands, the way
-# F11/F12 did (ARCHITECTURE.md).
+# Every probe, one name for the callers. Two functions because they ask two different verbs;
+# one caller-facing name because the two places that switch engines would otherwise each list
+# every probe — the shape that drifts the day a third one lands, the way F11/F12 did
+# (ARCHITECTURE.md).
 refresh_engine_caps() {
     refresh_engine_auth
-    refresh_engine_parts
-    refresh_engine_info
+    refresh_engine_flags
 }
 
 # Which engine this session starts on. The SAME variable t-play reads, not a second one:
@@ -7244,7 +7225,7 @@ play_queued_now() {
 # day (the one-deep return stack is ARCH-cli-contract.md「命令规格」).
 #
 # ONE fork on the KEY, never on the selection moving. Whether the key is offered at all was
-# answered at the last source switch (refresh_engine_parts), so this costs nothing per redraw.
+# answered at the last source switch (refresh_engine_flags), so this costs nothing per redraw.
 # The fetch behind `c`, and the twin of fetch_item_info — same single slot, same spinner,
 # same error vocabulary, and a function for the same reason that one is: THE CACHE IS THE
 # POINT. `c` asks "is there more of this than the row shows?", and on a one-part video the

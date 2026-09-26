@@ -166,6 +166,12 @@ mode 门，`ting -f video --volume 60 </dev/null` 报 TTY 门 —— 两条检�
 与 `--transcript` 缺失同一套"以有没有声明能力"的降级（ARCHITECTURE.md「站点知识的边界」），
 所以第三个引擎不会被这件事卡住。
 
+**`c` 与 `i` 给不给，也是问引擎要来的。** `refresh_engine_flags` 与 `refresh_engine_auth`
+同时跑、同样缓存，问的是 `<engine>-resolve --capabilities -j`：`flags[]` 里有 `--parts`
+才提供 `c`，有 `--info` 才提供 `i`。以前的办法是无句柄地调一次那个动词，再从 stderr 里分辨
+"缺句柄"还是"unknown flag"。那句文案不在契约里，Go 那一侧也不该去读。仓外引擎没有
+`--capabilities` 时退 1，两个键都不给：少一个键，比多一个答"unknown flag"的键代价小。
+
 它说的是"播放会读哪个 profile 的 cookie"，**不是**"你登录着" ——
 那条界线在 ARCH-engine.md「先探后播」 量过，别在 UI 文案里把它说宽。
 

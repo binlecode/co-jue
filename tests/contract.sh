@@ -1275,9 +1275,8 @@ report "bili-resolve rejects bare am id" 1 \
 report "bili-resolve has no --transcript" 1 "$(rc shell/bili-resolve --transcript -- "$BILI_ID")"
 # The third engine states its own two absences the same way, and they are absences of
 # DIFFERENT kinds — which is the point of asserting both. `--parts` is a verb this site has no
-# shape for (one song id is one file), so it falls through to the unknown-flag arm: that exact
-# wording is how `ting` and this file's own verb probe learn a verb is missing, and a friendlier
-# sentence there would advertise a `c` key that cannot work. `--sub-lang` is the opposite —
+# shape for (one song id is one file), so the engine has no such flag at all. `--sub-lang` is
+# the opposite —
 # the verb it belongs to IS here, but the CAPABILITY behind it is not: one lyric per song, tagged
 # with no language, so there is nothing to choose between and the flag is refused rather than
 # accepted and ignored (ARCH-engine.md「字幕」).
@@ -1289,14 +1288,10 @@ report "ne-resolve has no --sub-lang" 1 \
 # direction: this site HAS multi-part videos and the sibling site does not, so the verb
 # exists on one engine and must never appear on the other.
 #
-# THE PAIR IS ALSO THE FEASIBILITY PROOF for how `ting` will probe an engine for the verb
-# without spending a request (ARCH-engine.md「接口」): it invokes `--parts` with NO
-# handle. The engine that has the verb answers with a usage error about the missing handle;
-# the engine that
-# does not falls into the unknown-flag arm every gate in this suite shares
-# (ARCH-cli-contract.md「门模型」). BOTH exit 1 — which is exactly why the exit code cannot be the
-# probe, and why what these two pin is the stderr WORDING. An engine that grew --parts and
-# a `c` key that reads the wrong side of this pair are each caught by one of them alone.
+# It is asked with NO handle, so no request is spent: the engine that has the verb answers with
+# a usage error about the missing handle, and the engine that does not falls into the
+# unknown-flag arm every gate in this suite shares (ARCH-cli-contract.md「门模型」). BOTH exit 1,
+# which is why what these pin is the stderr WORDING, not the exit code.
 report "bili-resolve has --parts"  1 "$(err_has 'unknown flag' shell/bili-resolve --parts)"
 report "bili --parts needs a handle" 1 "$(rc shell/bili-resolve --parts)"
 report "yt-resolve has no --parts"  0 "$(err_has 'unknown flag' shell/yt-resolve --parts)"
@@ -1703,32 +1698,132 @@ for n in $ENGINES; do
 done
 report "every --cursor needs --items and one token shape" "$NENG" "$_cursor_gate"
 
+# --capabilities: what each half of each engine accepts, as one envelope. It exists so a caller
+# can learn what to ask without sniffing stderr, which is what `ting` did before and what the
+# discovery below did until this verb landed (ARCH-cli-contract.md「命令规格」). Stated over
+# every discovered engine, both halves, so engine #4 is covered the day it lands.
+_caps_env=0
+for n in $ENGINES; do
+    for _h in search resolve; do
+        _o=$("shell/$n-$_h" --capabilities -j 2>/dev/null) || _o=""
+        [ "$(lines "$_o")" = 1 ] &&
+            [ "$(jqv '.status=="ok" and .engine=="'"$n"'"
+                      and (.flags|type)=="array" and (.flags|all(type=="string"))
+                      and (.flags|index("--capabilities"))!=null' "$_o")" = 0 ] &&
+            _caps_env=$((_caps_env + 1))
+    done
+done
+report "every engine half answers --capabilities -j" "$((NENG * 2))" "$_caps_env"
+
+# THE ANSWER MUST BE TRUE, in both directions, and the truth is read off the parser's BEHAVIOUR
+# rather than off the list the refusal prints — both now come from the same array, so comparing
+# them would only prove the array equals itself.
+#
+# Listed: handed alone, the flag must not fall into the unknown-flag arm. It may still be
+# refused (a verb needs a handle, a value flag needs its value); what it may not be is unknown.
+#
+# Not listed: the vocabulary is every flag ANY engine's same half lists, so no table names who
+# owns what. A flag this engine leaves out must be refused before the host gate. The handle is
+# one no engine claims, so a flag that was accepted after all is caught when the call gets
+# through to the host gate's own sentence. Checking for refusal rather than for the unknown-flag
+# wording keeps a friendlier named refusal legal (ne-resolve --sub-lang explains that the site
+# tags no lyric with a language).
+_caps_true=0
+_caps_true_n=0
+for _h in search resolve; do
+    _vocab=$(for n in $ENGINES; do
+        "shell/$n-$_h" --capabilities -j 2>/dev/null | jq -r '.flags[]'
+    done | sort -u)
+    for n in $ENGINES; do
+        _mine=" $("shell/$n-$_h" --capabilities -j 2>/dev/null | jq -r '.flags | join(" ")') "
+        for _f in $_vocab; do
+            _caps_true_n=$((_caps_true_n + 1))
+            case "$_mine" in
+            *" $_f "*)
+                [ "$(err_has 'unknown flag' "shell/$n-$_h" "$_f")" = 1 ] &&
+                    _caps_true=$((_caps_true + 1))
+                ;;
+            *)
+                [ "$(rc "shell/$n-$_h" "$_f" -- "$VIZ_URL")" = 1 ] &&
+                    [ "$(err_has 'needs its own engine' "shell/$n-$_h" "$_f" -- "$VIZ_URL")" = 1 ] &&
+                    _caps_true=$((_caps_true + 1))
+                ;;
+            esac
+        done
+    done
+done
+# The floor: every engine's two halves list at least what the checklist requires of every
+# engine, so fewer cases than that means discovery collapsed, not that engines are small.
+[ "$_caps_true_n" -ge "$((NENG * 10))" ] ||
+    { echo "contract.sh: --capabilities discovered fewer than $((NENG * 10)) flag cases" >&2; exit 1; }
+report "every --capabilities answer matches what the parser accepts" "$_caps_true_n" "$_caps_true"
+
+# A flag that cannot act is REJECTED, not ignored (ARCH-cli-contract.md「门模型」): the verb asks
+# about the engine, so a handle or a query is a usage error; nothing is resolved or searched,
+# so -f, -n and -J have nothing to act on; and it is one verb, so a second is refused rather
+# than one of them silently winning. The message is the claim for the two-verb case, because
+# every refusal here exits 1.
+_caps_gate=0
+for n in $ENGINES; do
+    [ "$(rc "shell/$n-resolve" --capabilities -- HANDLE)" = 1 ] &&
+        [ "$(rc "shell/$n-resolve" --capabilities -f audio)" = 1 ] &&
+        [ "$(rc "shell/$n-resolve" --capabilities -J)" = 1 ] &&
+        [ "$(err_has 'two verbs' "shell/$n-resolve" --capabilities --info)" = 0 ] &&
+        [ "$(rc "shell/$n-search" --capabilities -- query)" = 1 ] &&
+        [ "$(rc "shell/$n-search" --capabilities -n 5)" = 1 ] &&
+        [ "$(rc "shell/$n-search" --capabilities -J)" = 1 ] &&
+        _caps_gate=$((_caps_gate + 1))
+done
+report "every --capabilities refuses a handle, a query and flags it cannot act on" "$NENG" "$_caps_gate"
+
+# It answers ahead of every dependency gate, jq included: the envelope is how a caller learns
+# what to ask, so it must come back on a machine that has none of the tools yet. /usr/bin has a
+# jq on current macOS, so the bare PATH that proves --auth cannot prove this one: the path here
+# is every command in /usr/bin and /bin EXCEPT jq, as links in a directory of its own. It
+# isolates, it seeds nothing.
+CAPS_BIN="$UT_TEST_TMP/caps-nojq-bin"
+mkdir -p "$CAPS_BIN"
+for _d in /usr/bin /bin; do
+    for _c in "$_d"/*; do
+        _b=${_c##*/}
+        [ -e "$CAPS_BIN/$_b" ] || ln -s "$_c" "$CAPS_BIN/$_b"
+    done
+done
+rm -f "$CAPS_BIN/jq" "$CAPS_BIN/yt-dlp" "$CAPS_BIN/curl"
+env "PATH=$CAPS_BIN" command -v jq >/dev/null 2>&1 &&
+    { echo "contract.sh: jq is still on the no-jq PATH — the claim below cannot fail here" >&2; exit 1; }
+_caps_nod=0
+for n in $ENGINES; do
+    for _h in search resolve; do
+        _o=$(env "PATH=$CAPS_BIN" "shell/$n-$_h" --capabilities -j 2>/dev/null) &&
+            [ "$(jqv '.status=="ok"' "$_o")" = 0 ] && _caps_nod=$((_caps_nod + 1))
+    done
+done
+report "every --capabilities -j needs no jq, curl or yt-dlp" "$((NENG * 2))" "$_caps_nod"
+
 # THE READ-ONLY RESOLVE VERBS ARE HELD TO THE SAME RULE, and this replaces three lines that
 # named ONE engine's ONE verb: `--info` — the verb EVERY engine has — had no coverage at all.
 # `--info`, `--transcript` and `--parts` resolve no stream, so all three stream-format flags
 # are values they cannot act on.
 #
-# Which verbs an engine HAS is discovered from the flag list the engine itself prints when
-# handed an unknown flag — the only authoritative enumeration of what it accepts. Two nearer
-# sources were tried and both lie. An error string: a missing verb is reported two different
-# ways (`yt-resolve --parts` says "unknown flag", `bili-resolve --transcript` says the site
-# carries no captions), so a probe keyed on either message concludes the wrong thing about
-# the other engine. And `-h`: `bili-resolve -h` explains "There is no --transcript" —
-# capability by absence, stated in the help — so a grep for the verb MATCHES on the engine
-# that does not have it. Both mistakes end the same way: counting a refusal that happened
-# because the VERB is absent as proof the FLAG was rejected. Green for the wrong reason is
-# what this discovery exists to avoid, and it is the reason the count below is 12 and not 15.
+# Which verbs an engine HAS is read from its own `--capabilities -j`, held true above. Two
+# nearer sources were tried before that verb existed and both lie. An error string: a missing
+# verb is reported two different ways (`yt-resolve --parts` says "unknown flag",
+# `bili-resolve --transcript` says the site carries no captions), so a probe keyed on either
+# message concludes the wrong thing about the other engine. And `-h`: `bili-resolve -h`
+# explains "There is no --transcript" — capability by absence, stated in the help — so a grep
+# for the verb MATCHES on the engine that does not have it. Both mistakes end the same way:
+# counting a refusal that happened because the VERB is absent as proof the FLAG was rejected.
+# Green for the wrong reason is what this discovery exists to avoid, and it is the reason the
+# count below is 12 and not 15.
 #
 # The claim is the MESSAGE, for the same reason: an absent verb and a refused flag both exit
 # 1. And the handle is one no engine claims, which keeps every case offline AND pins the gate
 # ORDER — a flag error must not need a good handle to be reported.
-# CAPTURED, then matched — never piped straight from the command. This file runs under
-# `set -o pipefail`, so `resolve … | grep -q` reports the RESOLVE's exit 1 rather than
-# grep's 0, and every verb reads as absent (measured: the discovery found 0 cases).
 _ro_verb_has() {
-    local _list
-    _list=$("shell/$1-resolve" --ut-not-a-flag 2>&1 >/dev/null | head -1) || true
-    case "$_list" in *"$2"*) return 0 ;; *) return 1 ;; esac
+    local _caps
+    _caps=" $("shell/$1-resolve" --capabilities -j 2>/dev/null | jq -r '.flags | join(" ")' 2>/dev/null) " || true
+    case "$_caps" in *" $2 "*) return 0 ;; *) return 1 ;; esac
 }
 _ro=0
 _ro_n=0
@@ -4285,7 +4380,7 @@ else
     #
     # The engine is discovered by CAPABILITY, never named: _ro_verb_has is the probe the
     # read-only verb cases above already use, and it asks the same question ting's own
-    # refresh_engine_parts asks. So a fourth engine with --parts is covered the day it lands,
+    # refresh_engine_flags asks. So a fourth engine with --parts is covered the day it lands,
     # and a checkout without a --parts engine skips with a reason instead of going red.
     PARTS_ENG=""
     for n in $ENGINES; do

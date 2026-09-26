@@ -657,6 +657,7 @@ ne-search — the NetEase Cloud Music search engine (non-interactive)
 
 Usage:
   ne-search [options] <search query>
+  ne-search --capabilities [-j]
 
 Options:
   -n NUM   Number of results to fetch (default: 20). This is how many are ASKED FOR, not a
@@ -670,6 +671,8 @@ Options:
   -l       Plain text list output (default)
   -j       JSON: {status, engine, query, count, results[]} — 11 lean fields per result
   -J       JSON with every field the site sent per result (same envelope)
+  --capabilities  The flags this half accepts, less the --color -h -V every command has.
+           No network, no query, no dependency: how a caller learns what to ask
   --color MODE  auto | always | never (default: auto)
   -h       This help
   -V       Print the suite version
@@ -717,6 +720,13 @@ Environment:
 To play a result, pass its song id to: t-play --engine ne
 EOF
 }
+
+# Every flag this half takes beyond the --color -h -V every command has, stated ONCE: the
+# unknown-flag refusal prints it for a person and --capabilities answers with it for a caller
+# (ARCH-cli-contract.md「命令规格」).
+SEARCH_FLAGS=(-n -m -M -s -l -j -J --capabilities)
+CAPABILITIES=0
+SEARCH_FLAG=""       # which of -n -m -M -s was given (gate: --capabilities runs no search)
 
 # Value-taking flags (consume the next token) vs boolean flags, restricted to the search
 # surface. Anything outside these is rejected — playback/lifecycle flags get a pointer to
@@ -766,6 +776,7 @@ while (($#)); do
         ;;
     -n | -m | -M | -s)
         [[ $# -ge 2 ]] || { echo "ne-search: $1 requires a value" >&2; exit 1; }
+        SEARCH_FLAG="$1"
         case "$1" in
         -n) NUM_RESULTS="$2" ;;
         -m) MIN_DURATION="$2" ;;
@@ -793,6 +804,10 @@ while (($#)); do
         echo "ne-search: $1 belongs to the other half of this engine — use ne-resolve $1" >&2
         exit 1
         ;;
+    --capabilities)
+        CAPABILITIES=1
+        shift
+        ;;
     --)
         shift
         # `--` stops FLAG parsing, it does not stop argument validation: a query token that
@@ -808,7 +823,7 @@ while (($#)); do
         break
         ;;
     -*)
-        echo "ne-search: unknown flag '$1' (search flags: -n -m -M -s -l -j -J)" >&2
+        echo "ne-search: unknown flag '$1' (search flags: ${SEARCH_FLAGS[*]})" >&2
         exit 1
         ;;
     http://* | https://* | www.* | music.163.com/* | y.music.163.com/*)
@@ -820,6 +835,26 @@ while (($#)); do
         ;;
     esac
 done
+
+# --capabilities asks about the ENGINE, not a query, so it answers before the query is required
+# and ahead of every dependency gate, jq included: it is how a caller learns what to ask, so it
+# must answer on a machine that cannot run a search yet. Anything that would shape a search is
+# refused rather than ignored (ARCH-cli-contract.md「门模型」).
+if ((CAPABILITIES)); then
+    ((${#query[@]} == 0)) ||
+        die "--capabilities takes no query — it reports what this engine accepts"
+    [[ -z "$SEARCH_FLAG" ]] || die "$SEARCH_FLAG shapes a search — --capabilities runs none"
+    [[ "$OUTPUT_MODE" != "json_full" ]] ||
+        die "-J returns raw per-result fields — --capabilities has no results; use -j"
+    if [[ "$OUTPUT_MODE" == "json" ]]; then
+        caps=""
+        for f in "${SEARCH_FLAGS[@]}"; do caps+="${caps:+,}\"$f\""; done
+        printf '{"status":"ok","engine":"%s","flags":[%s]}\n' "$ENGINE_NAME" "$caps"
+    else
+        printf '%s\n' "${SEARCH_FLAGS[*]}"
+    fi
+    exit 0
+fi
 
 if ((${#query[@]} == 0)); then
     echo "ne-search: a search query is required (see 'ne-search -h')" >&2

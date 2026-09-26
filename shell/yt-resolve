@@ -186,7 +186,7 @@ fi
 # token — see the probe below.
 ANON_ARGS=(--extractor-args "youtube:player_client=android")
 
-ACTION="stream"      # stream | info | transcript | items | auth
+ACTION="stream"      # stream | info | transcript | items | auth | capabilities
 VERB_FLAG=""         # the verb flag as typed — the one-verb-per-invocation gate reads it
 # The `-f` default, cross-engine: a user who listens rather than watches says so once.
 PLAYBACK_MODE="$UT_PLAY_MODE"
@@ -292,7 +292,8 @@ validate_enum() {
 set_action() {
     local action=$1 flag=$2
     if [[ -n "$VERB_FLAG" && "$VERB_FLAG" != "$flag" ]] &&
-        { [[ "$flag" == "--items" ]] || [[ "$VERB_FLAG" == "--items" ]]; }; then
+        { [[ "$flag" == "--items" ]] || [[ "$VERB_FLAG" == "--items" ]] ||
+            [[ "$flag" == "--capabilities" ]] || [[ "$VERB_FLAG" == "--capabilities" ]]; }; then
         die "$VERB_FLAG and $flag are two verbs — pass one"
     fi
     VERB_FLAG="$flag"
@@ -1541,6 +1542,7 @@ Usage:
   yt-resolve --transcript [--sub-lang L] [-j|-J] -- <video-id | URL>
   yt-resolve --items [--cursor TOKEN] [-j|-J] -- <list-id | playlist URL | channel>
   yt-resolve --auth [-j]
+  yt-resolve --capabilities [-j]
 
 The handle is either a YouTube URL or an 11-character video id (what `yt-search -j`
 returns as results[].id). Knowing that shape is this engine's job, not the player's.
@@ -1569,6 +1571,8 @@ Options:
   --auth   Report the cookie decision: which browser profile playback will read, and
            whether it exists here. No network, no handle. Says cookies are SENT, not
            that they are accepted — an expired login still reports "cookie"
+  --capabilities  The flags this half accepts, less the -l --color -h -V every command
+           has. No network, no handle, no dependency: how a caller learns what to ask
   --color MODE  auto | always | never (default: auto)
   -h       This help
   -V       Print the suite version
@@ -1602,6 +1606,7 @@ Items JSON (--items -j): {status,engine,id,url,title,count,total,has_more,next_c
 Auth JSON (--auth -j): {status,engine,auth,cookie_browser,profile_found,cookie_readable}
   auth is "cookie" exactly when cookie_browser is not "none" AND profile_found.
   cookie_readable: can this process read the store (true|false; null = not tried/no probe).
+Capabilities JSON (--capabilities -j): {status,engine,flags[]}
 
 Exit codes: 0 ok · 1 usage/validation · 2+ a missing dependency, or a propagated
             yt-dlp failure (see .reason)
@@ -1622,6 +1627,11 @@ Environment:
 To search: yt-search <query>   ·   To play: t-play <id|URL>
 EOF
 }
+
+# Every flag this half takes beyond the -l --color -h -V every command has, stated ONCE: the
+# unknown-flag refusal prints it for a person and --capabilities answers with it for a caller,
+# so the two cannot disagree about what this engine has (ARCH-cli-contract.md「命令规格」).
+RESOLVE_FLAGS=(-f -S --quality -j -J --info --transcript --sub-lang --items --cursor --auth --capabilities)
 
 has_format=0
 positional=()
@@ -1672,6 +1682,10 @@ while (($#)); do
         ;;
     --auth)
         set_action auth --auth
+        shift
+        ;;
+    --capabilities)
+        set_action capabilities --capabilities
         shift
         ;;
     --transcript | --subtitles)
@@ -1743,7 +1757,7 @@ while (($#)); do
         break
         ;;
     -*)
-        echo "yt-resolve: unknown flag '$1' (resolve flags: -f -S --quality -j -J --info --transcript --sub-lang --items --cursor --auth)" >&2
+        echo "yt-resolve: unknown flag '$1' (resolve flags: ${RESOLVE_FLAGS[*]})" >&2
         exit 1
         ;;
     *)
@@ -1760,6 +1774,11 @@ TARGET=""
 if [[ "$ACTION" == "auth" ]]; then
     if ((${#positional[@]} > 0)); then
         echo "yt-resolve: --auth takes no argument — it reports this engine's cookie decision, not a handle's" >&2
+        exit 1
+    fi
+elif [[ "$ACTION" == "capabilities" ]]; then
+    if ((${#positional[@]} > 0)); then
+        echo "yt-resolve: --capabilities takes no argument — it reports what this engine accepts, not anything about a handle" >&2
         exit 1
     fi
 else
@@ -1818,10 +1837,24 @@ if [[ -n "$FORMAT_FLAG" && "$ACTION" != "stream" ]]; then
     die "$FORMAT_FLAG selects a stream format — it does not apply to --$ACTION"
 fi
 
-# -J is the RAW yt-dlp record, and --auth never runs yt-dlp: there is no raw record for it
-# to return. Rejected rather than silently downgraded to -j.
-if [[ "$ACTION" == "auth" && "$OUTPUT_MODE" == "json_full" ]]; then
-    die "-J returns the raw yt-dlp record — --auth runs no yt-dlp; use -j"
+# -J is the RAW yt-dlp record, and neither --auth nor --capabilities runs yt-dlp: there is
+# no raw record for it to return. Rejected rather than silently downgraded to -j.
+if [[ ( "$ACTION" == "auth" || "$ACTION" == "capabilities" ) && "$OUTPUT_MODE" == "json_full" ]]; then
+    die "-J returns the raw yt-dlp record — --$ACTION runs no yt-dlp; use -j"
+fi
+
+# --capabilities answers ahead of every gate that needs a tool, jq included: it is how a caller
+# learns what to ask this engine, so it must answer on a machine that cannot run any of it yet.
+# The flags are fixed ASCII words, so the envelope is printed rather than built.
+if [[ "$ACTION" == "capabilities" ]]; then
+    if [[ "$OUTPUT_MODE" == "json" ]]; then
+        caps=""
+        for f in "${RESOLVE_FLAGS[@]}"; do caps+="${caps:+,}\"$f\""; done
+        printf '{"status":"ok","engine":"%s","flags":[%s]}\n' "$ENGINE_NAME" "$caps"
+    else
+        printf '%s\n' "${RESOLVE_FLAGS[*]}"
+    fi
+    exit 0
 fi
 
 # --auth answers ahead of the dependency gate and the handle grammar, the way -V does: it
