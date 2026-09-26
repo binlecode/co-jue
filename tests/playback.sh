@@ -944,6 +944,87 @@ else
     bad "the UT_HISTORY=0 player never started playing — the off switch is untested"
 fi
 
+echo "── --watch: one player as a stream, across its queue, to its end ──"
+# The stream a TUI draws its clock from and an agent follows a queue with. Every claim is a
+# line the verb really wrote about a player that was really doing it, polled for — never a
+# count after a sleep, because the cadence is the playhead's and the start is the network's.
+# The queue is SHORT twice, so crossing a track (--next) and a track playing out on its own
+# are both reached inside one player.
+wq=$(printf '[{"engine":"yt","url":"%s"},{"engine":"yt","url":"%s"}]' "$SHORT" "$SHORT" |
+    shell/t-play -d -j --volume 0 --queue - 2>/dev/null)
+wid=$(printf '%s' "$wq" | jq -r '.id // empty')
+WOUT="$UT_TEST_TMP/watch.out"
+shell/t-play --watch --id "$wid" -j >"$WOUT" 2>/dev/null &
+wpid=$!
+# wait_watch <jq over the slurped lines>. A line still being written makes the slurp fail,
+# which is one more turn of the poll, not a red.
+wait_watch() {
+    local i
+    for i in $(seq 1 240); do
+        jq -e -s "$1" "$WOUT" >/dev/null 2>&1 && return 0
+        sleep 0.25
+    done
+    return 1
+}
+w_ok() { if wait_watch "$2"; then ok "$1"; else bad "$1 — never seen"; fi; }
+w_ok "first line is a snapshot of THIS player" \
+    '.[0].status=="watch" and .[0].event=="snapshot" and .[0].id=="'"$wid"'"'
+# `ready` is a FIELD on every line, and an event only when it turns: a watch that connects
+# after the sound started carries ready:true on its snapshot and never sends the event.
+w_ok "…and says when the sound started" 'any(.[]; .ready==true)'
+shell/t-play --set-volume 20 --id "$wid" -j >/dev/null 2>&1
+w_ok "another caller's --set-volume arrives as an event" \
+    'any(.[]; .event=="volume" and .volume==20)'
+shell/t-play --pause --id "$wid" -j >/dev/null 2>&1
+w_ok "--pause arrives, carrying paused:true" 'any(.[]; .event=="pause" and .paused==true)'
+
+# A reader that leaves is noticed on the next WRITE, and a paused player writes nothing — so
+# the one moment this can leak is exactly now. The reader is a FIFO read for one line and
+# closed, which makes "the reader is gone" a fact rather than a guess about when `head` exits.
+# The next event (a volume change) must then take the verb AND its nc down.
+RFIFO="$UT_TEST_TMP/watch-reader"
+mkfifo "$RFIFO"
+shell/t-play --watch --id "$wid" -j >"$RFIFO" 2>/dev/null &
+rpid=$!
+IFS= read -r _first <"$RFIFO"
+# ITS nc, by parent, taken while it is still attached: the first watcher holds an nc on the
+# same socket, so counting every nc in the state dir would count that one too.
+rnc=$(pgrep -P "$rpid" -f "nc -U" 2>/dev/null | head -1)
+report "a second watcher gets its own snapshot" snapshot \
+    "$(printf '%s' "$_first" | jq -r '.event' 2>/dev/null)"
+shell/t-play --set-volume 10 --id "$wid" -j >/dev/null 2>&1
+for i in $(seq 1 40); do kill -0 "$rpid" 2>/dev/null || break; sleep 0.25; done
+report "a watcher whose reader left exits on the next event" 1 \
+    "$(kill -0 "$rpid" 2>/dev/null && echo 0 || echo 1)"
+report "…and takes its nc with it" 1 \
+    "$([ -n "$rnc" ] && ! kill -0 "$rnc" 2>/dev/null && echo 1 || echo 0)"
+
+shell/t-play --resume --id "$wid" -j >/dev/null 2>&1
+w_ok "--resume arrives, carrying paused:false" 'any(.[]; .event=="resume" and .paused==false)'
+# The cadence claim: a heartbeat per whole second of playhead, so positions never repeat —
+# mpv pushes ~19 time-pos changes a second, and forwarding them would repeat each one ~19 times.
+w_ok "heartbeats come once per whole second, not per frame" \
+    '[.[]|select(.event=="heartbeat")|.position] as $h | ($h|length) >= 3 and ($h|length) == ($h|unique|length)'
+shell/t-play --next --id "$wid" -j >/dev/null 2>&1
+# The track that ENDED is what `transitioning` describes (the queue file has not moved yet
+# when mpv says end-file); the next one is announced by the snapshot of the next connection.
+w_ok "--next: transitioning names the track that ended, as interrupted" \
+    'any(.[]; .event=="transitioning" and .ended=="interrupted" and .queue.pos==0)'
+w_ok "…and the stream carries on into the next track's snapshot" \
+    'any(.[]; .event=="snapshot" and .queue.pos==1)'
+# Track two plays out on its own; the verb's exit IS the signal the player is gone.
+for i in $(seq 1 240); do kill -0 "$wpid" 2>/dev/null || break; sleep 0.25; done
+wait "$wpid"
+report "--watch exits 0 when the player ends" 0 $?
+report "a track that played out ends as finished" 0 \
+    "$(jq -e -s 'any(.[]; .event=="transitioning" and .ended=="finished" and .queue.pos==1)' "$WOUT" >/dev/null 2>&1; echo $?)"
+report "the last line is end, with no failure to report" 0 \
+    "$(jq -e -s '.[-1] | .event=="end" and .exit_code==null and .reason==null' "$WOUT" >/dev/null 2>&1; echo $?)"
+# Whole state on every line: a reader that joins late, or drops a line, is wrong about nothing.
+report "every line is the whole record" 0 \
+    "$(jq -e -s 'all(.[]; has("title") and has("queue") and has("media") and has("volume") and has("position") and has("cpu"))' "$WOUT" >/dev/null 2>&1; echo $?)"
+report "no nc outlives the stream" 0 "$(pgrep -f "nc -U $STATE_DIR" 2>/dev/null | wc -l | tr -d ' ')"
+
 echo "── the death record: real player failure and reaping ───────────────"
 # An unresolvable handle fails in the ENGINE, before any mpv exists: the detached child's
 # resolve returns the engine's non-zero code (play_url_directly), detached_epitaph records the
@@ -952,6 +1033,16 @@ echo "── the death record: real player failure and reaping ─────�
 f_out=$(shell/t-play -d -j --engine yt -- "https://www.youtube.com/watch?v=00000000000" 2>/dev/null)
 f_id=$(printf '%s' "$f_out" | jq -r '.id // empty')
 report "failing player launched" 0 "$([ -n "$f_id" ] && echo 0 || echo 1)"
+# Watched from launch: the engine's refusal takes seconds of network, so the watch is attached
+# long before the player dies — and it dies before mpv ever answers, so this is also the path
+# where `end` has no live state to fall back on. The tombstone is what it reports.
+shell/t-play --watch --id "$f_id" -j >"$UT_TEST_TMP/fwatch.out" 2>/dev/null &
+fwpid=$!
+for i in $(seq 1 240); do kill -0 "$fwpid" 2>/dev/null || break; sleep 0.25; done
+wait "$fwpid"
+report "--watch on a failing player exits 0" 0 $?
+report "…its end line carries the tombstone" 0 \
+    "$(jq -e -s '.[-1] | .event=="end" and .exit_code > 0 and (.reason|type)=="string"' "$UT_TEST_TMP/fwatch.out" >/dev/null 2>&1; echo $?)"
 wait_failed() {
     local id=$1 i
     for i in $(seq 1 40); do

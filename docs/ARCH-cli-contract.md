@@ -160,7 +160,7 @@ detached 播放器）、生命周期与控制动词附带未被消费的 positio
   （ARCH-tui.md「值的拼法是 `0xRRGGBB` 而不是 `#RRGGBB`」——那条实测点名管的就是这个键）。
   `--` 结束选项解析：它之后的一切都是句柄
   （ARCHITECTURE.md「端到端控制流」）。一次调用至多一个动作；`--id` 属于每一个**寻址**某个在跑的播放器的动词
-  （`--stop`、`--set-volume`、`--pause`、`--resume`、`--seek`、`--seek-to`、`--set-loop`、`--enqueue`、`--next`
+  （`--stop`、`--set-volume`、`--pause`、`--resume`、`--seek`、`--seek-to`、`--set-loop`、`--watch`、`--enqueue`、`--next`
   以及五个 `--queue-*`），而 `--all` 只属于 `--stop`；`-d` 既不与动作组合，也不与 `-f ascii|viz` 组合。
   `--queue` 不是一个动作，而是一个**启动修饰符**：它要求 `-d`、拒绝 argv 上的句柄、
   从 stdin 取它的条目（`-` 是它唯一合法的取值，`--enqueue` 也一样）。
@@ -593,7 +593,7 @@ YouTube 的限流器），但播放与搜索一直都够得到它，只是报成
 两种输出模式下散文都走 stderr；信封只在 `-j` 下走 stdout，
 跟一个引擎报告一次抽取失败的方式一模一样。
 
-生命周期与解析动词的每一种信封形状 —— `-d`、`--status`、`--stop`、五个 socket 动词、
+生命周期与解析动词的每一种信封形状 —— `-d`、`--status`、`--stop`、六个 socket 动词（含 `--watch` 的每一行）、
 七个队列动词、`--info`、`--transcript`、`--parts` —— 由 `t-play --help` 与各
 `<engine>-resolve --help` 陈述、由 `tests/contract.sh` 证明；本章的键级家法 ——
 必需键、可空约定（null = 问不到，从不是 false/0）、**读回而非预测**（`position` 与
@@ -656,6 +656,8 @@ url 的检查不会比 argv 上的一个句柄更进一步 —— 哪些 id 是�
 search、resolve、`--info`、`--transcript`、`-d`、`--status`、`--stop`、`--set-volume`，
 以及每一种错误形状。那正是让输出可以当 NDJSON 用的东西：
 一个调用方读一行、解析它、就完了，不需要流式解析器，也不需要数花括号。
+`t-play --watch` 是这条规则被**直接兑现**的地方：它是一串信封，每行一份完整的、单行的状态，
+读者按行读就是按信封读（为什么每行都是完整状态而不是增量：ARCH-player.md「状态流」）。
 它同样让 `-J` 在形状上、而不只是在字段上，是 `-j` 的**严格超集**。
 
 这条规则被那两个最老的读动词违反了很久。搜索在 `-j -n 3` 下印 26 行、`-J` 下印 76 行，
@@ -704,7 +706,7 @@ search、resolve、`--info`、`--transcript`、`-d`、`--status`、`--stop`、`-
         "你的 argv 错了，改它"，2 说的是"argv 没错，这台机器少东西"。一个把缺依赖读成 1 的
         agent 会去改自己的参数，然后永远改不对 —— 那堵墙不在它这一侧。
         与"传播上来的失败"的区别只在**工具跑没跑**，对调用方是同一个分支，所以同一个码。
-   4    --set-volume / --pause / --resume / --seek / --seek-to / --set-loop / --enqueue /
+   4    --set-volume / --pause / --resume / --seek / --seek-to / --watch / --set-loop / --enqueue /
         --next / --queue-show / --queue-rm / --queue-mv / --queue-jump / --queue-clear /
         --stop：没有生效 —— 没有那个播放器、没有播放器、目标有歧义，或 mpv IPC 失败；
         对七个队列动词还包括 `queue_empty`（--next 而当前曲目之后什么也没有）与

@@ -220,6 +220,8 @@ Usage (everything after -- is the handle, so it may start with '-'):
   t-play --set-volume N [--id ID] [-j]                   live volume on a detached player
   t-play --pause | --resume [--id ID] [-j]               pause/resume a detached player
   t-play --seek ±N | --seek-to N [--id ID] [-j]          seek (relative needs the sign)
+  t-play --watch [--id ID] [-j]                          follow a detached player: one
+                                                         line per change, until it ends
   t-play [--loop off|one] -d ... -- <id|URL>              repeat the track it is playing
   t-play --set-loop off|one [--id ID] [-j]               turn repeat on/off while it plays
   t-play -d --queue - [-j]                               play a QUEUE: items on stdin
@@ -299,13 +301,15 @@ Options:
               An index that IS current but names the playing track, or no track at all,
               fails with queue_range: only a WAITING track is a queue verb's business.
   -d          --detach: background playback; manage with --status/--stop/--set-volume/
-              --pause/--resume/--seek/--enqueue/--next
+              --pause/--resume/--seek/--enqueue/--next; follow it with --watch
+  --watch     Stream a detached player's state until it ends: one line per change, never
+              per frame. It follows the player across its queue, not one mpv.
   --color M   auto|always|never (default: auto). No -c short form.
   -h          This help
   -V          Print the suite version (answered before any dependency check)
 
 Long-only flags: --engine --detach --status --stop --set-volume --pause --resume --seek
-                 --seek-to --queue --enqueue --next --queue-show --queue-rm --queue-mv
+                 --seek-to --watch --queue --enqueue --next --queue-show --queue-rm --queue-mv
                  --queue-jump --queue-clear --to --expect-url --id --all --json --list
                  --color --viz-color
                  --volume  (--help and --version also have short forms: -h, -V)
@@ -333,6 +337,17 @@ Output contracts (one line of JSON each; the why behind each shape: ARCH-cli-con
             one) can control it without rebuilding the state-dir layout; failed lists
             players that died on their own
   --stop    {status:"stopped", id, stopped} | {status:"stopped", scope:"all", stopped}
+  --watch   one line per event (NDJSON), each the WHOLE --status player record plus
+            {status:"watch", event, ready, cpu, mem}; exits 0 after the last line
+            event: snapshot (first line of every connection, i.e. of every track) |
+                   ready (sound started) | pause | resume | volume | seek |
+                   heartbeat (the playhead crossed a whole second; none while paused) |
+                   transitioning (+ ended: finished|interrupted|failed — the track that
+                   just ended; the next one arrives as a snapshot) |
+                   end (the player is gone; last known state + exit_code, reason from
+                   its tombstone, both null when it finished or was stopped)
+            cpu (percent) and mem (MB) are summed over the player's process group and
+            sampled every UT_RESOURCE_TICKS heartbeats; null with UT_RESOURCE=0
   --set-vol {status:"ok", id, volume} | {status:"not_playing"} | {status:"ambiguous", …}
             | {status:"error", reason:"ipc_failed"}
   --pause   {status:"ok", id, paused:true|false}   (same not_playing/ambiguous/error shapes)
@@ -373,7 +388,7 @@ Playback keys (mpv, during a blocking 't-play -- <handle>' playback):
 
 Dependencies: mpv (playback) + jq; a unix-socket netcat — BSD/OpenBSD 'nc -U' or nmap's
               'ncat' — for every socket verb: --set-volume, --pause, --resume,
-              --seek, --seek-to (the queue verbs need only jq); an <engine>-resolve next to
+              --seek, --seek-to, --watch (the queue verbs need only jq); an <engine>-resolve next to
               this file, in \$UT_ENGINE_DIR, or on PATH. yt-dlp / curl / cookies are the
               ENGINE's business, not the player's — see 'yt-resolve -h' for those.
 
@@ -2808,6 +2823,253 @@ do_playback_verb() {
     exit 0
 }
 
+# --watch: the player's state as a STREAM, one line per thing that happened, so a caller that
+# wants to draw a clock (ting) or follow a queue (an agent) stops re-polling --status or, worse,
+# reading the mpv socket itself. docs/PLAN-go-tui.md holds the decisions; the reasons that
+# are properties of THIS code are here.
+#
+# EVERY LINE IS A WHOLE STATE — the --status record for this player plus `event`, `ready`,
+# `cpu` and `mem`. A reader never merges and never keeps state, and one that joins late (or
+# drops a line) is not wrong about anything. The mpv half is read off ONE long connection
+# with observe_property; the player half (title, url, queue, loop) is re-read off disk for
+# every line, because an --enqueue or a track change moves it without telling mpv.
+#
+# THE CADENCE IS DECIDED IN THE RESIDENT jq, NOT HERE. mpv pushes time-pos about 19 times a
+# second; forwarding that is noise to an agent paying per token, and a fork per event would be
+# the cost this verb exists to remove. The jq below turns the event stream into the few lines
+# worth sending: discrete changes (pause/resume, volume, seek, ready, end-file) and a heartbeat
+# each time the playhead crosses a WHOLE second, which is what makes the integer `position`
+# on a heartbeat exact at the moment it is sent. Media facts and duration change silently and
+# ride the next line: audio_bitrate is a moving estimate and would be an event per packet.
+#
+# THE STREAM FOLLOWS THE PLAYER, NOT THE SOCKET. Each queued track is a new mpv, and between
+# two there is a JIT resolve with no mpv at all. mpv also LEAVES ITS SOCKET FILE BEHIND when it
+# exits (measured, mpv 0.41), so `-S` does not mean connectable and the gap is spent on
+# refused connects. What decides "is there more to watch" is therefore the process group,
+# the same test reap_dead_players uses.
+#
+# nc NEEDS ITS STDIN OPEN for as long as the connection should live. The stdin is a FIFO this
+# shell opens read-write and hands over; nc then holds both ends itself, so nothing ever sends
+# it EOF and there is no second process to reap. A `{ printf; tail -f /dev/null; } | nc`
+# holder was measured to outlive nc. And no -w: on BSD nc that is an IDLE timeout, and a
+# paused player is idle.
+WATCH_OBSERVE=(pause volume time-pos duration core-idle
+    video-format width height container-fps video-bitrate
+    audio-codec-name audio-bitrate audio-params/samplerate audio-params/hr-channels)
+# The same null/number policy read_player_live applies, restated in jq because the values
+# never pass through bash here. `ended` is the player's own vocabulary for mpv's end-file
+# reason: eof is a track that played out, error one that failed, and everything else (stop,
+# quit — --next and --stop both reach mpv as a signal) one that was interrupted.
+WATCH_JQ='
+def int: if type == "number" then floor else null end;
+def str: if type == "string" and . != "" then . else null end;
+def fps: if type == "number" then (. * 100 | round) / 100 else null end;
+def view($p): {volume: ($p.volume | int),
+    paused: (if ($p.pause | type) == "boolean" then $p.pause else null end),
+    position: ($p["time-pos"] | int), duration: ($p.duration | int),
+    media: {video_codec: ($p["video-format"] | str), width: ($p.width | int),
+            height: ($p.height | int), fps: ($p["container-fps"] | fps),
+            video_bitrate: ($p["video-bitrate"] | int),
+            audio_codec: ($p["audio-codec-name"] | str),
+            audio_bitrate: ($p["audio-bitrate"] | int),
+            sample_rate: ($p["audio-params/samplerate"] | int),
+            channels: ($p["audio-params/hr-channels"] | str)}};
+foreach inputs as $e (
+    {p: {}, seen: {}, snap: false, ready: false, sec: null, seeking: false, out: null, ended: null};
+    .out = null
+    | if $e.event == "property-change" then
+        $e.name as $n | .p[$n] as $old | .p[$n] = $e.data
+        | if (.snap | not) then
+            .seen[$n] = true
+            | if (.seen | length) >= $want then
+                .snap = true | .out = "snapshot"
+                | .ready = (.p["core-idle"] == false) | .sec = (.p["time-pos"] | int)
+              else . end
+          elif $n == "pause" and ($e.data | type) == "boolean" and $e.data != $old then
+            .out = (if $e.data then "pause" else "resume" end)
+          elif $n == "volume" and ($e.data | int) != ($old | int) then .out = "volume"
+          elif $n == "core-idle" and $e.data == false and (.ready | not) then
+            .ready = true | .out = "ready"
+          elif $n == "time-pos" and (.seeking | not) and ($e.data | int) != null
+               and ($e.data | int) != .sec then
+            .sec = ($e.data | int) | .out = "heartbeat"
+          else . end
+      elif $e.event == "seek" then .seeking = true
+      elif $e.event == "playback-restart" and .seeking then
+        .seeking = false | .sec = (.p["time-pos"] | int)
+        | if .snap then .out = "seek" else . end
+      elif $e.event == "end-file" then
+        .out = "transitioning"
+        | .ended = ({eof: "finished", error: "failed"}[$e.reason // ""] // "interrupted")
+      else . end;
+    select(.out != null)
+    | view(.p) + {event: .out, ready: .ready}
+      + (if .out == "transitioning" then {ended: .ended} else {} end)
+    | "\(.event)\u001f\(tojson)")'
+# The player half of every line, joined onto the mpv half ($m) — the same projection
+# do_status makes, so a field means one thing on both verbs.
+WATCH_MERGE='{status: "watch", event: $m.event, id, pid, url, engine, mode,
+    volume: ($m.volume // .volume), paused: $m.paused, position: $m.position,
+    duration: $m.duration, title, selected, selected_resolution, media: $m.media,
+    loop: (.loop // "off"), started_at, queue: $queue, ready: $m.ready,
+    cpu: $cpu, mem: $mem, sock, log}
+    + (if $m.ended then {ended: $m.ended} else {} end)'
+WATCH_NC_PID=""
+WATCH_FIFO=""
+WATCH_LAST=""
+WATCH_CPU=""
+WATCH_MEM=""
+WATCH_BEATS=0
+
+# The reader went away (SIGPIPE on our stdout) or we were told to stop. Take nc down with us,
+# or it would sit on mpv's socket until the track ended.
+#
+# A closed pipe is only NOTICED ON A WRITE, and a paused player writes nothing (no heartbeat
+# while the playhead stands still), so a reader that leaves during a pause leaves this verb
+# and its nc alive until the next event — a resume, a volume change, a --stop. Bounded by the
+# player's own life, and measured to clear on that next event. A caller that owns the process
+# (ting) kills it instead of waiting.
+watch_bail() {
+    [[ -n "$WATCH_NC_PID" ]] && kill "$WATCH_NC_PID" 2>/dev/null
+    [[ -n "$WATCH_FIFO" ]] && rm -f "$WATCH_FIFO" 2>/dev/null
+    exit 0
+}
+
+# CPU percent and resident MB over the player's PROCESS GROUP — the one fact about a player
+# a caller could only get by knowing that the recorded pid leads a group (`set -m` at launch).
+# Sampled on the snapshot and every UT_RESOURCE_TICKS-th heartbeat after it, the stride ting
+# has always used; between samples the last reading rides along. Why ps -A | awk and not
+# `ps -g`: one portable spelling (ARCH-player.md).
+watch_sample_res() {
+    local pid=$1 out=""
+    [[ "${UT_RESOURCE:-1}" != 0 ]] || return 0
+    out=$(ps -A -o pgid=,%cpu=,rss= 2>/dev/null |
+        awk -v g="$pid" '$1 == g { c += $2; r += $3; n += 1 }
+                         END { if (n) printf "%.0f %.0f", c, r / 1024 }') || out=""
+    if [[ -n "$out" ]]; then
+        WATCH_CPU="${out%% *}"
+        WATCH_MEM="${out##* }"
+    else
+        WATCH_CPU=""
+        WATCH_MEM=""
+    fi
+    return 0
+}
+
+# One line out. A record that is gone (--stop took it between two events) skips the line
+# rather than inventing one; the loop's liveness test ends the stream on its next turn.
+#
+# `transitioning` is the one line whose player half is NOT re-read: it describes the track
+# that just ended, and by end-file the disk may already describe the next one — --next and
+# --queue-jump move `pos` BEFORE they signal the child (measured: a re-read reported the old
+# url beside the new pos). So it takes the previous line's player half, which was true of
+# the track mpv was playing, and lays the mpv half on top.
+watch_emit() {
+    local id=$1 m=$2 f line ev=$3
+    if [[ "$ev" == transitioning && -n "$WATCH_LAST" ]]; then
+        line=$(jq -c --argjson m "$m" \
+            '. + {event: $m.event, volume: ($m.volume // .volume), paused: $m.paused,
+                  position: $m.position, duration: $m.duration, media: $m.media,
+                  ready: $m.ready, ended: $m.ended}' <<<"$WATCH_LAST" 2>/dev/null) || return 0
+        WATCH_LAST=$line
+        watch_print "$line"
+        return 0
+    fi
+    f=$(player_state "$id")
+    queue_snapshot "$id"
+    line=$(jq -c --argjson m "$m" --argjson queue "$QUEUE_JSON" \
+        --argjson cpu "${WATCH_CPU:-null}" --argjson mem "${WATCH_MEM:-null}" \
+        "$WATCH_MERGE" "$f" 2>/dev/null) || return 0
+    [[ -n "$line" ]] || return 0
+    WATCH_LAST=$line
+    watch_print "$line"
+}
+
+watch_print() {
+    local line=$1
+    if [[ "$OUTPUT_MODE" == "json" ]]; then
+        printf '%s\n' "$line" 2>/dev/null || watch_bail
+    else
+        jq -r '"\(.event) \(.position // "-")s/\(.duration // "-")s, volume \(.volume // "-")"
+               + (if .paused then ", paused" else "" end)
+               + (if .ended then ", " + .ended else "" end)
+               + (if .reason then ", " + .reason else "" end)
+               + ": " + (.title // .url // .id)' <<<"$line" 2>/dev/null || watch_bail
+    fi
+}
+
+# One connection, start to EOF. Returns 0 if it got as far as a snapshot (so the caller
+# reconnects at once, for the next track), 1 if mpv refused or was not there.
+watch_connect() {
+    local id=$1 pid=$2 sock=$3 line ev got=0 ticks=${UT_RESOURCE_TICKS:-3} p
+    [[ "$ticks" =~ ^[1-9][0-9]*$ ]] || ticks=3
+    WATCH_FIFO="$STATE_DIR/watch-$$.out"
+    rm -f "$WATCH_FIFO" "$STATE_DIR/watch-$$.in" 2>/dev/null
+    mkfifo "$STATE_DIR/watch-$$.in" "$WATCH_FIFO" 2>/dev/null || return 1
+    exec 3<>"$STATE_DIR/watch-$$.in"
+    rm -f "$STATE_DIR/watch-$$.in"
+    for p in "${WATCH_OBSERVE[@]}"; do
+        printf '{"command":["observe_property",1,"%s"]}\n' "$p" >&3
+    done
+    "${NC_UNIX[0]}" -U "$sock" <&3 >"$WATCH_FIFO" 2>/dev/null &
+    WATCH_NC_PID=$!
+    exec 3>&-
+    # The event name arrives in front of its line so the stride below costs no jq.
+    while IFS=$'\037' read -r ev line; do
+        case "$ev" in
+        snapshot)
+            got=1
+            WATCH_BEATS=0
+            watch_sample_res "$pid"
+            ;;
+        heartbeat)
+            WATCH_BEATS=$((WATCH_BEATS + 1))
+            ((WATCH_BEATS % ticks)) || watch_sample_res "$pid"
+            ;;
+        esac
+        watch_emit "$id" "$line" "$ev"
+    done < <(jq -n -r --unbuffered --argjson want "${#WATCH_OBSERVE[@]}" "$WATCH_JQ" <"$WATCH_FIFO" 2>/dev/null)
+    wait "$WATCH_NC_PID" 2>/dev/null || true
+    WATCH_NC_PID=""
+    rm -f "$WATCH_FIFO" 2>/dev/null
+    WATCH_FIFO=""
+    ((got))
+}
+
+do_watch() {
+    local want_id=$1
+    require_live_target "$want_id"
+    local id=$RESOLVED_ID pid sock f tomb
+    f=$(player_state "$id")
+    pid=$(jq -r '.pid // empty' "$f" 2>/dev/null) || pid=""
+    sock=$(player_sock "$id")
+    ensure_state_dir
+    trap watch_bail PIPE TERM INT HUP
+    # The line `end` falls back to when the player dies before mpv ever answered (a handle
+    # the engine could not resolve): the record as it stood, nothing live.
+    WATCH_LAST=$(jq -c --argjson queue null --argjson cpu null --argjson mem null \
+        --argjson m '{"event":"end","paused":null,"position":null,"duration":null,"ready":false,"media":{"video_codec":null,"width":null,"height":null,"fps":null,"video_bitrate":null,"audio_codec":null,"audio_bitrate":null,"sample_rate":null,"channels":null}}' \
+        "$WATCH_MERGE" "$f" 2>/dev/null) || WATCH_LAST=""
+    # Poll the gap on a 0.2 s tick: each turn is a refused connect or a pgrep, and the gap is
+    # a resolve — seconds, not minutes.
+    while group_alive "$pid"; do
+        if [[ -S "$sock" ]] && watch_connect "$id" "$pid" "$sock"; then
+            continue
+        fi
+        sleep 0.2
+    done
+    # The reaper writes the tombstone (a failure's exit code and reason) as it removes the
+    # record; a player that finished or was stopped leaves none, and says so with nulls.
+    reap_dead_players
+    collect_failed_players
+    tomb=$(jq -c --arg i "$id" '[.[] | select(.id == $i)][0]' <<<"$FAILED_JSON" 2>/dev/null) || tomb=null
+    [[ -n "$WATCH_LAST" ]] || WATCH_LAST=$(jq -nc --arg id "$id" '{status: "watch", id: $id}')
+    watch_print "$(jq -c --argjson t "${tomb:-null}" \
+        'del(.ended) + {event: "end", exit_code: ($t.exit_code // null), reason: ($t.reason // null)}' \
+        <<<"$WATCH_LAST" 2>/dev/null)"
+    exit 0
+}
+
 # Append to a running player's queue. The items were parsed and validated in the parent
 # before we got here, so everything left to fail is the store itself.
 #
@@ -3173,7 +3435,7 @@ ENGINE="$UT_DEFAULT_ENGINE"  # which <engine>-resolve turns a handle into bytes
 ENGINE_SPECIFIED=0
 ACTION=""            # "" (normal) | status | stop | set-volume | pause | resume | seek |
                      # seek-to | enqueue | next | set-loop | queue-show | queue-rm |
-                     # queue-mv | queue-jump | queue-clear | undo
+                     # queue-mv | queue-jump | queue-clear | undo | watch
 ACTION_FLAG=""       # the flag that set ACTION, for conflict messages
 PLAYBACK_RETRIED=0   # relayed from the resolve envelope; surfaced in the playback JSON
 SET_VOLUME_ARG=""    # value from --set-volume N
@@ -3352,6 +3614,10 @@ while (($#)); do
         ;;
     --pause)
         set_action pause --pause
+        shift
+        ;;
+    --watch)
+        set_action watch --watch
         shift
         ;;
     --resume)
@@ -3610,12 +3876,12 @@ fi
 # player has no terminal for the terminal-rendering modes to draw into (ARCH-player.md「状态机」).
 case "$ACTION" in
 stop | set-volume | pause | resume | seek | seek-to | enqueue | next | set-loop | \
-    queue-show | queue-rm | queue-mv | queue-jump | queue-clear) ;;
+    queue-show | queue-rm | queue-mv | queue-jump | queue-clear | watch) ;;
 *)
     # --id names ONE running player, so it is meaningless to a verb that does not address
     # one. Listing the verbs beats "invalid combination": the caller has the right idea and
     # the wrong verb.
-    [[ -z "$TARGET_ID" ]] || die "--id applies only to the verbs that address one player: --stop, --set-volume, --pause, --resume, --seek, --seek-to, --set-loop, --enqueue, --next and the five queue verbs"
+    [[ -z "$TARGET_ID" ]] || die "--id applies only to the verbs that address one player: --stop, --set-volume, --pause, --resume, --seek, --seek-to, --set-loop, --watch, --enqueue, --next and the five queue verbs"
     ;;
 esac
 if ((STOP_ALL)) && [[ "$ACTION" != stop ]]; then
@@ -3775,6 +4041,11 @@ pause | resume | seek | seek-to)
     require_cmd jq
     resolve_nc_unix || die_dep "a unix-socket netcat (nc with -U, or ncat)"
     do_playback_verb "$ACTION" "$SEEK_ARG" "${TARGET_ID:-}"
+    ;;
+watch)
+    require_cmd jq
+    resolve_nc_unix || die_dep "a unix-socket netcat (nc with -U, or ncat)"
+    do_watch "${TARGET_ID:-}"
     ;;
 esac
 # The queue verbs address a player's own state on disk, so they need jq and NOT nc — the

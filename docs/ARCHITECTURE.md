@@ -81,7 +81,7 @@ ROADMAP 那条 Go 重写 NO 的全部账**：收益只剩"删渲染负债"，分
    | 想要的 | bash 为何不行 | 归属 |
    |---|---|---|
    | MCP stdio server | 手写 JSON-RPC 帧、长连接、并发 | 会是第三张脸（既非播放器也非引擎）—— 今天是非目标，也是 ROADMAP 那条 Go 重写 NO 的重开条件 |
-   | 流式进度 | 阻塞 `read`、一次性 jq | 引擎（search）+ 播放器（`--status`） |
+   | 流式进度 | 阻塞 `read`、一次性 jq | 引擎（search）+ 播放器 —— 后一半已由 `t-play --watch` 给出：一条长连接加一个常驻 `jq`，bash 给得了（ARCH-player.md「状态流」） |
 
 5. **yt-dlp 与 mpv 在任何方案里都是子进程，Go 也一样。** 引擎的真实价值是 **flag 学问**
    （`--ytdl-format=ba/b`、`--ytdl-raw-options`、`--msg-level` 噪音压制、`--no-video` 与

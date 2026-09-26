@@ -833,6 +833,13 @@ report "--set-loop rejects a handle" 1 "$(rc shell/t-play --set-loop one -- URL)
 # the combination gate — the check cannot pass on the idle path by accident. (--start's own
 # pair of lines above has the same shape and is there for the same reason.)
 report "--loop with --pause is 1"    1 "$(rc shell/t-play --loop one --pause -j)"
+# --watch is a socket verb and takes their taxonomy whole: nothing to follow is 4 with the
+# same not_playing shape, a stray handle is argv (1). What it streams needs a real player
+# and is playback.sh's.
+report "idle --watch is 4"           4 "$(rc shell/t-play --watch -j)"
+report "idle --watch says why"       0 "$(jq_ok '.status=="not_playing"' shell/t-play --watch -j)"
+report "--id on --watch parses"      4 "$(rc shell/t-play --watch --id nope -j)"
+report "--watch rejects a handle"    1 "$(rc shell/t-play --watch -- URL)"
 report "--loop with --status is 1"   1 "$(rc shell/t-play --loop one --status -j)"
 
 # The tombstone list itself — a player that died unasked, a normal finish leaving nothing,

@@ -1,6 +1,6 @@
 # PLAN — TUI 改用 Go，CLI 契约成为唯一接缝
 
-> **Status**: 草案 (Draft) · 三项决定已确认（2026-09-24），其余在「未决」  
+> **Status**: 实施中 · 三项决定已确认（2026-09-24），`--watch` 形状四项已确认（2026-09-25），其余在「未决」  
 > **Priority**: 第一梯队  
 > **Target Branch**: main  
 > **Roadmap 关联**: [`docs/ROADMAP.md`](ROADMAP.md)「Go 重写 NO」（TUI 一半已由本计划反转）  
@@ -42,7 +42,8 @@ yt-dlp/mpv 在任何语言里都是子进程，生命周期的回归无法二分
                   mpv socket / yt-dlp / curl   (private)
 ```
 
-一条判据：**Go 二进制里出现 mpv、yt-dlp、socket 路径或站点名，就是一次分层违规。**
+一条判据：**Go 二进制里出现 mpv、yt-dlp、socket 路径或针对某个站点的行为，就是一次分层违规。**
+引擎名（`yt`/`bili`/`ne`）作为不透明字符串显示、转发不算——它们本来就是契约里的词。
 一件只有 TUI 能做的事，要么下沉成一个动词（agent 同时得到它），要么不做。
 `CLAUDE.md`「严禁单侧新增 TUI 键位」保持原样，而且从此有了机械的检验方式。
 
@@ -56,6 +57,7 @@ yt-dlp/mpv 在任何语言里都是子进程，生命周期的回归无法二分
 |---|---|---|
 | `fetch_play_times` 每拍在 `--status` 公布的 `sock` 上直读 14 个 mpv 属性 | 每拍 fork 一条 `t-play` 太贵 | `t-play --watch`（§4.1） |
 | `mpv_get_prop core-idle` 判断起播就绪 | 同上 | `--watch` 的状态事件 |
+| `fetch_play_res` 对播放器的**进程组**跑 `ps` 读 CPU/内存——依赖 `t-play` 内部的 `set -m`（pgid == 记录里的 pid） | 没有动词答这个 | `--watch` 的心跳按 `UT_RESOURCE_TICKS` 取样带出 `cpu`/`mem`；进程组知识留在 `t-play` |
 | `-`/`=` 音量走 `send_mpv_ipc`，先 `get_property volume` 再 set | 按住连发：socket 10 ms/次，`--set-volume` 60 ms/次 | Go 端合并连按（只保留最新目标值、同一时刻最多一个在途调用），走 `--set-volume`；当前音量来自 `--watch` |
 | 封面：TUI 自己起一个 `mpv --vo=image` 做转码 | bash 解不了图 | Go 解码搜索信封里的 `thumbnail`，自己发 Kitty 协议；mpv 从 TUI 里消失（细节见 §5「封面」） |
 | `--parts` / `--info` 支不支持，靠调一次、嗅 stderr 的用法错 | 没有发现动词 | `<engine>-resolve --capabilities -j`（§4.2） |
@@ -70,25 +72,38 @@ yt-dlp/mpv 在任何语言里都是子进程，生命周期的回归无法二分
 
 ### 4.1 `t-play --watch [--id ID] -j` —— 播放器状态的事件流
 
-- **形状**：stdout 每行一个信封（NDJSON），首行是一份完整快照，之后只在变化时出行。
-  字段用播放器自己的词（与 `--status` 的 `media` 同源），**不**透传 mpv 属性名 ——
+- **形状（已定 2026-09-25）**：stdout 每行一个信封（NDJSON），**每行都是完整状态**——
+  `--status` 里那一条播放器记录的全部字段，加上 `event`（这一行为什么出）、`ready`
+  （本曲是否已出声）、`cpu`/`mem`。读者不做合并、不存状态，中途加入也不缺什么。
+  字段用播放器自己的词（与 `--status` 同源），**不**透传 mpv 属性名 ——
   mpv 仍是私有的，换掉它不应改变这份输出。
-- **只发离散事件，每条都带位置**：就绪、暂停/继续、音量、seek、换曲过渡、结束；
-  外加约 1 秒一次的心跳。连续的播放位置**不**逐帧转发：实测 mpv 对 `time-pos` 约
+- **目标与退出码（已定）**：`--id` 缺省与其他 socket 动词同一条规则（唯一那个；多个报
+  `ambiguous`、没有报 `not_playing`，都是 4）。播放器自己结束或被停，发最后一行
+  `end` 后以 0 退出。
+- **只发离散事件，每条都带位置**：`snapshot`（每次接上 socket 的首行）、`ready`、
+  `pause`/`resume`、`volume`、`seek`、`transitioning`、`end`；外加心跳 `heartbeat`，
+  在播放头每跨过一个整秒时发一次（所以心跳里的整数 `position` 在发出那一刻是准的；暂停时没有心跳）。
+  媒体事实与 `duration` 的变化不单独成事件，随下一行带出（`audio_bitrate` 是滑动估计，逐变化转发就是噪声）。
+  连续的播放位置**不**逐帧转发：实测 mpv 对 `time-pos` 约
   19 次/秒（5 秒 95 条），管道成本可以忽略（`nc` 0.0%、`jq --unbuffered` 0.1% CPU，
   到达时间与播放时钟恒定偏移，没有缓冲积压）——不转发的理由是**调用方**：
   一个 agent 读这条流，每秒 19 行是它要付 token 的噪声。节流在那一个常驻 `jq` 里做
-  （`now` 比较），不为节流 fork。Go 用最近一条事件的位置加单调时钟外推，暂停时停止外推。
+  （比较整秒），不为节流 fork。Go 用最近一条事件的位置加单调时钟外推，暂停时停止外推。
 - **实现可行性（已实测）**：macOS 自带 `/usr/bin/nc -U` 保持一条长连接，对 mpv 发
   `observe_property` 后，另一个客户端改 volume / pause 时，`property-change` 事件被实时推到
-  这条连接上。前提是 nc 的 stdin 一直不关——`--watch` 必须自己持有那个 fd。
-- **生命周期跟播放器走，不跟 socket 走**：队列每首是一个新的 mpv 进程，换曲时旧 socket 关闭，
-  新 mpv 要等引擎解析完下一首的直链才起来，中间有一段没有 socket 的空窗。`nc` 在旧连接上读到
-  EOF 就退出，立刻重连会被拒。所以 `--watch` 以**播放器进程**是否还活着为准：活着就轮询等
-  新 socket 出现再接上，stdout 不断；进入空窗之前先发一条 `transitioning`（去向哪一首），
-  调用方由此知道接下来的安静是换曲，不是死亡。
-- **结束**：播放器进程消失时发最后一行并退出；退出码按四级分类（未决：正常结束报 0，
-  `--id` 不存在报 4）。
+  这条连接上；每个被观察的属性（包括当下不可用的）都会先来一条初值通知，所以"全部到齐"就是首行快照的时机。
+  前提是 nc 的 stdin 一直不关——`--watch` 自己以读写方式打开一个 FIFO 当 nc 的 stdin，
+  不另起一个 `tail -f` 之类的持有进程（实测那种持有进程在 nc 退出后会残留）。
+- **生命周期跟播放器走，不跟 socket 走**：队列每首是一个新的 mpv 进程，换曲时旧连接关闭，
+  新 mpv 要等引擎解析完下一首的直链才起来，中间有一段空窗。实测 mpv 退出后**socket 文件留在原地**，
+  所以 `-S` 为真不代表连得上：空窗里重连会被拒。`--watch` 以**播放器进程组**是否还活着为准：
+  活着就轮询重连，stdout 不断。mpv 在关连接之前先发 `end-file`，`--watch` 据此发 `transitioning`，
+  它带的是**刚结束的那一首**与结束方式（`ended`：finished / interrupted / failed）；
+  下一首由重连后的 `snapshot` 报出——不在 `transitioning` 里预告，因为那一刻子进程还没推进队列文件。
+- **结束**：播放器进程组消失后，`end` 行带最后已知的状态，外加 `exit_code`/`reason`
+  （有墓碑时取墓碑，正常结束或被停为 null），然后以 0 退出。读者先关掉 stdout 时，
+  `--watch` 在下一次写时收掉自己的 nc 再退出；暂停中没有写，所以要等到下一个事件——
+  Go 那一侧拥有这个子进程，退出时直接 kill 它。**已落地**（ARCH-player.md「状态流」）。
 - **agent 同样受益**：`ARCHITECTURE.md`「六条发现」第 4 条列过"流式进度"为 bash 给不了的诉求——
   它给得了，只是当时没有人要。
 
@@ -158,9 +173,6 @@ ASCII 模式、亮暗背景探测；同步重绘（今天是 DCS `1q/2q`，tmux 
 
 ## 7. 未决
 
-- `--watch` 的事件字段清单与结束退出码。
-- `--watch` 的 `--id` 缺省：像其他 socket 动词一样"唯一那个"，还是允许不带 id 时观察全部播放器。
 - 引擎发现：Go 复刻三处扫描，还是再加一个列出已装引擎的动词，让规则只在 shell 里写一次。
 - 分发：tap 从源码编译还是发 bottle；Go 二进制装在 `libexec` 树里的哪一处，使"真实路径旁边"
   那条寻址规则成立。
-- 心跳间隔（草拟 1 秒）与 `transitioning` 事件的字段。
