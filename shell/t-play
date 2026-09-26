@@ -233,6 +233,8 @@ Usage (everything after -- is the handle, so it may start with '-'):
   t-play --queue-jump N --expect-url U [--id ID] [-j]    play one waiting track NOW
   t-play --queue-clear [--id ID] [-j]                    drop every waiting track
   t-play --undo --owner PID [--discard] [-j]             take back PID's last queue write
+  t-play --engines [-j]                                  the installed engines, and the
+                                                         two paths each would run
   t-play (no handle, no action)                          usage error; use ting to browse
 
 Not here, by design: metadata, captions and stream URLs are extraction, so they are the
@@ -304,13 +306,16 @@ Options:
               --pause/--resume/--seek/--enqueue/--next; follow it with --watch
   --watch     Stream a detached player's state until it ends: one line per change, never
               per frame. It follows the player across its queue, not one mpv.
+  --engines   List every installed engine — a <name>-search + <name>-resolve pair beside
+              this file, in \$UT_ENGINE_DIR, or on PATH (first sight of a name wins) — with
+              the path of each half a play would run. Needs no jq; touches no state.
   --color M   auto|always|never (default: auto). No -c short form.
   -h          This help
   -V          Print the suite version (answered before any dependency check)
 
 Long-only flags: --engine --detach --status --stop --set-volume --pause --resume --seek
                  --seek-to --watch --queue --enqueue --next --queue-show --queue-rm --queue-mv
-                 --queue-jump --queue-clear --to --expect-url --id --all --json --list
+                 --queue-jump --queue-clear --to --expect-url --id --all --engines --json --list
                  --color --viz-color
                  --volume  (--help and --version also have short forms: -h, -V)
 
@@ -376,6 +381,8 @@ Output contracts (one line of JSON each; the why behind each shape: ARCH-cli-con
   --undo    {status:"ok", undone:<verb>, id, queue:{…}}
             | {status:"error", reason:"undo_none"|"undo_expired"|"undo_stale"|"locked"}
   --undo --discard {status:"ok", discarded:<bool>}
+  --engines {status:"ok", engines:[{name, search, resolve}]}   discovery order; [] is an
+            answer (exit 0), not a failure. Prose: one "name<TAB>search<TAB>resolve" line each
             \`queue\` is the same object --enqueue and --next publish, read back off the file
             after the write — never predicted from what the call asked for.
 
@@ -645,16 +652,92 @@ engine_resolve_bin() {
     if [[ ! "$ENGINE" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
         die "invalid engine name: '$ENGINE'"
     fi
-    if [[ -x "$SCRIPT_DIR/$ENGINE-resolve" ]]; then
-        ENGINE_RESOLVE="$SCRIPT_DIR/$ENGINE-resolve"
-    elif [[ -x "$UT_ENGINE_DIR/$ENGINE-resolve" ]]; then
-        ENGINE_RESOLVE="$UT_ENGINE_DIR/$ENGINE-resolve"
-    elif command -v "$ENGINE-resolve" >/dev/null 2>&1; then
-        ENGINE_RESOLVE=$(command -v "$ENGINE-resolve")
-    else
+    ENGINE_RESOLVE=$(engine_half_bin "$ENGINE" resolve) ||
         die "unknown engine '$ENGINE': no '$ENGINE-resolve' next to t-play, in $UT_ENGINE_DIR, or on PATH"
-    fi
     return 0
+}
+
+# One half of one engine, by name: sibling, then the plugin dir, then PATH. The lookup the
+# player plays through AND the paths --engines publishes, so what a caller is told it would
+# run is what this file does run. Prints the path; non-zero and silent when there is none.
+engine_half_bin() { # <name> <search|resolve>
+    if [[ -x "$SCRIPT_DIR/$1-$2" ]]; then
+        printf '%s\n' "$SCRIPT_DIR/$1-$2"
+    elif [[ -x "$UT_ENGINE_DIR/$1-$2" ]]; then
+        printf '%s\n' "$UT_ENGINE_DIR/$1-$2"
+    else
+        command -v "$1-$2" 2>/dev/null
+    fi
+}
+
+# THE ENGINE REGISTRY, published: `--engines` answers which sources are installed, so no caller
+# has to carry the rule below — the Go TUI runs the paths it is handed and never learns that
+# UT_ENGINE_DIR exists (PLAN-go-tui.md「未决」, decided 2026-09-25). Until the bash `ting` is
+# retired it still scans for itself, with this same rule; the contract suite holds the two to
+# one answer.
+#
+# An engine is a PAIR in ONE directory — a lone -search would list results nothing resolves.
+# All three places are always scanned and the first sight of a name wins, so a plugin dir
+# cannot shadow a built-in. A name the player would refuse as `--engine` (the regex in
+# engine_resolve_bin) is not listed: listing a source the player then refuses is the
+# disagreement this verb exists to end. The paths are engine_half_bin's, i.e. what a play
+# would actually run, which for a name in two places is the higher-precedence copy.
+ENGINE_NAMES=()
+engines_scan_dir() {
+    local dir=$1 f name e
+    # No nullglob on 3.2: an unmatched glob is the pattern itself, and -x rejects it.
+    for f in "$dir"/*-search; do
+        [[ -x "$f" ]] || continue
+        name=${f##*/}
+        name=${name%-search}
+        [[ "$name" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || continue
+        [[ -x "$dir/$name-resolve" ]] || continue
+        for e in ${ENGINE_NAMES[@]+"${ENGINE_NAMES[@]}"}; do
+            [[ "$e" == "$name" ]] && continue 2
+        done
+        ENGINE_NAMES+=("$name")
+    done
+    return 0
+}
+
+# Answered before every dependency gate, jq included, the way the engines' --capabilities is:
+# it is the question a caller asks before it knows what to run, and it touches nothing — no
+# state dir, no socket. So the envelope is printf'd; a path is the only free text in it, and
+# one holding a control character is skipped rather than escaped (no real install has one).
+json_path() {
+    local s=$1
+    s=${s//\\/\\\\}
+    s=${s//\"/\\\"}
+    printf '"%s"' "$s"
+}
+do_engines() {
+    local d name search resolve sep="" out=""
+    engines_scan_dir "$SCRIPT_DIR"
+    engines_scan_dir "$UT_ENGINE_DIR"
+    local saved_ifs=$IFS
+    IFS=:
+    for d in $PATH; do
+        [[ -n "$d" && -d "$d" ]] && engines_scan_dir "$d"
+    done
+    IFS=$saved_ifs
+    for name in ${ENGINE_NAMES[@]+"${ENGINE_NAMES[@]}"}; do
+        search=$(engine_half_bin "$name" search) || continue
+        resolve=$(engine_half_bin "$name" resolve) || continue
+        [[ "$search$resolve" == *[[:cntrl:]]* ]] && continue
+        if [[ "$OUTPUT_MODE" == "json" ]]; then
+            out+="$sep{\"name\":\"$name\",\"search\":$(json_path "$search"),\"resolve\":$(json_path "$resolve")}"
+            sep=","
+        else
+            printf '%s\t%s\t%s\n' "$name" "$search" "$resolve"
+            sep=","
+        fi
+    done
+    if [[ "$OUTPUT_MODE" == "json" ]]; then
+        printf '{"status":"ok","engines":[%s]}\n' "$out"
+    elif [[ -z "$sep" ]]; then
+        echo "no engines: need a <name>-search and <name>-resolve pair beside t-play, in $UT_ENGINE_DIR, or on PATH" >&2
+    fi
+    exit 0
 }
 
 # Out-params of resolve_media. Globals rather than a return value because bash 3.2 arrays do
@@ -3620,6 +3703,10 @@ while (($#)); do
         set_action watch --watch
         shift
         ;;
+    --engines)
+        set_action engines --engines
+        shift
+        ;;
     --resume)
         set_action resume --resume
         shift
@@ -3806,7 +3893,7 @@ while (($#)); do
         # an unmatched one can never be valid — and left to fall through it reached getopts
         # as `-`, which reported the useless "invalid option: --". The wrapper used to hold
         # this arm; naming the real flags is the half of a gate that helps a caller recover.
-        die "unknown flag '$1' (play flags: -f -S --quality -d -j -l --engine --volume --start --loop --status --stop --set-volume --pause --resume --seek --seek-to --set-loop --queue --enqueue --next --queue-show --queue-rm --queue-mv --queue-jump --queue-clear --undo --owner --discard --to --expect-url --id --all --color --viz-color)"
+        die "unknown flag '$1' (play flags: -f -S --quality -d -j -l --engine --volume --start --loop --status --stop --set-volume --pause --resume --seek --seek-to --set-loop --queue --enqueue --next --queue-show --queue-rm --queue-mv --queue-jump --queue-clear --undo --owner --discard --to --expect-url --id --all --engines --color --viz-color)"
         ;;
     *)
         normalized_args+=("$1")
@@ -3991,6 +4078,8 @@ if [[ -n "$ACTION" ]] && [[ "$QUERY" == *[![:space:]]* ]]; then
         die "--status takes no positional arguments (to query detached players, run 't-play --status [-j]')"
     elif [[ "$ACTION" == "enqueue" ]]; then
         die "--enqueue takes its items from stdin, not from the command line"
+    elif [[ "$ACTION" == "engines" ]]; then
+        die "--engines takes no positional arguments — it lists every installed engine"
     else
         die "$ACTION_FLAG takes no positional arguments (to address a player, use --id ID)"
     fi
@@ -4005,6 +4094,14 @@ fi
 
 # Every call, whatever it is for, sweeps away the undo copies of owners that are gone (the
 # kill -9 path; see reap_dead_undo_copies). A glob and nothing else when there are none.
+# --engines touches no state, so it answers before the sweep below, and before every
+# dependency gate (do_engines). --engine is the one flag refused with it: a caller passing
+# both expects a filtered answer, and would read the whole list as "yes, installed".
+if [[ "$ACTION" == "engines" ]]; then
+    ((! ENGINE_SPECIFIED)) || die "--engines lists every installed engine — it takes no --engine"
+    do_engines
+fi
+
 reap_dead_undo_copies
 
 # Lifecycle queries need only jq and take no handle — answer them before the heavier

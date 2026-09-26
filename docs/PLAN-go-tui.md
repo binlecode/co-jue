@@ -1,12 +1,12 @@
 # PLAN — TUI 改用 Go，CLI 契约成为唯一接缝
 
-> **Status**: 实施中 · 三项决定已确认（2026-09-24），`--watch` 形状四项已确认（2026-09-25），`--capabilities` 形状已确认（2026-09-25），其余在「未决」  
+> **Status**: 实施中 · 三项决定已确认（2026-09-24），`--watch` 形状四项已确认（2026-09-25），`--capabilities` 形状已确认（2026-09-25），引擎发现与分发已定（2026-09-25）  
 > **Priority**: 第一梯队  
 > **Target Branch**: main  
 > **Roadmap 关联**: [`docs/ROADMAP.md`](ROADMAP.md)「Go 重写 NO」（TUI 一半已由本计划反转）  
 > **Governing Docs**: [`docs/ARCHITECTURE.md`](ARCHITECTURE.md)「分析：驱动决定的六条发现」、[`docs/ARCH-cli-contract.md`](ARCH-cli-contract.md)「`ting` —— 交互式终端 UI」、[`docs/ARCH-player.md`](ARCH-player.md)「运行时 IPC 控制」、[`docs/ARCH-tui.md`](ARCH-tui.md)  
 > **Verification**: `bash -n shell/*`、`tests/contract.sh --offline`、`tests/contract.sh`、`tests/playback.sh`、`go test ./...`、tmux 驱动段  
-> **Scope Boundary**: 只换人机那张脸。引擎对（`*-search` / `*-resolve`）、播放器 `t-play`、两个存储（`t-playlist` / `t-history`）留在 shell、bash 3.2、零新增运行时依赖，既有 argv、信封字段、reason 与退出码一字不改。契约只**加**两样东西（`t-play --watch`、`--capabilities -j`），各自是一次 minor。
+> **Scope Boundary**: 只换人机那张脸。引擎对（`*-search` / `*-resolve`）、播放器 `t-play`、两个存储（`t-playlist` / `t-history`）留在 shell、bash 3.2、零新增运行时依赖，既有 argv、信封字段、reason 与退出码一字不改。契约只**加**三样东西（`t-play --watch`、`--capabilities -j`、`t-play --engines -j`），各自是一次 minor。
 
 ---
 
@@ -61,7 +61,7 @@ yt-dlp/mpv 在任何语言里都是子进程，生命周期的回归无法二分
 | `-`/`=` 音量走 `send_mpv_ipc`，先 `get_property volume` 再 set | 按住连发：socket 10 ms/次，`--set-volume` 60 ms/次 | Go 端合并连按（只保留最新目标值、同一时刻最多一个在途调用），走 `--set-volume`；当前音量来自 `--watch` |
 | 封面：TUI 自己起一个 `mpv --vo=image` 做转码 | bash 解不了图 | Go 解码搜索信封里的 `thumbnail`，自己发 Kitty 协议；mpv 从 TUI 里消失（细节见 §5「封面」） |
 | `--parts` / `--info` 支不支持，靠调一次、嗅 stderr 的用法错 | 没有发现动词 | `<engine>-resolve --capabilities -j`（§4.2） |
-| 引擎发现：本目录 → `UT_ENGINE_DIR` → PATH 三处扫描，与 `t-play` 各写一份 | — | Go 实现同一条规则（规则正本在 `ARCH-cli-contract.md`「加一个引擎」）；见「未决」 |
+| 引擎发现：本目录 → `UT_ENGINE_DIR` → PATH 三处扫描，与 `t-play` 各写一份 | 没有动词答这个 | `t-play --engines -j`（§4.3）；Go 只跑它给的路径 |
 
 **已经干净、原样沿用的**：起播/停止/暂停/seek/循环/队列八个动词、`--undo --owner PID`
 （Go 进程传自己的 PID）、`--status` 接管已在跑的播放器、`t-playlist` / `t-history` 全部动词。
@@ -119,21 +119,37 @@ yt-dlp/mpv 在任何语言里都是子进程，生命周期的回归无法二分
 - **已落地**（ARCH-cli-contract.md「命令规格」与「数据契约」、ARCH-engine.md「探一个引擎有哪些动词」）：
   `shell/ting` 的 `c`/`i` 门改读它（ARCH-tui.md），套件的动词发现也改读它，并对每个引擎验它说的是真话。
 
-两项增量各自先落地、各自 bump（版本独占一次 commit），且都在 Go 代码写第一行之前完成。
+### 4.3 `t-play --engines -j`
+
+- **形状（已定 2026-09-25）**：`{status, engines:[{name, search, resolve}]}`，发现顺序，两条都是
+  一次播放真正会跑的绝对路径。放在 `t-play`：它本来就拥有 resolver 查找与 `UT_ENGINE_DIR`，
+  bash `ting` 退役后 shell 里没有别的家。代价是启动时多 fork 一次（全 PATH 扫描实测 9 ms）。
+- **为什么不在 Go 里复刻**：复刻之后规矩仍是两份，只是换成两种语言；动词让它只剩一份，
+  Go 也不必知道 `UT_ENGINE_DIR` 的 XDG 默认链与旧名兜底。agent 同时得到"装了哪些源"。
+- **已落地**（ARCH-cli-contract.md「命令规格」`t-play` 一节、「数据契约」、「加一个引擎」）：
+  门与 `--capabilities` 同一种，不要 `jq`；bash `ting` 暂时照旧自己扫，套件断言两者同表同序。
+
+三项增量各自先落地、各自 bump（版本独占一次 commit），且都在 Go 代码写第一行之前完成。
 
 ---
 
 ## 5. Go 一侧
 
 - **位置**：同仓，`go.mod` 在根，入口 `cmd/ting/`。bash 3.2 与"零新增运行时依赖"两条红线
-  继续只管 `shell/`；Go 二进制本身不是运行时依赖，Go 工具链是**构建**依赖
-  （tap formula 用 `depends_on "go" => :build` 或发布 bottle，见「未决」）。
+  继续只管 `shell/`；Go 二进制本身不是运行时依赖，Go 工具链是**构建**依赖。
+- **分发（已定 2026-09-25）**：tap 从源码编译（`depends_on "go" => :build`），不发 bottle ——
+  没有 CI，tap 只有一个用户，以后要换也不难。二进制装在 `libexec/shell/ting`，就是今天那个
+  脚本的位置，于是"真实路径旁边找兄弟"与"上一级找 `VERSION`/`config`"两条规矩原样成立，
+  formula 只换安装那一行。开发时构建到 `shell/.ting-go`（gitignore）：点开头的名字不进
+  `shell/*` 的 glob，所以 `bash -n shell/*`、pre-push 的语法门与套件的入口点清单都碰不到它，
+  而它的真实目录就是兄弟脚本所在，不会回落到 PATH 上装好的旧版本。
 - **栈**：Bubbletea（事件循环、resize）、Lipgloss（样式）、`go-runewidth`/`uniseg`（显示宽度，
   取代 `disp_w` 的 EAW 表）、`harmonica`（弹簧动效，可选）。
 - **一个 `verb` 包**：唯一执行子进程的地方。拼 argv、解信封、把退出码映射成类型化错误；
   所有键处理器只调它。它同时是"Go 里不许出现 mpv"那条判据的落点。
 - **找兄弟动词**：与今天的 shell 脚本同一条规则——先解开 Go 二进制自身的符号链接
   （`os.Executable` + `filepath.EvalSymlinks`），在它真实所在的目录找，再回落 PATH。
+  这只用来找 `t-play` / `t-playlist` / `t-history`；引擎的两半一律用 `t-play --engines -j` 给的路径。
   不加新环境变量；十个命令继续作为 `bin/` 下的公开命令安装（tap formula 今天就是这样），
   因为它们是 agent 的产品面，不是藏进 `libexec` 的内部件。`t-playlist` / `t-history` 缺席时
   按契约降级，不是启动失败。
@@ -162,7 +178,7 @@ ASCII 模式、亮暗背景探测；同步重绘（今天是 DCS `1q/2q`，tmux 
 1. **`--watch`**（shell）：实现 + `tests/playback.sh` 里的真实播放器用例（改音量、暂停、
    跨曲目、播放器死亡，全部轮询真实事件，不 sleep）。bump。
 2. **`--capabilities -j`**（shell）：三个引擎 + 契约段的跨引擎门。bump。
-3. **Go 骨架**：`verb` 包、`--watch` 消费、配置链，先能搜、能播、能停。
+3. **Go 骨架**：先落 `t-play --engines -j`（shell，bump）；再 `verb` 包、`--watch` 消费、配置链，先能搜、能播、能停。
 4. **对齐**：按 §5 清单逐项。
 5. **测试迁移**：`tests/contract.sh` 的 tmux 段与 `tests/drive.sh` 改为驱动 Go 二进制；
    断言针对行为与帧结构，不针对 bash 实现细节。
@@ -179,6 +195,4 @@ ASCII 模式、亮暗背景探测；同步重绘（今天是 DCS `1q/2q`，tmux 
 
 ## 7. 未决
 
-- 引擎发现：Go 复刻三处扫描，还是再加一个列出已装引擎的动词，让规则只在 shell 里写一次。
-- 分发：tap 从源码编译还是发 bottle；Go 二进制装在 `libexec` 树里的哪一处，使"真实路径旁边"
-  那条寻址规则成立。
+- Linux 上 openbsd `nc` / `ncat` 对 `--watch` 那条长连接的行为还没实测。

@@ -1626,6 +1626,37 @@ report "…by the same XDG default"          yes \
 report "…and a config file cannot aim it"  no \
     "$(viz_reaches_engine zz UT_CONFIG="$ENGCFG" shell/t-play --engine zz -- "$VIZ_URL")"
 
+# THE REGISTRY AS A VERB. `t-play --engines -j` publishes the same three-place rule so a caller
+# (the Go TUI, an agent) never re-implements it — which is only worth anything if it gives the
+# answer the rule gives. Each environment above is re-asked of the verb, and the claim is that
+# the verb and the TUI's own scan name the same engines in the same order: the two copies of
+# the rule cannot drift while both exist.
+engines_verb() { # <env assignments…> — the verb's names, in its order
+    env "$@" shell/t-play --engines -j 2>/dev/null | jq -r '[.engines[].name] | join(" ")' 2>/dev/null
+}
+_eng_agree=0
+for _env in "" "PATH=$PATH_ENG:$PATH" "UT_ENGINE_DIR=$PLUG" "XDG_DATA_HOME=$XDG_HOME" "UT_CONFIG=$ENGCFG"; do
+    [ "$(engines_verb $_env)" = "$(engine_list $_env shell/ting)" ] && _eng_agree=$((_eng_agree + 1))
+done
+report "t-play --engines agrees with ting's registry" 5 "$_eng_agree"
+# The paths are what a play would RUN. With `yt` in the plugin dir too (the shadow case), the
+# built-in copy is the one named; `zz` exists only in the plugin dir and is named there.
+_eng_paths=$(env UT_ENGINE_DIR="$PLUG" shell/t-play --engines -j 2>/dev/null)
+report "…naming the half a play would run" "$PWD/shell/yt-resolve $PLUG/zz-search" \
+    "$(printf '%s' "$_eng_paths" | jq -r '[(.engines[] | select(.name=="yt") | .resolve),
+                                          (.engines[] | select(.name=="zz") | .search)] | join(" ")')"
+# …and every path it names is a real engine half: each answers its own --capabilities.
+_eng_run=0
+_eng_n=0
+for _p in $(printf '%s' "$_eng_paths" | jq -r '.engines[] | .search, .resolve'); do
+    _eng_n=$((_eng_n + 1))
+    [ "$(jq_ok '.status=="ok"' "$_p" --capabilities -j)" = 0 ] && _eng_run=$((_eng_run + 1))
+done
+report "…and every listed half answers --capabilities" "$_eng_n" "$_eng_run"
+report "--engines refuses --engine"    1 "$(rc shell/t-play --engines --engine yt -j)"
+report "…a positional argument"        1 "$(rc shell/t-play --engines -j -- yt)"
+report "…and a second verb"            1 "$(rc shell/t-play --engines --status -j)"
+
 # One engine, one site. `yt-resolve` used to accept ANY http(s) URL and hand it to yt-dlp,
 # which supports 1700+ sites — so a Bilibili URL resolved fine and came back labelled
 # `engine:"yt"`. It WORKED, which is why it went unnoticed, and it made the one field whose
@@ -1800,6 +1831,11 @@ for n in $ENGINES; do
     done
 done
 report "every --capabilities -j needs no jq, curl or yt-dlp" "$((NENG * 2))" "$_caps_nod"
+# The player's registry verb is asked the same question for the same reason: it is what a
+# caller runs before it knows what to run.
+_eng_nojq=$(env "PATH=$CAPS_BIN" shell/t-play --engines -j 2>/dev/null) || _eng_nojq=""
+report "t-play --engines -j needs no jq" "$(echo $ENGINES)" \
+    "$(printf '%s' "$_eng_nojq" | jq -r '[.engines[].name] | join(" ")' 2>/dev/null)"
 
 # THE READ-ONLY RESOLVE VERBS ARE HELD TO THE SAME RULE, and this replaces three lines that
 # named ONE engine's ONE verb: `--info` — the verb EVERY engine has — had no coverage at all.

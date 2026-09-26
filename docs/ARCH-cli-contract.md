@@ -206,6 +206,14 @@ detached 播放器）、生命周期与控制动词附带未被消费的 positio
     - `*.bilibili.com | bilibili.com | *.b23.tv | b23.tv` $\rightarrow$ `bili`
     - `*.music.163.com | music.163.com | y.music.163.com | *.163cn.tv | 163cn.tv` $\rightarrow$ `ne`
   - **未知 Host 与错误契约**：未被任何内置引擎认领的 Host（例如测试桩 `https://x/y`、不支持的外部站点）**绝不凭空捏造引擎名**，而是保持回退至 `$DEFAULT_ENGINE`；若该默认引擎对应命令不存在则由 `engine_resolve_bin` 退出 1（`unknown engine '...'`），若存在则送入该引擎并在其 host 白名单门控处确定性退出 1。这确保了在不增加全局注册表的前提下消除人工指定 `--engine` 的摩擦，同时维持原有四级退出码契约。
+- **`--engines` —— 把引擎注册表发布成一个动词。** 「加一个引擎」末尾那条三处扫描的规矩，
+  从此有一个调用方可以直接问的出口：它答出每个装了的引擎，以及**一次播放真正会跑的**那两条路径
+  （与 `--engine` 走同一个查找函数，所以"告诉你会跑什么"与"实际跑什么"不会分叉）。
+  它为 Go TUI 而加（PLAN-go-tui.md「未决」，2026-09-25 定）：规矩只在 shell 里写一次，
+  调用方拿到路径就跑，不必知道 `$UT_ENGINE_DIR` 与它那条 XDG 默认链；agent 也第一次能问"装了哪些源"。
+  门与引擎的 `--capabilities` 同一种：在一切依赖门之前作答，连 `jq` 都不要，也不碰状态目录；
+  配 `--engine`、位置参数或另一个动词都退 1 —— 带 `--engine` 的人期待的是过滤，拿到全表会读成"装了"。
+  一个 `--engine` 门会拒的名字不列出来，列出一个播放器随后拒绝的源，正是这个动词要消灭的分歧。
 - **点名正确动词的门臂**（那个被删掉的 wrapper 的拒绝语变成了这些）：
   `-n`/`-m`/`-M`/`-s` → "那是一个搜索标志 —— 用 `<engine>-search`"；`-J` → "那是一个引擎标志
   —— 试试 `<engine>-resolve --info -J`"；`--info`/`--transcript`/`--sub-lang` → "那是一个引擎
@@ -548,6 +556,11 @@ capabilities 信封（`<engine>-search --capabilities -j` 与 `<engine>-resolve 
 - **一份清单，两个出口。** 这个数组就是 unknown-flag 拒绝里印的那一份，两者在脚本里是同一个变量，不会分叉。
   调用方问的是"有没有"（`.flags | index("--parts")`），不读顺序。
 
+engines 信封（`t-play --engines -j`）—— 一行，不发包，不要任何依赖：
+- **`engines`** 按发现顺序排列（本目录的、`$UT_ENGINE_DIR` 的、PATH 上的），每项 `{name, search, resolve}`，
+  两条都是绝对路径。空数组是一个回答（退 0），不是失败 —— 没装引擎是事实，不是这次调用没生效。
+- 路径里带控制字符的那一项被略过而不是转义：信封由 `printf` 印出，路径是唯一的自由文本。
+
 播放状态（`t-play -j -- <handle>`）—— 播放器自己的信封，也是唯一一个没有 `engine` 键的：
 播放器与站点无关，它回声出来的那个句柄就是别人给它的那个（ARCHITECTURE.md「命令拓扑」）。
 `reason` 枚举：`forbidden | unavailable | format_unavailable | network | cookies |
@@ -708,7 +721,8 @@ search、resolve、`--info`、`--transcript`、`-d`、`--status`、`--stop`、`-
         --items 拿到一个不是容器的句柄（一个单曲 id、一张每次现生成的 Mix、网易云的裸数字）、
         --cursor 不配 --items、或 --cursor 拿到一个不是本套件签发形状的 token、
         --items 与另一个动词同时给出（ARCH-engine.md「容器（`--items`）」）、
-        --capabilities 带句柄或查询、带一个它无从作用的 flag、或与另一个动词同时给出
+        --capabilities 带句柄或查询、带一个它无从作用的 flag、或与另一个动词同时给出、
+        t-play --engines 配 --engine、位置参数或另一个动词
    2+   传播上来的 yt-dlp / mpv / HTTP 失败（播放、resolve -j、**搜索**失败 ——
         搜索即使 yt-dlp 退出 1 也报 2，好让一次工具失败永远不会与 1 混淆）。
         --parts 的取数失败同样落在这里（网络 / 记录里没有 parts —— 一次工具失败，
@@ -1016,6 +1030,8 @@ Cookie 处理：`YT_COOKIE_BROWSER` 是按平台做存在性检查的（那个�
 永远替不掉一个内置源 —— 那是故意的：那个目录任何能写一个目录的东西都够得到，而一个能顶替
 `yt-resolve` 的目录会让"我现在跑的是哪个 yt"变成一句问不出口的话。
 `ting` 与 `t-play` 必须走同一个顺序，否则 TUI 会列出一个播放器打不开的源。
+这条规矩由 `t-play --engines -j` 发布（「命令规格」的 `t-play` 一节）；在 bash `ting` 退役之前它仍自己扫一遍，
+`tests/contract.sh` 在每一种放法下断言两者给出同一张表、同一个顺序。
 
 引擎按动词自己挑传输（curl 或 yt-dlp 或别的任何东西）—— 接缝是信封，不是它背后的工具
 （ARCHITECTURE.md「站点知识的边界」）。

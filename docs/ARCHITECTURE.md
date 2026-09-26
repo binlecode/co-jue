@@ -372,7 +372,8 @@ ROADMAP 那条 Go 重写 NO 的全部账**：收益只剩"删渲染负债"，分
 （`t-play` 的 `engine_resolve_bin`：先试 `$SCRIPT_DIR/$ENGINE-resolve`，再试
 `$UT_ENGINE_DIR`，再试 PATH，都没有就退 1 并把三个地方都说出来）。这就是全部的"注册表" ——
 **`ting` 走的是同一个顺序**，否则两个面会对"有哪些源"给出不同答案
-（三处的顺序与理由：`ARCH-cli-contract.md`「加一个引擎 —— 清单」）。加第三个源等于加一对新文件，
+（三处的顺序与理由：`ARCH-cli-contract.md`「加一个引擎 —— 清单」）。这张表也可以直接问：
+`t-play --engines -j` 按同一条规矩答出每个引擎和两条会被执行的路径，Go TUI 只读它。加第三个源等于加一对新文件，
 播放器与 TUI **一个字都不用改** —— 这正是 Bilibili 引擎被造出来要检验的那条主张，
 而它成立了：步骤 C 两个文件都没动。
 

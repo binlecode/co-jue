@@ -74,6 +74,7 @@ shell/ne-resolve --transcript -j -- 1824020871           # 歌词字幕提取
 shell/t-play -d -j --engine yt -- "URL"                   # 后台启动播放
 shell/t-play --status -j                                  # 查看全部播放状态
 shell/t-play --stop -j --id <player-id>                   # 停止播放
+shell/t-play --engines -j                                 # 已装引擎与两半的路径
 shell/t-playlist --ls -j                                  # 查看歌单库
 shell/t-history --ls -n 20 -j                             # 查看最近播放历史
 shell/ting --version                                      # 响应版本（不触发依赖门控）
