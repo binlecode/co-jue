@@ -303,7 +303,8 @@ fi
 ACTION=""            # search | stream | info | items | auth | capabilities
 VERB_FLAG=""         # the verb flag as typed — the one-verb-per-invocation gate reads it
 COLOR_MODE="auto"
-OUTPUT_MODE="list"   # list (prose) | json | json_full
+OUTPUT_MODE="list"   # list (prose) | json | raw (--raw: the site's own record, engine-only)
+SEGMENTS=0           # --segments: the transcript envelope keeps its timed cues
 
 # --search. The `-n` and --sort defaults are cross-engine: a caller who wants a different
 # result count by default wants it from whichever source they asked. ARCH-cli-contract.md「配置面」.
@@ -755,7 +756,7 @@ ensure_scratch() {
 }
 
 is_json_out() {
-    [[ "$OUTPUT_MODE" == "json" || "$OUTPUT_MODE" == "json_full" ]]
+    [[ "$OUTPUT_MODE" == "json" || "$OUTPUT_MODE" == "raw" ]]
 }
 
 # ==============================================================================
@@ -1292,7 +1293,7 @@ search_fetch() {
     ((MAX_DURATION > 0)) && bounds+=" and (.duration != null and .duration < $MAX_DURATION)"
 
     # ONE jq program does the whole shaping. The normalised fields are merged OVER the raw
-    # record rather than replacing it, so -J keeps every field the site sent while -j projects
+    # record rather than replacing it, so --raw keeps every field the site sent while -j projects
     # the row keys every engine projects — and `title` and `duration` are the cleaned,
     # correctly-typed values in BOTH, so no surface is ever handed the HTML or "MM:SS".
     #
@@ -1351,7 +1352,7 @@ search_run() {
               "  - " + (if .view_count == null then "n/a" else (.view_count | tostring) end) + " views",
               "  - \(.url)"'
         ;;
-    json_full)
+    raw)
         printf '%s' "$FILTERED_JSON" | jq -c --arg e "$ENGINE_NAME" --arg q "$QUERY" \
             '{status: "ok", engine: $e, query: $q, count: length, results: .}'
         ;;
@@ -1457,7 +1458,7 @@ emit_stream() {
     local retried_json=false
     ((retried)) && retried_json=true
 
-    if [[ "$OUTPUT_MODE" == "json_full" ]]; then
+    if [[ "$OUTPUT_MODE" == "raw" ]]; then
         printf '%s\n' "$raw" | jq -c '.'
         return 0
     fi
@@ -1553,7 +1554,7 @@ stream_run() {
 # ==============================================================================
 
 # Rich metadata for a video WITHOUT playing. -j projects a lean schema (the raw record carries
-# ~40 fields of formats and thumbnails that are pure token ballast); -J returns the full raw
+# ~40 fields of formats and thumbnails that are pure token ballast); --raw returns the full raw
 # record; the default is a readable text block.
 #
 # THE ENVELOPE CARRIES EVERY FIELD A SEARCH ROW DOES — `kind`, `access` and `thumbnail`
@@ -1580,7 +1581,7 @@ info_run() {
     fi
 
     case "$OUTPUT_MODE" in
-    json_full)
+    raw)
         printf '%s\n' "$raw" | jq -c '.'
         ;;
     json)
@@ -1898,7 +1899,7 @@ JQ_PARTS_ITEMS='
                duration_fmt: (($r.duration | fmt_dur) // null)} ]}
 '
 
-# Sets ITEMS_ENV (or prints -J and exits). `view` first, `pagelist` when it is refused — see
+# Sets ITEMS_ENV (or prints --raw and exits). `view` first, `pagelist` when it is refused — see
 # THE PARTS ENDPOINTS for the measurement.
 items_parts() {
     local id=$CONTAINER_ID args
@@ -1937,7 +1938,7 @@ items_parts() {
     jq -e "($rows_path | type) == \"array\" and ($rows_path | length) > 0" "$body" >/dev/null 2>&1 ||
         items_fail "unavailable"
 
-    if [[ "$OUTPUT_MODE" == "json_full" ]]; then
+    if [[ "$OUTPUT_MODE" == "raw" ]]; then
         jq -c '.' "$body"
         exit 0
     fi
@@ -1972,9 +1973,9 @@ items_run() {
             ;;
         esac
 
-        if [[ "$OUTPUT_MODE" == "json_full" ]]; then
+        if [[ "$OUTPUT_MODE" == "raw" ]]; then
             # The body that CARRIES the items, at full fidelity. When more than one page was
-            # spent, every page's rows replace page one's, because a -J that answered about less
+            # spent, every page's rows replace page one's, because a --raw that answered about less
             # than -j would be the one output mode that loses information by widening.
             jq -c --argjson rows "$ITEMS_RAW" "$ITEMS_ROWS_PATH = \$rows" "${ITEMS_PAGES[0]}" ||
                 items_fail "unknown"
@@ -2093,7 +2094,8 @@ Exactly one verb per call. A modifier belongs to one verb and is refused next to
   --capabilities  The public verbs and modifiers this engine accepts; what t-play --engines
                   reports for it. No network, no dependency
 
-  -j JSON envelope · -J the raw site/yt-dlp record (debugging; no contract) · --color MODE
+  -j / --json  JSON envelope · --color MODE
+  --raw  the site's own record, unprojected — an engine self-check, not forwarded by t-play
   -h this help · -V the suite version
 
 There is no --transcript: this site's videos carry no caption track.
@@ -2109,8 +2111,8 @@ EOF
 
 # The public verbs and their modifiers, stated ONCE: the unknown-flag refusal prints it for a
 # person and --capabilities answers with it for the registry, so the two cannot disagree.
-# --stream, --capabilities and -J are absent on purpose: the player's pipe, the registry's
-# question and a debugging escape are not things a caller of t-play can ask for.
+# --stream, --capabilities and --raw are absent on purpose: the player's pipe, the registry's
+# question and a self-check are not things a caller of t-play can ask for.
 PUBLIC_FLAGS=(--search -n --min-duration --max-duration --sort --info --items --cursor --auth)
 
 # Which verb a modifier belongs to. The gate below refuses it next to any other.
@@ -2140,9 +2142,12 @@ while (($#)); do
         OUTPUT_MODE="json"
         shift
         ;;
-    -J)
+    # --raw: the site's own record, unprojected. A SELF-CHECK of this engine against its site,
+    # not an output format: site fields cannot be versioned, so t-play refuses to forward it
+    # and it is in no flag list. Long-only and spelled apart from -j on purpose.
+    --raw)
         has_format=1
-        OUTPUT_MODE="json_full"
+        OUTPUT_MODE="raw"
         shift
         ;;
     --color=*)
@@ -2235,10 +2240,12 @@ while ((_i < ${#MODIFIERS[@]})); do
     _i=$((_i + 1))
 done
 
-# -J is the RAW record, and neither --auth nor --capabilities fetches one.
-if [[ ( "$ACTION" == "auth" || "$ACTION" == "capabilities" ) && "$OUTPUT_MODE" == "json_full" ]]; then
-    die "-J returns the raw record — $VERB_FLAG fetches none; use -j"
-fi
+# --raw is the site's own record, and neither --auth nor --capabilities fetches one.
+case "$ACTION" in
+auth | capabilities | transcript)
+    [[ "$OUTPUT_MODE" != "raw" ]] || die "--raw applies only to --search, --info, --items and --stream (use -j)"
+    ;;
+esac
 
 case "$ACTION" in
 capabilities | auth)

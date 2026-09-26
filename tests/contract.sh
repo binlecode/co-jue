@@ -648,8 +648,12 @@ report "…nor --capabilities"      0 "$(err_has "unknown flag '--capabilities'"
 report "a modifier needs its verb" 1 "$(rc shell/t-play --sort duration -- x)"
 report "t-play -l is gone"        1 "$(rc shell/t-play -l --status)"
 report "t-play -S is gone"        1 "$(rc shell/t-play -S abr -- URL)"
-# -J is an engine's raw site record: a debugging aid inside the engine, refused at the entry.
-report "t-play refuses -J on an engine verb" 1 "$(rc shell/t-play --info -J -- dQw4w9WgXcQ)"
+# One JSON switch, -j / --json. -J is gone (one letter's case from -j, and it meant a different
+# thing per verb); the site's own record is --raw, an engine self-check the entry refuses; the
+# transcript's full form is --segments, which only the -j envelope can carry.
+report "-J is gone"                0 "$(err_has "unknown flag '-J'" shell/t-play --info -J -- dQw4w9WgXcQ)"
+report "t-play refuses --raw"      0 "$(err_has 'engine self-check' shell/t-play --info --raw -- dQw4w9WgXcQ)"
+report "--segments needs -j"       0 "$(err_has 'add -j' shell/t-play --transcript --segments -- dQw4w9WgXcQ)"
 # Only argv AHEAD of `--` names a verb: a query that reads like one is still a handle to
 # refuse, not a search to forward.
 report "…a verb after -- is not a verb" 0 "$(err_has 'not a video id or URL' shell/t-play -- --search now)"
@@ -1818,7 +1822,7 @@ for n in $ENGINES; do
             ;;
         esac
     done
-    for _f in -m -M -s -l -S --parts --subtitles --sub-langs --json-full; do
+    for _f in -m -M -s -l -S -J --parts --subtitles --sub-langs --json-full; do
         _caps_true_n=$((_caps_true_n + 1))
         [ "$(err_has 'unknown flag' "$_e" "$_f")" = 0 ] && _caps_true=$((_caps_true + 1))
     done
@@ -1834,7 +1838,7 @@ report "every --capabilities answer matches what the parser accepts" "$_caps_tru
 
 # A flag that cannot act is REJECTED, not ignored (ARCH-cli-contract.md「门模型」): the verb asks
 # about the engine, so a handle or a query is a usage error; nothing is resolved or searched,
-# so -f, -n and -J have nothing to act on; and it is one verb, so a second is refused rather
+# so -f, -n and --raw have nothing to act on; and it is one verb, so a second is refused rather
 # than one of them silently winning. The message is the claim for the two-verb case, because
 # every refusal here exits 1.
 _caps_gate=0
@@ -1842,7 +1846,7 @@ for n in $ENGINES; do
     [ "$(rc $(caps_cmd "$n") -- HANDLE)" = 1 ] &&
         [ "$(rc $(caps_cmd "$n") -f audio)" = 1 ] &&
         [ "$(rc $(caps_cmd "$n") -n 5)" = 1 ] &&
-        [ "$(rc $(caps_cmd "$n") -J)" = 1 ] &&
+        [ "$(rc $(caps_cmd "$n") --raw)" = 1 ] &&
         [ "$(err_has 'two verbs' $(caps_cmd "$n") --info)" = 0 ] &&
         _caps_gate=$((_caps_gate + 1))
 done
@@ -2038,8 +2042,8 @@ report "an unknown browser is anonymous" "$NENG" "$_bogus"
 
 # A flag that cannot act is REJECTED, not ignored (ARCH-cli-contract.md「门模型」). --auth asks
 # about the engine, so a handle is a usage error; -f selects a stream format and --auth
-# resolves no stream; -J returns the raw yt-dlp record and --auth runs no yt-dlp.
-for _bad in "--auth -- HANDLE" "--auth -f video" "--auth -J"; do
+# resolves no stream; --raw is the site's own record and --auth fetches none.
+for _bad in "--auth -- HANDLE" "--auth -f video" "--auth --raw"; do
     _r=0
     for n in $ENGINES; do
         # shellcheck disable=SC2086
@@ -2630,7 +2634,7 @@ fi
 # interrogated as many times as it has claims. The command is still the real entry point and
 # the answer is still its real stdout.
 #
-# A call keeps its own invocation when its ARGV differs (-j and -J are two envelopes, not two
+# A call keeps its own invocation when its ARGV differs (-j and --raw are two outputs, not two
 # questions about one), when its ENVIRONMENT differs (the proxy checks), or when its INPUT
 # differs (a second query, chosen for content the first one does not have).
 #
@@ -2692,21 +2696,21 @@ for n in $ENGINES; do
     SEARCH_PIDS="$SEARCH_PIDS $!"
 done
 for n in $ENGINES; do
-    spawn "searchJ-$n"   shell/t-engine-$n --search -J -n 5  -- lofi
+    spawn "searchJ-$n"   shell/t-engine-$n --search --raw -n 5  -- lofi
     spawn "cap-$n"       env UT_CONFIG="$UT_TEST_TMP/cfg-cap"  $(search_cmd "$n") -j -n 20 -- lofi
     spawn "dflt-$n"      env UT_CONFIG="$UT_TEST_TMP/cfg-dflt" $(search_cmd "$n") -j -- lofi
 done
 spawn yt-resolve   shell/t-engine-yt --stream -j -- "$MEDIA_ID"
 spawn yt-info      shell/t-play --engine yt --info -j -- "$MEDIA_ID"
 spawn yt-trans     shell/t-play --engine yt --transcript -j -- "$CAPTIONED"
-spawn yt-transJ    shell/t-engine-yt --transcript -J -- "$CAPTIONED"
+spawn yt-transJ    shell/t-play --engine yt --transcript --segments -j -- "$CAPTIONED"
 spawn yt-nocap     shell/t-play --engine yt --transcript -j -- "$BARE"
 spawn yt-argv      shell/t-play --engine yt --search -j -n 1 -- --status
 spawn yt-dead      shell/t-play      -j -- AAAAAAAAAAA
 spawn bili-resolve shell/t-engine-bili --stream -j -- "$BILI_ID"
 spawn bili-info    shell/t-play --engine bili --info -j -- "$BILI_ID"
 spawn bili-zh      shell/t-play --engine bili --search -j -n 20 --max-duration 600 -- 周杰伦
-spawn yt-zh        shell/t-engine-yt --search -J -n 15 -- 周杰伦
+spawn yt-zh        shell/t-engine-yt --search --raw -n 15 -- 周杰伦
 spawn bili-offset  shell/t-engine-bili --stream -j -- "https://www.bilibili.com/video/$BILI_PARTS_ID?p=2&t=601"
 spawn bili-parts   shell/t-play --engine bili --items -j -- "$BILI_PARTS_ID"
 spawn bili-part1   shell/t-play --engine bili --items -j -- "$BILI_ID"
@@ -2815,7 +2819,7 @@ report "search -j envelope" 0 \
 # engine that forgets the field breaks routing rather than merely looking different.
 report "search -j names its engine" 0 \
     "$(jqv '.status=="ok" and .engine=="yt"' "$YT_S")"
-report "search -J has raw id" 0 \
+report "search --raw has raw id" 0 \
     "$(jqv '.results[0]|has("id")' "$YT_SJ")"
 # Was an open R8 drift (26 lines for -n 3); fixed, so it is a hard check now — a "known"
 # label on a passing behaviour is how a real regression gets waved through later.
@@ -2855,7 +2859,7 @@ echo "── --transcript: the read-only verb, both envelopes (gate above) ─�
 report "transcript envelope"      0 \
     "$(jqv '.status=="ok" and .id and .lang and .chars>0 and (.is_auto|type=="boolean") and (.text|length>0)' \
         "$(out yt-trans)")"
-report "transcript -J has segments" 0 \
+report "transcript --segments has segments" 0 \
     "$(jqv '.segments[0]|has("start") and has("text")' "$(out yt-transJ)")"
 NOCAP=$(out yt-nocap); NOCAP_ST=$(src yt-nocap)
 report "no captions -> error"     0 \
@@ -3065,7 +3069,7 @@ report "search result keys agree" \
 #
 #   · `kind`/`access` are the ENGINE'S JUDGEMENT about a row (ARCH-cli-contract.md「数据契约」), which
 #     is why they are injected before the lean projection rather than inside it: an engine
-#     that adds them to the projection alone hands the caller who asked for MORE data (-J) an
+#     that adds them to the projection alone hands the caller who asked for MORE data (--raw) an
 #     envelope missing two required fields, and every -j check in this file stays green.
 #   · A row whose `url` is null is not a row: `t-play` has nothing to call. bili-search
 #     shipped exactly that — search_type=video mixes in `ketang` (paid-course) records that
@@ -3095,7 +3099,7 @@ ROW_IS_A_CALL='(.results|length)>0 and all(.results[];
 for n in $ENGINES; do
     report "$n --search -j rows are calls" 0 \
         "$(jqv "$ROW_IS_A_CALL" "$(out "search-$n")")"
-    report "$n --search -J rows are calls" 0 \
+    report "$n --search --raw rows are calls" 0 \
         "$(jqv "$ROW_IS_A_CALL" "$(out "searchJ-$n")")"
 done
 # The same predicate over EVERY OTHER live search this file already paid for — the ceiling
@@ -3130,7 +3134,7 @@ THUMB_IS_FETCHABLE='(.results|length)>0 and all(.results[];
 for n in $ENGINES; do
     report "$n --search -j covers are fetchable" 0 \
         "$(jqv "$THUMB_IS_FETCHABLE" "$(out "search-$n")")"
-    report "$n --search -J covers are fetchable" 0 \
+    report "$n --search --raw covers are fetchable" 0 \
         "$(jqv "$THUMB_IS_FETCHABLE" "$(out "searchJ-$n")")"
 done
 
@@ -3266,7 +3270,7 @@ report "info envelopes agree" \
     "$(printf '%s' "$BILI_I" | jq -Sc 'keys' 2>/dev/null)"
 report "--info -j is one line" 1 "$(lines "$YT_I")"
 # …and --info carries every key a search ROW carries, so a caller holding a URL instead of a
-# search result builds the same row out of it. Without that the TUI read the raw -J record for
+# search result builds the same row out of it. Without that the TUI read the raw record for
 # a cover, which is site knowledge leaking out of the engine. Asserted as a set difference
 # against the engine's own search row, so a row field added later is covered the day it lands.
 report "yt --info carries every search-row key" "[]" \

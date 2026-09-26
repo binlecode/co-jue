@@ -301,7 +301,8 @@ fi
 ACTION=""            # search | stream | info | transcript | items | auth | capabilities
 VERB_FLAG=""         # the verb flag as typed — the one-verb-per-invocation gate reads it
 COLOR_MODE="auto"
-OUTPUT_MODE="list"   # list (prose) | json | json_full
+OUTPUT_MODE="list"   # list (prose) | json | raw (--raw: the site's own record, engine-only)
+SEGMENTS=0           # --segments: the transcript envelope keeps its timed cues
 
 # --search. The `-n` and --sort defaults are cross-engine: a caller who wants a different
 # result count by default wants it from whichever source they asked. ARCH-cli-contract.md「配置面」.
@@ -746,7 +747,7 @@ ensure_scratch() {
 }
 
 is_json_out() {
-    [[ "$OUTPUT_MODE" == "json" || "$OUTPUT_MODE" == "json_full" ]]
+    [[ "$OUTPUT_MODE" == "json" || "$OUTPUT_MODE" == "raw" ]]
 }
 
 # ==============================================================================
@@ -1071,7 +1072,7 @@ fetch_page() {
 
 # ONE jq program does the whole shaping, and the page loop below runs THIS — never a second
 # predicate of its own — to decide whether to fetch again. The normalised fields are merged
-# OVER the raw record rather than replacing it, so -J keeps every field the site sent while -j
+# OVER the raw record rather than replacing it, so --raw keeps every field the site sent while -j
 # projects the same twelve keys the other engines project.
 #
 # Field by field, and the two that are deliberately null:
@@ -1134,7 +1135,7 @@ search_run() {
               "  - " + (if (.channel // "") == "" then "?" else .channel end),
               "  - \(.url)"'
         ;;
-    json_full)
+    raw)
         printf '%s' "$FILTERED_JSON" | jq -c --arg e "$ENGINE_NAME" --arg q "$QUERY" \
             '{status: "ok", engine: $e, query: $q, count: length, results: .}'
         ;;
@@ -1308,7 +1309,7 @@ emit_stream() {
     local retried_json=false
     ((retried)) && retried_json=true
 
-    if [[ "$OUTPUT_MODE" == "json_full" ]]; then
+    if [[ "$OUTPUT_MODE" == "raw" ]]; then
         printf '%s\n' "$raw" | jq -c '.'
         return 0
     fi
@@ -1416,7 +1417,7 @@ readonly_fail() { # <reason> <prose>
     die "$2"
 }
 
-# Rich metadata for a song WITHOUT playing. -j projects a lean schema; -J returns the full raw
+# Rich metadata for a song WITHOUT playing. -j projects a lean schema; --raw returns the full raw
 # yt-dlp record; the default is a readable text block.
 #
 # THE -j ENVELOPE CARRIES EVERY FIELD A SEARCH ROW DOES — `kind`, `access` and `thumbnail`
@@ -1431,7 +1432,7 @@ readonly_fail() { # <reason> <prose>
 #
 # A song/detail failure is a failure of --info -j, reported the same way a yt-dlp failure is:
 # `access` is a closed enum with no "unknown" member (ARCH-cli-contract.md「数据契约」), so an
-# envelope that could not learn it has no honest value to print. Prose and -J do not print
+# envelope that could not learn it has no honest value to print. Prose and --raw do not print
 # either field and do not spend the request.
 info_run() {
     ensure_scratch
@@ -1448,7 +1449,7 @@ info_run() {
     fi
 
     case "$OUTPUT_MODE" in
-    json_full)
+    raw)
         printf '%s\n' "$raw" | jq -c '.'
         ;;
     json)
@@ -1507,7 +1508,7 @@ info_run() {
 # spelling for "all of them".
 #
 # LRC -> the same [{start, duration, text}] shape the YouTube engine's json3 parser produces,
-# so the engines' `--transcript -J` envelopes carry the same segment record.
+# so the engines' `--transcript --segments -j` envelopes carry the same segment record.
 #
 # A line is a segment only if it OPENS with a `[mm:ss]` stamp. That single rule drops the
 # file's metadata header — `[ti:]`, `[ar:]`, `[by:]`, which are the same bracket syntax with a
@@ -1575,8 +1576,8 @@ transcript_run() {
         transcript_fail "no_subtitles_available"
     fi
 
-    # -j is the lean projection, -J the same envelope at full fidelity — a strict SUPERSET.
-    # What -j drops is `segments`, which is the same words twice.
+    # -j is the lean projection; --segments makes it a strict SUPERSET. What -j drops is
+    # `segments`, which is the same words twice.
     #
     # `lang` is NULL, and that is the honest answer rather than a missing feature: this
     # endpoint tags no track with a language, and the catalogue is not one language — the very
@@ -1585,7 +1586,7 @@ transcript_run() {
     # machine-generated.
     if is_json_out; then
         local full=false
-        [[ "$OUTPUT_MODE" == "json_full" ]] && full=true
+        ((SEGMENTS)) && full=true
         jq -nc --arg engine "$ENGINE_NAME" --arg id "$TARGET_ID" --arg url "$TARGET_URL" \
             --argjson segments "$segments" --argjson full "$full" \
             '($segments | map(.text) | join(" ")) as $text
@@ -1745,10 +1746,10 @@ items_run() {
     *) items_playlist_rows ;;
     esac
 
-    if [[ "$OUTPUT_MODE" == "json_full" ]]; then
+    if [[ "$OUTPUT_MODE" == "raw" ]]; then
         # The body that CARRIED the records, at full fidelity — the album's own response, or the
         # merged song/detail result for a playlist. Its rows are NOT filtered: filtering happens
-        # in the projection, and -J is what came before it.
+        # in the projection, and --raw is what came before it.
         if [[ -n "$ITEMS_BODY_KEY" ]]; then
             jq -c --arg key "$ITEMS_BODY_KEY" --argjson rows "$ITEMS_RAW" '.[$key] = $rows' "$ITEMS_BODY" ||
                 items_fail "unknown"
@@ -1851,7 +1852,7 @@ forwards its engine verbs here unchanged; this argv is not part of the suite's p
 Usage:
   t-engine-ne --search [-n N] [--min-duration S] [--max-duration S] [--sort F] [-j] -- <query>
   t-engine-ne --info [-j] -- <song id | song URL>
-  t-engine-ne --transcript [-j] -- <song id | song URL>
+  t-engine-ne --transcript [-j [--segments]] -- <song id | song URL>
   t-engine-ne --items [--cursor TOKEN] [-j] -- <album URL | playlist URL>
   t-engine-ne --auth [-j]
   t-engine-ne --stream [-f MODE] [--quality TIER] [-j] -- <song id | song URL>
@@ -1881,7 +1882,8 @@ or the bare numeric id; every one canonicalises to https://music.163.com/song?id
   --capabilities  The public verbs and modifiers this engine accepts; what t-play --engines
                   reports for it. No network, no dependency
 
-  -j JSON envelope · -J the raw site/yt-dlp record (debugging; no contract) · --color MODE
+  -j / --json  JSON envelope · --segments (--transcript -j) keep the timed cues · --color MODE
+  --raw  the site's own record, unprojected — an engine self-check, not forwarded by t-play
   -h this help · -V the suite version
 
 Exit codes: 0 ok · 1 usage/validation, or a read-only miss (--info, --transcript) · 2+ a
@@ -1894,9 +1896,9 @@ EOF
 
 # The public verbs and their modifiers, stated ONCE: the unknown-flag refusal prints it for a
 # person and --capabilities answers with it for the registry, so the two cannot disagree.
-# --stream, --capabilities and -J are absent on purpose: the player's pipe, the registry's
-# question and a debugging escape are not things a caller of t-play can ask for.
-PUBLIC_FLAGS=(--search -n --min-duration --max-duration --sort --info --items --cursor --transcript --auth)
+# --stream, --capabilities and --raw are absent on purpose: the player's pipe, the registry's
+# question and a self-check are not things a caller of t-play can ask for.
+PUBLIC_FLAGS=(--search -n --min-duration --max-duration --sort --info --items --cursor --transcript --segments --auth)
 
 # Which verb a modifier belongs to. The gate below refuses it next to any other.
 MODIFIERS=()         # "flag verb" pairs, as given
@@ -1925,9 +1927,17 @@ while (($#)); do
         OUTPUT_MODE="json"
         shift
         ;;
-    -J)
+    # --raw: the site's own record, unprojected. A SELF-CHECK of this engine against its site,
+    # not an output format: site fields cannot be versioned, so t-play refuses to forward it
+    # and it is in no flag list. Long-only and spelled apart from -j on purpose.
+    --raw)
         has_format=1
-        OUTPUT_MODE="json_full"
+        OUTPUT_MODE="raw"
+        shift
+        ;;
+    --segments)
+        add_modifier "$1" transcript
+        SEGMENTS=1
         shift
         ;;
     --color=*)
@@ -2015,10 +2025,14 @@ while ((_i < ${#MODIFIERS[@]})); do
     _i=$((_i + 1))
 done
 
-# -J is the RAW site or yt-dlp record, and neither --auth nor --capabilities fetches one.
-if [[ ( "$ACTION" == "auth" || "$ACTION" == "capabilities" ) && "$OUTPUT_MODE" == "json_full" ]]; then
-    die "-J returns the raw record — $VERB_FLAG fetches none; use -j"
-fi
+# --raw is the site's own record, and neither --auth nor --capabilities fetches one.
+case "$ACTION" in
+auth | capabilities | transcript)
+    [[ "$OUTPUT_MODE" != "raw" ]] || die "--raw applies only to --search, --info, --items and --stream (use -j)"
+    ;;
+esac
+# --segments adds to the JSON envelope; prose has nowhere to put timings.
+((! SEGMENTS)) || [[ "$OUTPUT_MODE" == "json" ]] || die "--segments adds the timed cues to the -j envelope — add -j"
 
 case "$ACTION" in
 capabilities | auth)

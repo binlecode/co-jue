@@ -243,7 +243,9 @@ so a flag its site has no use for is refused (1), and --engines lists what each 
                                                          chapters
   t-play --items [--engine E] [--cursor C] [-j] -- <container>   a playlist / album /
                                                          channel / a video's parts
-  t-play --transcript [--engine E] [--sub-lang L] [-j] -- <id|URL>   captions or lyrics
+  t-play --transcript [--engine E] [--sub-lang L] [-j [--segments]] -- <id|URL>
+                                                         captions or lyrics; --segments
+                                                         keeps the timed cues in the envelope
   t-play --auth [--engine E] [-j]                        the engine's cookie decision
   Without --engine a URL picks its own engine (as a play does), anything else uses
   the default. -n counts what is FETCHED; the duration bounds shorten it.
@@ -799,10 +801,10 @@ forward_engine_verb() {
             engine=${1#*=}
             specified=1
             ;;
-        # The one flag refused HERE: -J is an engine's raw site record, kept inside the engine
-        # for debugging. Site fields cannot be versioned, so it is not something a caller of
-        # the one public entry can ask for — -j is the contract.
-        -J) die "-J is not part of t-play — use -j (the engine's own -J is a debugging aid, not a contract)" ;;
+        # The one flag refused HERE: --raw is an engine's self-check against its site (the
+        # unprojected record). Site fields cannot be versioned, so the one public entry does
+        # not hand them out; -j is the contract, and --segments the transcript's full form.
+        --raw) die "--raw is an engine self-check, not part of t-play — use -j" ;;
         *) fwd+=("$1") ;;
         esac
         shift
@@ -3783,7 +3785,7 @@ while (($#)); do
         # public verb — what a caller wants from a handle is to play it or to read about it.
         die "--get-url is gone — play the handle ('t-play -- <id|URL>'), or read about it with 't-play --info -- <id|URL>'"
         ;;
-    --sub-lang | --sub-langs | --sub-lang=* | --sub-langs=* | --cursor | --cursor=* \
+    --sub-lang | --sub-langs | --sub-lang=* | --sub-langs=* | --cursor | --cursor=* | --segments \
         | --min-duration | --max-duration | --sort | --min-duration=* | --max-duration=* | --sort=*)
         # An engine verb's modifier without its verb. The verbs themselves never get here —
         # forward_engine_verb has exec'd them — so the caller has the right flag and no verb.
