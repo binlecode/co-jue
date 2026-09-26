@@ -95,7 +95,7 @@ yt 这一对 392 行（占 `yt-search` 代码的 63%），bili、ne 各约 214 �
 | `-m` / `-M` / `-s` | `--min-duration` / `--max-duration` / `--sort` | 入口 40 多个 flag，只对一个动词有意义的单字母容易看错；读者是 agent，长名自解释 |
 | `--cursor`、`--sub-lang` | 保留 | 各自修饰一个动词，名字已自解释 |
 | `-l` | 删 | 散文本来就是默认输出，`-l` 什么也不改变 |
-| `-J`（原始 yt-dlp / 站点记录） | 删；站点原始记录改名 `--raw`，只在引擎文件上作自检，`t-play` 拒转发；转写的完整形态改为 `--transcript -j --segments` | 站点原始字段无法版本化。唯一的使用者是 bash `ting` 的 `load_track_url`，它从原始记录里读 `ar[0].name`、`al.picUrl`、`pic` —— 站点知识漏进了 TUI，本身就是分层违规。改为把这些字段补进 `--info` 信封，与搜索行同形 |
+| 站点原始记录 | `--raw`，只在引擎文件上作自检，`t-play` 拒转发；转写的完整形态是 `--transcript -j --segments` | 站点原始字段无法版本化。唯一的使用者是 bash `ting` 的 `load_track_url`，它从原始记录里读 `ar[0].name`、`al.picUrl`、`pic` —— 站点知识漏进了 TUI，本身就是分层违规。改为把这些字段补进 `--info` 信封，与搜索行同形 |
 | `-S`（yt-dlp format-sort） | 删 | yt-dlp 语法进了公开契约；档位抽象是 `--quality`，按模式的格式覆盖已有配置键 `*_FORMAT` |
 | 各半边的 `--capabilities` | 从公开面删，由 `--engines` 的 `flags[]` 回答 | 一个问题一个动词 |
 | `-f`、`--quality`、`--color`、`-j` | 不变 | |
@@ -145,7 +145,7 @@ yt 这一对 392 行（占 `yt-search` 代码的 63%），bili、ne 各约 214 �
 ## 5. 契约变更与版本
 
 - 公开命令从 10 个减到 4 个：`t-play`、`t-playlist`、`t-history`、`ting`。六个 `<site>-search/-resolve` 退出 PATH。
-- 引擎动词换了宿主（§3）；`-l`、`-J`、`-S`、各半边 `--capabilities` 从公开面删除；`-m`/`-M`/`-s` 改名；`--parts` 并入 `--items`。
+- 引擎动词换了宿主（§3）；`-l`、`-S`、各半边 `--capabilities` 从公开面删除；站点原始记录只在引擎自检（`--raw`）；`-m`/`-M`/`-s` 改名；`--parts` 并入 `--items`。
 - `t-play --engines -j` 改形状（§2）。
 - `--info` 信封补齐与搜索行同形的字段。
 - 配置键全部改名，旧名兜底一个版本（§4）。
@@ -179,7 +179,7 @@ yt 这一对 392 行（占 `yt-search` 代码的 63%），bili、ne 各约 214 �
    `--capabilities`），站点事实只留一份；`--info` 补字段。`t-play` 临时双查：先找 `t-engine-<n>`，找不到再找旧的一对
    （第 3 步末尾删掉）。
 2. **`t-engine-bili`、`t-engine-ne`**：同上；`--parts` 并入 `--items`（若 §8 同意）。
-3. **`t-play` 入口**：转发动词、`--engines` 新形状、`--stream` 取直链、删 `-l`/`-J`/`-S`、`-m`/`-M`/`-s` 改名；
+3. **`t-play` 入口**：转发动词、`--engines` 新形状、`--stream` 取直链、删 `-l`/`-S`、`-m`/`-M`/`-s` 改名；
    删掉双查与旧的六个文件。
 4. **调用方**：bash `ting` 与 Go 的 `verb` 包切到新入口；`go test ./...`。
 5. **配置**：前缀统一、删并（按 §8 签过的清单）、旧名兜底、写回改键名；Go `internal/config` 同步。
@@ -220,11 +220,11 @@ yt 这一对 392 行（占 `yt-search` 代码的 63%），bili、ne 各约 214 �
 - **调用方切换提前并进第 3 步**：删掉六个旧文件时 bash `ting` 与 Go `verb` 包还在调它们、读旧的 `--engines` 形状，
   删了就坏，所以第 4 步里「调用方切到新入口」这一半与第 3 步同一轮做完。第 4 步剩下的只有 Go 侧跟进
   （`internal/config` 属于第 5 步）。
-- **`-J` 整个删掉，JSON 开关只有 `-j` / `--json`**（2026-09-26 你定）：`-J` 与 `-j` 只差大小写，而且各动词含义不一
-  （`--search` 是带原始行的信封，`--transcript` 是加 `segments` 的信封，`--info`/`--items` 是站点原始记录）。
-  业界 `-j`（iproute2、nft、smartctl、zfs）与 `-J`（util-linux）两派都有，没有人同时用两个。之后：
-  `--segments` 是 `--transcript` 的公开修饰符（只在 `-j` 下，列进 `flags[]`）；站点原始记录叫 `--raw`，
-  只在引擎文件上作自检，不进 `flags[]`，`t-play` 转发时唯一自己拒的就是它。
+- **JSON 开关只有一个，`-j` / `--json`**（2026-09-26 你定）：没有第二种"更全的" JSON 开关 —— 业界
+  （iproute2、nft、smartctl、zfs 用 `-j`，不少新 CLI 只有长名 `--json`）也没有谁给两种 JSON 各配一个开关。
+  要更多的地方用站点无关的长名说清楚要什么：`--segments` 是 `--transcript` 的公开修饰符（只在 `-j` 下，
+  列进 `flags[]`）；站点原始记录叫 `--raw`，只在引擎文件上作自检，不进 `flags[]`，
+  `t-play` 转发时唯一自己拒的就是它。
 - **引擎动词也按 URL 认引擎**：没给 `--engine` 时，`--info`/`--items`/`--transcript` 的句柄若是 URL，按主机选引擎，
   与播放同一条规则；否则取缺省引擎。`--search` 不认（查询不是句柄）。
 - **`-S` 从引擎里也删了**：`t-play` 不再转发它，引擎里的 `-S` 只剩死代码。

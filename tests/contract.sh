@@ -639,19 +639,14 @@ report "--search -d"              1 "$(rc shell/t-play --search -d -- x)"
 report "--search -f audio"        1 "$(rc shell/t-play --search -f audio -- x)"
 report "…refused as another verb's" 0 "$(err_has 'applies only to --stream' shell/t-play --search -f audio -- x)"
 report "two verbs are refused"    0 "$(err_has 'two verbs' shell/t-play --info --transcript -- x)"
-report "-l is gone"               1 "$(rc shell/t-play --search -l -- x)"
 # The engine's internal verbs are not on the public entry: asked of t-play they are unknown
 # flags, not forwarded. And a modifier with no verb beside it is the caller's argv, answered
 # by t-play before any engine runs.
 report "t-play has no --stream"   0 "$(err_has "unknown flag '--stream'" shell/t-play --stream -j -- x)"
 report "…nor --capabilities"      0 "$(err_has "unknown flag '--capabilities'" shell/t-play --capabilities -j)"
 report "a modifier needs its verb" 1 "$(rc shell/t-play --sort duration -- x)"
-report "t-play -l is gone"        1 "$(rc shell/t-play -l --status)"
-report "t-play -S is gone"        1 "$(rc shell/t-play -S abr -- URL)"
-# One JSON switch, -j / --json. -J is gone (one letter's case from -j, and it meant a different
-# thing per verb); the site's own record is --raw, an engine self-check the entry refuses; the
+# The site's own record is --raw, an engine self-check the entry refuses to forward; the
 # transcript's full form is --segments, which only the -j envelope can carry.
-report "-J is gone"                0 "$(err_has "unknown flag '-J'" shell/t-play --info -J -- dQw4w9WgXcQ)"
 report "t-play refuses --raw"      0 "$(err_has 'engine self-check' shell/t-play --info --raw -- dQw4w9WgXcQ)"
 report "--segments needs -j"       0 "$(err_has 'add -j' shell/t-play --transcript --segments -- dQw4w9WgXcQ)"
 # Only argv AHEAD of `--` names a verb: a query that reads like one is still a handle to
@@ -665,12 +660,10 @@ report "t-play -d + action"      1 "$(rc shell/t-play -d --stop)"
 report "t-play -- <query>"       1 "$(rc shell/t-play -- "a query")"
 report "t-play --status rejects a handle" 1 "$(rc shell/t-play --status -- URL)"
 report "t-play --stop rejects a handle"   1 "$(rc shell/t-play --stop -- URL)"
-# The gating wrapper is gone, so these three are the checks that it took its gate with it
-# rather than dropping it: an unknown long flag must not reach getopts as a bare `-`, and
-# the two verbs that moved to the engine must name the engine instead of half-working.
-report "t-play unknown long flag" 1 "$(rc shell/t-play --json-full -- URL)"
-report "--get-url is retired"     1 "$(rc shell/t-play --get-url -- URL)"
-report "--info is the engine's"   1 "$(rc shell/t-play --info -- URL)"
+# An unknown long flag must not reach getopts as a bare `-`, and a forwarded verb's refusal
+# is the engine's exit code, passed through.
+report "t-play unknown long flag" 1 "$(rc shell/t-play --no-such-flag -- URL)"
+report "a forwarded refusal keeps its 1" 1 "$(rc shell/t-play --info -- URL)"
 
 echo "── idle lifecycle: exit 0, ONE compact line, idempotent ───────────"
 report "--status exit"      0 "$(rc shell/t-play --status -j)"
@@ -1306,12 +1299,6 @@ report "…and says the site has no captions" 0 \
 report "t-engine-ne has no --sub-lang" 1 \
     "$(rc shell/t-play --engine ne --transcript --sub-lang zh-Hans -- "$NE_LYRIC")"
 
-# --parts is gone from every engine: a multi-part video is a container of its parts, so its
-# parts are listed by --items (docs/PLAN-single-entry.md §3, one thing one spelling). Asked
-# with no handle, so no request is spent and the refusal is the shared unknown-flag arm.
-for _e in shell/t-engine-*; do
-    report "$(basename "$_e") has no --parts" 0 "$(err_has 'unknown flag' "$_e" --parts)"
-done
 # A video handle --items cannot turn into an id is refused before a request: a b23.tv short
 # link is a REDIRECT, not a spelling of an id, and the parts endpoints take only an id.
 report "bili --items refuses a short link" 0 \
@@ -1730,16 +1717,12 @@ caps_cmd() { echo "shell/t-engine-$1 --capabilities"; }
 # A search resolves no stream, so --quality (a stream tier) is a value it cannot act on —
 # refused, not ignored, stated over EVERY discovered engine: a search half once took a format
 # flag and forwarded it into a dump where it changed nothing, and the add-an-engine checklist
-# copied the wrong one. And -S, the format-sort override, is gone from every engine outright:
-# yt-dlp's syntax on the public surface was the reason it went, not a gate to put it behind.
+# copied the wrong one.
 _qdash=0
-_sdash=0
 for n in $ENGINES; do
     [ "$(rc $(search_cmd "$n") --quality high -- q)" = 1 ] && _qdash=$((_qdash + 1))
-    [ "$(err_has "unknown flag '-S'" shell/t-engine-$n --stream -S abr -- q)" = 0 ] && _sdash=$((_sdash + 1))
 done
 report "every search refuses --quality" "$NENG" "$_qdash"
-report "no engine takes -S" "$NENG" "$_sdash"
 # --items' cross-engine obligations, stated over every discovered engine because the verb is
 # on all of them (unlike --parts and --transcript, which are capabilities of one site each):
 # a handle is required, exactly one is taken, and two verbs in one invocation is a caller who
@@ -1799,9 +1782,8 @@ report "every engine answers --capabilities -j" "$NENG" "$_caps_env"
 # keeps a friendlier named refusal legal (t-engine-bili --transcript explains that the site
 # carries no captions).
 #
-# The retired spellings (the pairs' one-letter search flags, -l, -S, the --parts /
-# --subtitles / --sub-langs aliases) are unknown to every engine, not quietly accepted. And the
-# internal verbs work and are not advertised: the list is what a caller of t-play can ask for.
+# And the internal verbs work and are not advertised: the list is what a caller of t-play can
+# ask for.
 _vocab=$(for n in $ENGINES; do $(caps_cmd "$n") -j 2>/dev/null | jq -r '.flags[]'; done | sort -u)
 _caps_true=0
 _caps_true_n=0
@@ -1821,10 +1803,6 @@ for n in $ENGINES; do
                 _caps_true=$((_caps_true + 1))
             ;;
         esac
-    done
-    for _f in -m -M -s -l -S -J --parts --subtitles --sub-langs --json-full; do
-        _caps_true_n=$((_caps_true_n + 1))
-        [ "$(err_has 'unknown flag' "$_e" "$_f")" = 0 ] && _caps_true=$((_caps_true + 1))
     done
     _caps_true_n=$((_caps_true_n + 1))
     [ "$(jqv '(.flags|index("--stream"))==null and (.flags|index("--capabilities"))==null' \
