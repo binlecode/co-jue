@@ -29,10 +29,24 @@ type Event struct {
 	Ended    *string  `json:"ended"`     // transitioning: finished | interrupted | failed
 	ExitCode *int     `json:"exit_code"` // end
 	Reason   *string  `json:"reason"`    // end
+	Media    *Media   `json:"media"`
 	Queue    *struct {
 		Pos int `json:"pos"`
 		Len int `json:"len"`
 	} `json:"queue"`
+}
+
+// Media is what the player is decoding; every member null until mpv knows it.
+type Media struct {
+	VideoCodec   *string  `json:"video_codec"`
+	Width        *int     `json:"width"`
+	Height       *int     `json:"height"`
+	FPS          *float64 `json:"fps"`
+	VideoBitrate *int     `json:"video_bitrate"`
+	AudioCodec   *string  `json:"audio_codec"`
+	AudioBitrate *int     `json:"audio_bitrate"`
+	SampleRate   *int     `json:"sample_rate"`
+	Channels     *string  `json:"channels"`
 }
 
 // Watcher owns one `ting-play --watch` process. Events closes after the `end` line, or when the

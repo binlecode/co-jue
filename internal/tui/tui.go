@@ -5,15 +5,13 @@ package tui
 import (
 	"context"
 	"errors"
-	"fmt"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/binlecode/ting/internal/verb"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-	"github.com/mattn/go-runewidth"
 )
 
 // Options is what the entry point resolved from flags and the config chain.
@@ -23,76 +21,161 @@ type Options struct {
 	Query     string
 	Search    verb.SearchOpts
 	Play      verb.PlayOpts
+	Loop      string // off | seq | one
 	PageRows  int
-	Version   string
-	AdoptFrom []verb.Player // live players at startup; the newest is adopted, never stopped
+	Batch     int // TING_FETCH_BATCH: the step each list edge grows or shrinks the row count by
+	Keys      string
+	ListMode  string
+	RowIndex  bool
+	Resource  bool
+	Colors    bool
+	Lang      string
+	ASCII     bool
+	AmbigWide bool
+	AdoptFrom []verb.Player // live players at startup: exactly one is adopted, never several
 }
 
-type view int
+// The three rotations the keys walk. Written here, not configurable: a config key per cycle
+// was retired with the other tuning knobs.
+var (
+	modeCycle    = []string{"audio", "video", "fast"}
+	qualityCycle = []string{"auto", "medium", "high"}
+	loopCycle    = []string{"off", "seq", "one"}
+	sortCycle    = []string{"relevance", "view_count", "duration"}
+)
+
+func next(cycle []string, cur string) string {
+	for i, v := range cycle {
+		if v == cur {
+			return cycle[(i+1)%len(cycle)]
+		}
+	}
+	return cycle[0]
+}
+
+// fetchKind says what an in-flight search is for, because each commits differently.
+type fetchKind int
 
 const (
-	viewInput view = iota
-	viewList
+	fetchNew    fetchKind = iota // a new query: rows replaced, cursor to the top
+	fetchMore                    // one batch more: cursor kept, and stepped onto the new rows
+	fetchSort                    // o: same query, next sort field
+	fetchEngine                  // e: same query, next source
 )
+
+// fetchReq is a search's whole intent. Nothing on screen changes until it succeeds, so a
+// failure has nothing to roll back: the old engine, sort and row count were never replaced.
+type fetchReq struct {
+	gen    int
+	kind   fetchKind
+	query  string
+	engine int
+	opts   verb.SearchOpts
+}
 
 // Model is the whole UI state.
 type Model struct {
 	suite *verb.Suite
 	opt   Options
 	ctx   context.Context
+	s     strs
+	g     glyphs
+	p     palette
+	w     width
 
-	view    view
-	input   textinput.Model
-	query   string
-	results []verb.Result
-	cursor  int
-	top     int
+	// The rows. all is what the search returned; rows is what is on screen (all, or the
+	// live filter's matches of it).
+	all    []row
+	rows   []row
+	query  string
+	cursor int
+	top    int // scroll mode's window top; page mode derives its page from the cursor
+	psize  int // the last frame's page size
+	jump   string
 
-	searching bool
+	filterOn bool
+	filter   string
+
+	prompting bool
+	input     textinput.Model
+
 	searchGen int
-	note      string
-	errMsg    string
+	busy      string // the fetch in flight, as a line the frame carries until it lands
+	pending   *fetchReq
+	noticeL   string
+	noticeT   string
+	auth      string // "", signed-in browser name, "anon" or "blocked"
+	fatal     error
 
-	// The player on the banner. owned = this session started it, so q stops it; an adopted
-	// one is left running.
-	playerID string
-	owned    bool
-	last     *verb.Event
-	lastAt   time.Time
-	watcher  *verb.Watcher
-	watchGen int
-	starting bool
-	ticking  bool // one tick chain at a time
+	// The player on the banner. owned = this session started it.
+	playerID   string
+	owned      bool
+	last       *verb.Event
+	lastAt     time.Time
+	watcher    *verb.Watcher
+	watchGen   int
+	starting   bool
+	loading    bool // launched, not yet audible
+	live       bool
+	startedAt  time.Time
+	playTitle  string
+	playURL    string
+	playEngine string
+	cpu, mem   *float64
+	keepOnQuit bool
+
+	// Volume presses coalesce: one --set-volume in flight at most, and only the newest target.
+	volTarget   *int
+	volInFlight bool
+	volQueued   bool
+
+	spin    int
+	ticking bool
 
 	width, height int
 }
 
 // New builds the model. ctx bounds every verb call and the watch process.
 func New(ctx context.Context, suite *verb.Suite, opt Options) *Model {
-	ti := textinput.New()
-	ti.Prompt = "search: "
-	ti.CharLimit = 200
-	m := &Model{suite: suite, opt: opt, ctx: ctx, input: ti, width: 80, height: 24}
-	if opt.PageRows <= 0 {
-		m.opt.PageRows = 10
+	g := glyphsUTF
+	if opt.ASCII {
+		g = glyphsASCII
 	}
-	if opt.Query == "" {
-		m.view = viewInput
+	s := strsEN
+	if opt.Lang == "zh" {
+		s = strsZH
+	}
+	ti := textinput.New()
+	ti.CharLimit = 400
+	ti.Prompt = ""
+	m := &Model{suite: suite, opt: opt, ctx: ctx, s: s, g: g, p: paletteFor(opt.Colors),
+		w: newWidth(opt.AmbigWide), input: ti, width: 80, height: 24}
+	if m.opt.Batch <= 0 {
+		m.opt.Batch = 20
+	}
+	if m.opt.Search.N <= 0 {
+		m.opt.Search.N = 20
+	}
+	m.query = opt.Query
+	if m.query == "" {
+		m.prompting = true
 		m.input.Focus()
-	} else {
-		m.view = viewList
-		m.query = opt.Query
 	}
 	return m
 }
 
-// SessionPlayer is the player q should stop on the way out: one this session started.
+// SessionPlayer is the player q stops on the way out: whatever is on the banner, adopted or
+// started here, unless Q asked to leave it playing.
 func (m *Model) SessionPlayer() string {
-	if m.owned {
-		return m.playerID
+	if m.keepOnQuit {
+		return ""
 	}
-	return ""
+	return m.playerID
 }
+
+// Fatal is why the session could not start (the first search broke rather than came back
+// empty); nil otherwise.
+func (m *Model) Fatal() error { return m.fatal }
 
 // Close releases the watch process (not the player).
 func (m *Model) Close() {
@@ -104,17 +187,28 @@ func (m *Model) Close() {
 
 func (m *Model) engine() verb.Engine { return m.opt.Engines[m.opt.Engine] }
 
+func (m *Model) notice(label, text string) { m.noticeL, m.noticeT = label, text }
+
 // ── messages ────────────────────────────────────────────────────────────────────────────
 
 type searchDoneMsg struct {
-	gen int
+	req fetchReq
 	res *verb.SearchResult
 	err error
 }
 
+type authMsg struct {
+	engine string
+	auth   string
+}
+
 type playDoneMsg struct {
-	st  *verb.Started
-	err error
+	st    *verb.Started
+	title string
+	url   string
+	eng   string
+	live  bool
+	err   error
 }
 
 type watchStartedMsg struct {
@@ -130,38 +224,90 @@ type watchEventMsg struct {
 }
 
 type verbDoneMsg struct {
-	what string
-	err  error
+	label string // notice label on failure; "" = say nothing
+	text  string // notice text on failure; "" = the error itself
+	err   error
 }
+
+type volDoneMsg struct{ err error }
+
+// noticeMsg is a verb that succeeded and has something to say about it.
+type noticeMsg struct{ label, text string }
 
 type tickMsg struct{}
 
 // ── commands ────────────────────────────────────────────────────────────────────────────
 
-func (m *Model) searchCmd() tea.Cmd {
+// fetch starts one search. The busy line is the frame's own "…" for it; only one search is
+// in flight, and a key that would start another while it runs is ignored.
+func (m *Model) fetch(kind fetchKind, query string, engine int, o verb.SearchOpts, busy string) tea.Cmd {
 	m.searchGen++
-	m.searching = true
-	m.errMsg = ""
-	gen, eng, q, o := m.searchGen, m.engine().Name, m.query, m.opt.Search
-	s, ctx := m.suite, m.ctx
+	req := fetchReq{gen: m.searchGen, kind: kind, query: query, engine: engine, opts: o}
+	m.pending = &req
+	m.busy = busy
+	eng, s, ctx := m.opt.Engines[engine].Name, m.suite, m.ctx
 	return func() tea.Msg {
-		res, err := s.Search(ctx, eng, q, o)
-		return searchDoneMsg{gen: gen, res: res, err: err}
+		res, err := s.Search(ctx, eng, query, o)
+		return searchDoneMsg{req: req, res: res, err: err}
+	}
+}
+
+func (m *Model) authCmd() tea.Cmd {
+	eng, s, ctx := m.engine().Name, m.suite, m.ctx
+	return func() tea.Msg {
+		a, err := s.Auth(ctx, eng)
+		if err != nil {
+			return authMsg{engine: eng}
+		}
+		v := ""
+		switch a.Auth {
+		case "cookie":
+			v = a.CookieBrowser
+			if v == "" {
+				v = "cookie"
+			}
+			if a.CookieReadable != nil && !*a.CookieReadable {
+				v = "blocked"
+			}
+		case "anonymous":
+			v = "anon"
+		}
+		return authMsg{engine: eng, auth: v}
 	}
 }
 
 // playCmd stops whatever is on the banner first — a switch, not a second voice — then starts
-// the row. The stop is best-effort: a player that already ended answers 4, which is fine.
-func (m *Model) playCmd(r verb.Result) tea.Cmd {
-	prev, eng, o, s, ctx := m.playerID, m.engine().Name, m.opt.Play, m.suite, m.ctx
+// the row, or, in loop seq, the rows from the cursor down as one queue.
+func (m *Model) playCmd() tea.Cmd {
+	if m.cursor >= len(m.rows) || m.starting {
+		return nil
+	}
+	r := m.rows[m.cursor]
+	o := m.opt.Play
+	o.Loop = "off"
+	if m.opt.Loop == "one" {
+		o.Loop = "one"
+	}
+	var queue []verb.QueueItem
+	if m.opt.Loop == "seq" {
+		for _, q := range m.rows[m.cursor:] {
+			queue = append(queue, verb.QueueItem{Engine: q.Engine, URL: q.URL, Title: q.Title, Duration: q.Duration})
+		}
+	}
+	prev, s, ctx := m.playerID, m.suite, m.ctx
 	m.starting = true
-	m.errMsg = ""
 	return func() tea.Msg {
 		if prev != "" {
 			_ = s.Stop(ctx, prev)
 		}
-		st, err := s.Play(ctx, eng, r.URL, o)
-		return playDoneMsg{st: st, err: err}
+		var st *verb.Started
+		var err error
+		if queue != nil {
+			st, err = s.PlayQueue(ctx, queue, o)
+		} else {
+			st, err = s.Play(ctx, r.Engine, r.URL, o)
+		}
+		return playDoneMsg{st: st, title: r.Title, url: r.URL, eng: r.Engine, live: r.isLive(), err: err}
 	}
 }
 
@@ -185,67 +331,99 @@ func nextEvent(gen int, w *verb.Watcher) tea.Cmd {
 	}
 }
 
-func (m *Model) verbCmd(what string, f func(context.Context, string) error) tea.Cmd {
+// verbCmd runs one call against the player on the banner.
+func (m *Model) verbCmd(label, text string, f func(context.Context, string) error) tea.Cmd {
+	if m.playerID == "" {
+		return nil
+	}
 	id, ctx := m.playerID, m.ctx
-	return func() tea.Msg { return verbDoneMsg{what: what, err: f(ctx, id)} }
+	return func() tea.Msg { return verbDoneMsg{label: label, text: text, err: f(ctx, id)} }
+}
+
+func (m *Model) volCmd(v int) tea.Cmd {
+	id, s, ctx := m.playerID, m.suite, m.ctx
+	m.volInFlight = true
+	return func() tea.Msg { return volDoneMsg{err: s.SetVolume(ctx, id, v)} }
 }
 
 func tick() tea.Cmd {
 	return tea.Tick(250*time.Millisecond, func(time.Time) tea.Msg { return tickMsg{} })
 }
 
+// ensureTick keeps one tick chain alive while the banner has something that moves.
+func (m *Model) ensureTick() tea.Cmd {
+	if m.ticking || !m.moving() {
+		return nil
+	}
+	m.ticking = true
+	return tick()
+}
+
+func (m *Model) moving() bool {
+	return m.playerID != "" && (m.loading || m.starting || m.playing()) || m.starting || m.busy != ""
+}
+
 // ── update ──────────────────────────────────────────────────────────────────────────────
 
 func (m *Model) Init() tea.Cmd {
-	cmds := []tea.Cmd{textinput.Blink}
-	if m.view == viewList {
-		cmds = append(cmds, m.searchCmd())
+	cmds := []tea.Cmd{m.authCmd()}
+	if m.prompting {
+		cmds = append(cmds, textinput.Blink)
+	} else {
+		cmds = append(cmds, m.fetch(fetchNew, m.query, m.opt.Engine, m.opt.Search,
+			m.s.Searching+` "`+m.query+`"`+m.g.Ell))
 	}
-	if n := len(m.opt.AdoptFrom); n > 0 {
-		p := m.opt.AdoptFrom[n-1]
+	// Adoption is a startup verdict with the core's own 0/1/many rule: exactly one live
+	// player is unambiguous; several is a notice and an empty banner, so the next Enter is
+	// the user's own choice.
+	switch n := len(m.opt.AdoptFrom); {
+	case n == 1:
+		p := m.opt.AdoptFrom[0]
 		m.playerID, m.owned = p.ID, false
+		m.playURL, m.playEngine = p.URL, p.Engine
+		if p.Title != nil {
+			m.playTitle = clean(*p.Title)
+		} else {
+			m.playTitle = p.URL
+		}
+		m.startedAt = time.Now()
+		if p.Position != nil {
+			m.startedAt = m.startedAt.Add(-time.Duration(*p.Position) * time.Second)
+		}
 		cmds = append(cmds, m.watchCmd(p.ID))
+	case n > 1:
+		m.notice(m.s.AdoptAct+":", m.s.AdoptMany)
 	}
-	return tea.Batch(cmds...)
+	return tea.Batch(append(cmds, m.ensureTick())...)
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		m.clampScroll()
+		return m, nil
+
+	case authMsg:
+		if msg.engine == m.engine().Name {
+			m.auth = msg.auth
+		}
 		return m, nil
 
 	case searchDoneMsg:
-		if msg.gen != m.searchGen {
-			return m, nil
-		}
-		m.searching = false
-		if msg.err != nil {
-			m.errMsg = msg.err.Error()
-			return m, nil
-		}
-		m.results, m.cursor, m.top = msg.res.Results, 0, 0
-		if len(m.results) == 0 {
-			m.note = "no results"
-		} else {
-			m.note = ""
-		}
-		return m, nil
+		return m, m.searchDone(msg)
 
 	case playDoneMsg:
 		m.starting = false
 		if msg.err != nil {
-			m.errMsg = msg.err.Error()
-			m.playerID, m.owned, m.last = "", false, nil
+			m.notice(m.s.PlayFailed+":", errText(msg.err))
+			m.clearPlayer()
 			return m, nil
 		}
 		m.playerID, m.owned, m.last = msg.st.ID, true, nil
-		if msg.st.Title != nil {
-			t := *msg.st.Title
-			m.last = &verb.Event{Event: "started", ID: msg.st.ID, Title: &t}
-		}
-		return m, m.watchCmd(msg.st.ID)
+		m.loading, m.live, m.startedAt = true, msg.live, time.Now()
+		m.playTitle, m.playURL, m.playEngine = msg.title, msg.url, msg.eng
+		m.cpu, m.mem, m.volTarget = nil, nil, nil
+		return m, tea.Batch(m.watchCmd(msg.st.ID), m.ensureTick())
 
 	case watchStartedMsg:
 		if msg.gen != m.watchGen {
@@ -255,175 +433,193 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if msg.err != nil {
-			m.errMsg = msg.err.Error()
+			m.notice(m.s.AdoptAct+":", errText(msg.err))
 			return m, nil
 		}
 		m.watcher = msg.w
 		return m, nextEvent(msg.gen, msg.w)
 
 	case watchEventMsg:
-		if msg.gen != m.watchGen {
-			return m, nil
-		}
-		if !msg.ok {
-			// The stream closed: either after `end`, or because --watch itself failed
-			// (a player that died before the watch attached answers 4).
-			if m.watcher != nil {
-				if err := m.watcher.Err(); err != nil && m.last == nil {
-					var ve *verb.Error
-					if !errors.As(err, &ve) || ve.Kind() != verb.NotEffective {
-						m.errMsg = err.Error()
-					}
-				}
-				m.watcher = nil
-			}
-			m.playerID, m.owned = "", false
-			return m, nil
-		}
-		ev := msg.ev
-		m.last, m.lastAt = &ev, time.Now()
-		if ev.Event == "end" {
-			if ev.Reason != nil {
-				m.errMsg = "player ended: " + *ev.Reason
-			}
-		}
-		cmds := []tea.Cmd{nextEvent(msg.gen, m.watcher)}
-		if m.playing() && !m.ticking {
-			m.ticking = true
-			cmds = append(cmds, tick())
-		}
-		return m, tea.Batch(cmds...)
+		return m, m.watchEvent(msg)
 
 	case verbDoneMsg:
-		if msg.err != nil {
-			m.errMsg = msg.err.Error()
+		if msg.err != nil && msg.label != "" {
+			t := msg.text
+			if t == "" {
+				t = errText(msg.err)
+			}
+			m.notice(msg.label, t)
+		}
+		return m, nil
+
+	case noticeMsg:
+		m.notice(msg.label, msg.text)
+		return m, nil
+
+	case volDoneMsg:
+		m.volInFlight = false
+		if m.volQueued && m.volTarget != nil && m.playerID != "" {
+			m.volQueued = false
+			return m, m.volCmd(*m.volTarget)
 		}
 		return m, nil
 
 	case tickMsg:
-		if m.playing() {
+		m.spin++
+		if m.moving() {
 			return m, tick()
 		}
 		m.ticking = false
 		return m, nil
 
 	case tea.KeyMsg:
-		if m.view == viewInput {
-			return m.updateInput(msg)
+		// A notice is the frame's content until the next key, which clears it.
+		m.noticeL, m.noticeT = "", ""
+		var cmd tea.Cmd
+		switch {
+		case m.prompting:
+			cmd = m.updatePrompt(msg)
+		case m.filterOn:
+			cmd = m.updateFilter(msg)
+		default:
+			cmd = m.updateList(msg)
 		}
-		return m.updateList(msg)
+		return m, tea.Batch(cmd, m.ensureTick())
 	}
 	return m, nil
 }
 
-func (m *Model) updateInput(k tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch k.Type {
-	case tea.KeyCtrlC:
-		return m, tea.Quit
-	case tea.KeyEsc:
-		if m.query == "" && len(m.results) == 0 {
-			return m, tea.Quit
-		}
-		m.view = viewList
-		m.input.Blur()
-		return m, nil
-	case tea.KeyEnter:
-		q := strings.TrimSpace(m.input.Value())
-		if q == "" {
-			return m, nil
-		}
-		m.query = q
-		m.view = viewList
-		m.input.Blur()
-		return m, m.searchCmd()
+func (m *Model) searchDone(msg searchDoneMsg) tea.Cmd {
+	if m.pending == nil || msg.req.gen != m.pending.gen {
+		return nil
 	}
-	var cmd tea.Cmd
-	m.input, cmd = m.input.Update(k)
-	return m, cmd
-}
-
-func (m *Model) updateList(k tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch k.String() {
-	case "ctrl+c", "q":
-		return m, tea.Quit
-	case "up", "k":
-		if m.cursor > 0 {
-			m.cursor--
+	m.pending, m.busy = nil, ""
+	req := msg.req
+	if msg.err != nil {
+		// A search that came back empty-handed (2) is a notice, never a dead session: the
+		// n / e / b keys that fix it all need the menu loop. Anything else on the very first
+		// search has nothing on screen to steer, so it ends the session with its reason.
+		var ve *verb.Error
+		empty := errors.As(msg.err, &ve) && ve.Code == 2
+		if req.kind == fetchNew && m.all == nil && !empty {
+			m.fatal = msg.err
+			return tea.Quit
 		}
-		m.clampScroll()
-	case "down", "j":
-		if m.cursor < len(m.results)-1 {
-			m.cursor++
-		}
-		m.clampScroll()
-	case "enter":
-		if m.cursor < len(m.results) && !m.starting {
-			return m, m.playCmd(m.results[m.cursor])
-		}
-	case " ":
-		if m.playerID == "" {
-			return m, nil
-		}
-		if m.last != nil && m.last.Paused {
-			return m, m.verbCmd("resume", m.suite.Resume)
-		}
-		return m, m.verbCmd("pause", m.suite.Pause)
-	case "s":
-		if m.playerID != "" {
-			return m, m.verbCmd("stop", m.suite.Stop)
-		}
-	case "n":
-		m.view = viewInput
-		m.input.SetValue("")
-		m.input.Focus()
-		return m, textinput.Blink
-	case "e":
-		if len(m.opt.Engines) > 1 {
-			m.opt.Engine = (m.opt.Engine + 1) % len(m.opt.Engines)
-			if m.query != "" {
-				return m, m.searchCmd()
+		text := errText(msg.err)
+		if empty {
+			text = "no results"
+			if req.kind == fetchNew && req.query != "" {
+				text = `no results for "` + req.query + `"`
 			}
 		}
+		m.notice(m.s.SearchAct+":", text)
+		if m.all == nil {
+			m.all, m.rows = []row{}, []row{}
+		}
+		return nil
 	}
-	return m, nil
+	rows := rowsFromSearch(msg.res)
+	var cmd tea.Cmd
+	switch req.kind {
+	case fetchMore:
+		grew := len(rows) > len(m.all)
+		cur := m.cursor
+		m.all, m.rows = rows, rows
+		m.opt.Search.N = req.opts.N
+		m.cursor = cur
+		if grew {
+			m.stepOntoNew(cur)
+		}
+		return nil
+	case fetchEngine:
+		m.opt.Engine = req.engine
+		m.auth = ""
+		cmd = m.authCmd()
+	case fetchSort:
+		m.opt.Search.Sort = req.opts.Sort
+	case fetchNew:
+		m.query = req.query
+	}
+	m.all, m.rows = rows, rows
+	m.cursor, m.top = 0, 0
+	m.filterOn, m.filter = false, ""
+	return cmd
 }
 
-// ── view ────────────────────────────────────────────────────────────────────────────────
-
-var (
-	accent = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
-	dim    = lipgloss.NewStyle().Faint(true)
-	bold   = lipgloss.NewStyle().Bold(true)
-	red    = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
-	green  = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
-	yellow = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
-)
-
-// listRows is how many result rows fit: header, blank, banner, hints, message.
-func (m *Model) listRows() int {
-	n := m.height - 5
-	if n > m.opt.PageRows {
-		n = m.opt.PageRows
+// stepOntoNew moves onto the first row the fetch brought, the way the page arm steps onto the
+// first new page: in scroll mode the row after the cursor, in page mode the next page's top.
+func (m *Model) stepOntoNew(cur int) {
+	if m.opt.ListMode == "scroll" {
+		m.cursor = cur + 1
+		return
 	}
-	if n < 1 {
-		n = 1
+	ps := m.layout().psize
+	m.cursor = (cur/ps + 1) * ps
+	if m.cursor >= len(m.rows) {
+		m.cursor = len(m.rows) - 1
 	}
-	return n
 }
 
-func (m *Model) clampScroll() {
-	rows := m.listRows()
-	if m.cursor < m.top {
-		m.top = m.cursor
+func (m *Model) watchEvent(msg watchEventMsg) tea.Cmd {
+	if msg.gen != m.watchGen {
+		return nil
 	}
-	if m.cursor >= m.top+rows {
-		m.top = m.cursor - rows + 1
+	if !msg.ok {
+		// The stream closed: after `end`, or because --watch itself failed (a player that
+		// died before the watch attached answers 4, which is just "it is gone").
+		if m.watcher != nil {
+			if err := m.watcher.Err(); err != nil && m.last == nil {
+				var ve *verb.Error
+				if !errors.As(err, &ve) || ve.Kind() != verb.NotEffective {
+					m.notice(m.s.AdoptAct+":", errText(err))
+				}
+			}
+			m.watcher = nil
+		}
+		m.clearPlayer()
+		return nil
 	}
+	ev := msg.ev
+	m.last, m.lastAt = &ev, time.Now()
+	if ev.Ready {
+		m.loading = false
+	}
+	if ev.CPU != nil {
+		m.cpu, m.mem = ev.CPU, ev.Mem
+	}
+	if ev.URL != "" && ev.URL != m.playURL {
+		// A queue moved on: the banner follows the player, not the row that started it.
+		m.playURL, m.startedAt, m.live = ev.URL, time.Now(), false
+		if ev.Title == nil {
+			m.playTitle = ev.URL
+		}
+	}
+	if ev.Engine != "" {
+		m.playEngine = ev.Engine
+	}
+	if ev.Title != nil {
+		m.playTitle = clean(*ev.Title)
+	}
+	if !m.volInFlight && !m.volQueued {
+		m.volTarget = nil
+	}
+	if ev.Event == "end" && ev.Reason != nil {
+		m.notice(m.s.AdoptAct+":", "player ended: "+*ev.Reason)
+	}
+	return tea.Batch(nextEvent(msg.gen, m.watcher), m.ensureTick())
+}
+
+func (m *Model) clearPlayer() {
+	m.playerID, m.owned, m.last = "", false, nil
+	m.loading, m.live, m.playTitle, m.playURL, m.playEngine = false, false, "", "", ""
+	m.cpu, m.mem, m.volTarget, m.volQueued = nil, nil, nil, false
 }
 
 func (m *Model) playing() bool {
 	return m.playerID != "" && m.last != nil && m.last.Ready && !m.last.Paused
 }
+
+func (m *Model) paused() bool { return m.last != nil && m.last.Paused }
 
 // position extrapolates from the last event with the monotonic clock, and stops while paused.
 func (m *Model) position() (float64, bool) {
@@ -440,120 +636,20 @@ func (m *Model) position() (float64, bool) {
 	return p, true
 }
 
-func fmtDur(sec float64) string {
-	s := int(sec)
-	if s >= 3600 {
-		return fmt.Sprintf("%d:%02d:%02d", s/3600, s/60%60, s%60)
+// errText is a verb error as one line for the frame.
+func errText(err error) string {
+	s := err.Error()
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
 	}
-	return fmt.Sprintf("%d:%02d", s/60, s%60)
+	return s
 }
 
-func fit(s string, w int) string {
-	if w <= 0 {
-		return ""
-	}
-	return runewidth.FillRight(runewidth.Truncate(s, w, "…"), w)
-}
+var pid = os.Getpid()
 
-func (m *Model) View() string {
-	w := m.width
-	var b strings.Builder
-
-	// header
-	head := accent.Render("♫ ting") + dim.Render(" · ") + bold.Render(m.engine().Name)
-	if m.query != "" {
-		head += dim.Render(" · ") + m.query
+func timeSince(t time.Time) float64 {
+	if t.IsZero() {
+		return 0
 	}
-	if m.searching {
-		head += dim.Render("  searching…")
-	}
-	b.WriteString(head + "\n")
-
-	// body
-	if m.view == viewInput {
-		b.WriteString(m.input.View() + "\n")
-	} else {
-		b.WriteString("\n")
-	}
-	rows := m.listRows()
-	for i := m.top; i < m.top+rows; i++ {
-		if i >= len(m.results) {
-			b.WriteString("\n")
-			continue
-		}
-		r := m.results[i]
-		dur := ""
-		if r.Duration != nil {
-			dur = fmtDur(*r.Duration)
-		}
-		chanW := 18
-		if w < 60 {
-			chanW = 0
-		}
-		// A fixed duration column, right-aligned, so the channel column lines up across rows
-		// whose durations differ in width (a live row has none; a mix runs past ten hours).
-		const durW = 8
-		titleW := w - 2 - chanW - 1 - durW
-		line := fit(r.Title, titleW)
-		if chanW > 0 {
-			line += " " + dim.Render(fit(r.Channel, chanW-1))
-		}
-		line += " " + dim.Render(fmt.Sprintf("%*s", durW, dur))
-		if i == m.cursor && m.view == viewList {
-			b.WriteString(accent.Render("❯ ") + line + "\n")
-		} else {
-			b.WriteString("  " + line + "\n")
-		}
-	}
-
-	// banner
-	b.WriteString(m.banner(w) + "\n")
-
-	// hints
-	b.WriteString(dim.Render(fit("enter play · space pause · s stop · n search · e source · q quit", w)) + "\n")
-
-	// message
-	switch {
-	case m.errMsg != "":
-		b.WriteString(red.Render(fit(m.errMsg, w)))
-	case m.note != "":
-		b.WriteString(dim.Render(fit(m.note, w)))
-	}
-	return b.String()
-}
-
-func (m *Model) banner(w int) string {
-	if m.starting {
-		return yellow.Render("… starting")
-	}
-	if m.playerID == "" || m.last == nil {
-		if m.playerID != "" {
-			return yellow.Render("… connecting")
-		}
-		return dim.Render("■ stopped")
-	}
-	ev := m.last
-	glyph := green.Render("▶")
-	switch {
-	case ev.Paused:
-		glyph = yellow.Render("❚❚")
-	case !ev.Ready:
-		glyph = yellow.Render("…")
-	}
-	right := ""
-	if p, ok := m.position(); ok {
-		right = fmtDur(p)
-		if ev.Duration != nil {
-			right += " / " + fmtDur(*ev.Duration)
-		}
-	}
-	if !m.owned {
-		right += dim.Render("  adopted")
-	}
-	title := ""
-	if ev.Title != nil {
-		title = *ev.Title
-	}
-	tw := w - 3 - lipgloss.Width(right) - 1
-	return glyph + " " + fit(title, tw) + " " + right
+	return time.Since(t).Seconds()
 }

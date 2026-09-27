@@ -112,7 +112,15 @@ func LocateIn(dir string) (*Suite, error) {
 // prints one line; the last is the envelope even if something chatted before it). A non-zero
 // exit is an *Error, with the envelope's status/reason when there is one.
 func run(ctx context.Context, argv []string, out any) error {
+	return runIn(ctx, argv, nil, out)
+}
+
+// runIn is run with stdin: the queue verbs read their items there.
+func runIn(ctx context.Context, argv []string, stdin []byte, out any) error {
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	if stdin != nil {
+		cmd.Stdin = bytes.NewReader(stdin)
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()
@@ -189,6 +197,9 @@ type Result struct {
 	Channel     string   `json:"channel"`
 	Duration    *float64 `json:"duration"`
 	DurationFmt *string  `json:"duration_fmt"`
+	ViewCount   *int64   `json:"view_count"`
+	LiveStatus  string   `json:"live_status"`
+	Description string   `json:"description"`
 	Kind        string   `json:"kind"`
 	Access      string   `json:"access"`
 	Thumbnail   string   `json:"thumbnail"`
@@ -239,6 +250,24 @@ type PlayOpts struct {
 	Mode    string
 	Quality string
 	Volume  string // "" = mpv's own
+	Loop    string // off | one; "" = ting-play's own
+}
+
+func (o PlayOpts) argv() []string {
+	var a []string
+	if o.Mode != "" {
+		a = append(a, "-f", o.Mode)
+	}
+	if o.Quality != "" {
+		a = append(a, "--quality", o.Quality)
+	}
+	if o.Volume != "" {
+		a = append(a, "--volume", o.Volume)
+	}
+	if o.Loop != "" {
+		a = append(a, "--loop", o.Loop)
+	}
+	return a
 }
 
 // Started is the -d -j envelope, less the two private paths it also carries.
@@ -252,22 +281,86 @@ type Started struct {
 
 // Play starts a detached player.
 func (s *Suite) Play(ctx context.Context, engine, url string, o PlayOpts) (*Started, error) {
-	argv := []string{s.TPlay, "-d", "-j", "--engine", engine}
-	if o.Mode != "" {
-		argv = append(argv, "-f", o.Mode)
-	}
-	if o.Quality != "" {
-		argv = append(argv, "--quality", o.Quality)
-	}
-	if o.Volume != "" {
-		argv = append(argv, "--volume", o.Volume)
-	}
+	argv := append([]string{s.TPlay, "-d", "-j", "--engine", engine}, o.argv()...)
 	argv = append(argv, "--", url)
 	var st Started
 	if err := run(ctx, argv, &st); err != nil {
 		return nil, err
 	}
 	return &st, nil
+}
+
+// QueueItem is one entry of a queue: engine per item, so one queue can mix sources.
+type QueueItem struct {
+	Engine   string   `json:"engine"`
+	URL      string   `json:"url"`
+	Title    string   `json:"title,omitempty"`
+	Duration *float64 `json:"duration,omitempty"`
+}
+
+// PlayQueue starts a detached player on a queue: the first item plays, the rest wait.
+func (s *Suite) PlayQueue(ctx context.Context, items []QueueItem, o PlayOpts) (*Started, error) {
+	in, err := json.Marshal(items)
+	if err != nil {
+		return nil, err
+	}
+	argv := append([]string{s.TPlay, "-d", "-j"}, o.argv()...)
+	argv = append(argv, "--queue", "-")
+	var st Started
+	if err := runIn(ctx, argv, in, &st); err != nil {
+		return nil, err
+	}
+	return &st, nil
+}
+
+// Enqueue appends items to a running player's queue. owner is this process's PID, which
+// keeps a copy --undo can put back.
+func (s *Suite) Enqueue(ctx context.Context, id string, items []QueueItem, owner int) error {
+	in, err := json.Marshal(items)
+	if err != nil {
+		return err
+	}
+	argv := []string{s.TPlay, "--enqueue", "-", "--id", id, "-j"}
+	if owner > 0 {
+		argv = append(argv, "--owner", fmt.Sprint(owner))
+	}
+	return runIn(ctx, argv, in, nil)
+}
+
+// Next skips to the next queued track; NotEffective when there is none.
+func (s *Suite) Next(ctx context.Context, id string) error {
+	return run(ctx, []string{s.TPlay, "--next", "--id", id, "-j"}, nil)
+}
+
+// SetVolume sets a detached player's live volume, 0-100.
+func (s *Suite) SetVolume(ctx context.Context, id string, v int) error {
+	return run(ctx, []string{s.TPlay, "--set-volume", fmt.Sprint(v), "--id", id, "-j"}, nil)
+}
+
+// Seek moves the playhead by delta seconds; the sign is always spelled.
+func (s *Suite) Seek(ctx context.Context, id string, delta int) error {
+	return run(ctx, []string{s.TPlay, "--seek", fmt.Sprintf("%+d", delta), "--id", id, "-j"}, nil)
+}
+
+// SetLoop turns repeat on (one) or off while a player runs.
+func (s *Suite) SetLoop(ctx context.Context, id, loop string) error {
+	return run(ctx, []string{s.TPlay, "--set-loop", loop, "--id", id, "-j"}, nil)
+}
+
+// Auth is an engine's cookie decision.
+type Auth struct {
+	Auth           string `json:"auth"`
+	CookieBrowser  string `json:"cookie_browser"`
+	CookieReadable *bool  `json:"cookie_readable"`
+}
+
+// Auth asks one engine, through ting-play.
+func (s *Suite) Auth(ctx context.Context, engine string) (*Auth, error) {
+	var a Auth
+	if err := run(ctx, []string{s.TPlay, "--auth", "--engine", engine, "-j"}, &a); err != nil {
+		return nil, err
+	}
+	return &a, nil
 }
 
 // Stop stops one player.
