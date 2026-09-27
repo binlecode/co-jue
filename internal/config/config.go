@@ -1,7 +1,7 @@
 // Package config is the suite's configuration chain, read the way every shell entry point
 // reads it: flag > environment > the user's file > the shipped file.
 // The file format is a frozen contract (ARCH-cli-contract.md「配置面」), so this is a port of
-// read_config, not a reinterpretation: KEY=value lines, `#` to end of line, one matching
+// ting_read_config, not a reinterpretation: KEY=value lines, `#` to end of line, one matching
 // quote pair stripped, a leading ~/ expanded, the first assignment of a key wins.
 //
 // Flags are the caller's to apply on top; this package answers the other three layers.
@@ -18,10 +18,14 @@ import (
 
 var keyRe = regexp.MustCompile(`^TING_[A-Z0-9_]+$`)
 
-// Names a file may never set, for the reasons read_config states: the config path (a file
-// cannot move itself) and the engine dir (it names programs the suite runs). Constants and the
-// player's private _TING_* names are outside keyRe, so they need no refusal.
-var refused = map[string]bool{"TING_CONFIG": true, "TING_ENGINE_DIR": true}
+// Names a file may never set, for the reasons ting_read_config states: the config path (a file
+// cannot move itself), the engine dir (it names programs the suite runs), and the names the
+// suite sets itself — the version, the shipped file's path, and the four the player sets for
+// its own detached child.
+var refused = map[string]bool{
+	"TING_CONFIG": true, "TING_ENGINE_DIR": true, "TING_VERSION": true, "TING_DEFAULTS": true,
+	"TING_IPC_SOCK": true, "TING_DETACHED": true, "TING_PLAYER_ID": true, "TING_DETACHED_LOG": true,
+}
 
 // Config holds the resolved value of every key any layer set.
 type Config struct {
@@ -115,7 +119,7 @@ func (c *Config) read(path, home string) error {
 	return sc.Err()
 }
 
-// ParseLine is one line of read_config: it returns the key and value a line assigns, or
+// ParseLine is one line of ting_read_config: it returns the key and value a line assigns, or
 // ok=false for a comment, a blank, a non-assignment, a key outside TING_, or a refused key.
 func ParseLine(line, home string) (key, val string, ok bool) {
 	if i := strings.IndexByte(line, '#'); i >= 0 {

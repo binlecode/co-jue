@@ -109,15 +109,13 @@ yt 这一对 392 行（占 `yt-search` 代码的 63%），bili、ne 各约 214 �
 扫了出厂 `config` 的全部 51 个键，加上不进文件的 6 个（`TING_STATE_DIR`、`START_RESULTS`、`TING_ENGINE_DIR`、`TING_CONFIG`、
 `YT_LANG`、`YT_ASCII`）。
 
-**前缀：作用域写在名字里，只有一个前缀。** 当时是五套前缀（套件改名前的一套、`YT_`、`TING_`（部分改名）、`BILI_`、`NE_`），其中 `YT_` 一身两义：
-`YT_THEME`、`YT_LANG` 属于套件，`YT_COOKIE_BROWSER`、`YT_AUDIO_FORMAT` 属于 YouTube 引擎。之后：
+**前缀：作用域写在名字里，只有一个前缀。**
 
 - 套件键一律 `TING_<KEY>`：`TING_DEFAULT_ENGINE`、`TING_THEME`、`TING_LANG`……
-- 引擎键一律 `TING_<ENGINE>_<KEY>`：`TING_YT_AUDIO_FORMAT`、`TING_BILI_UA`……仓外引擎自带作用域，今天它们根本没有合法前缀可用。
+- 引擎键一律 `TING_<ENGINE>_<KEY>`：`TING_YT_AUDIO_FORMAT`、`TING_BILI_UA`……仓外引擎自带作用域。
 - 安全规矩收成一句：**文件里只读 `TING_` 键**。`TING_ENGINE_DIR` 照旧只认环境变量。
-- 播放器给自己 detached 子进程的四个私有变量（`YT_IPC_SOCK`、`YT_DETACHED`、`YT_PLAYER_ID`、`YT_DETACHED_LOG`）
-  不是配置，改名 `_TING_*`，前导下划线表示私有，不进任何键表。
-- **迁移**：不做（见 §8 第 5 步）。
+- 播放器给自己 detached 子进程的四个私有变量也是 `TING_*`，按名字拒收。
+- 没有别名，没有兜底路径。
 
 **删或并（每一条都要你签字，见 §8）**
 
@@ -147,7 +145,7 @@ yt 这一对 392 行（占 `yt-search` 代码的 63%），bili、ne 各约 214 �
 - 引擎动词换了宿主（§3）；`-l`、`-S`、各半边 `--capabilities` 从公开面删除；站点原始记录只在引擎自检（`--raw`）；`-m`/`-M`/`-s` 改名；`--parts` 并入 `--items`。
 - `t-play --engines -j` 改形状（§2）。
 - `--info` 信封补齐与搜索行同形的字段。
-- 配置键全部改名，不留旧名（§4）。
+- 配置键全部改名（§4）。
 - 信封里既有字段的语义不变，`engine` 字段照旧是持久化的路由键；退出码四级分类不变。
 - 仓外引擎的约定从「一对文件」变成「一个 `t-engine-<name>` 文件」。
 - 版本：见 §8。
@@ -240,15 +238,10 @@ yt 这一对 392 行（占 `yt-search` 代码的 63%），bili、ne 各约 214 �
 - **删并**：§4 表里的删并已做完，出厂键 51 → 36。轮换顺序、`DEAD_KEEP` 8、资源采样步长 3、bili 重试间隔 1 秒、
   搜索上限 200 都成了代码常量；步长在 `ting` 与 `t-play` 各有一份（两个平级入口不共享库），注释互指。
   搜索上限不再有检查：常量 200 要真打出 200 行以上才能观察，那是十次 bili 请求。
-- **前缀统一，全部 `TING_`**：套件键 `TING_<KEY>`，引擎键 `TING_<ENGINE>_<KEY>`；文件正则 `^TING_`，加一个引擎不改载入块。
-  播放器的四个私有变量改 `_TING_*`，前导下划线让它们出了正则，不进拒收名单；拒收名单只剩 `TING_CONFIG`、
-  `TING_ENGINE_DIR`。内部常量改名 `SUITE_VERSION`、`SHIPPED_CONFIG`（读函数 `read_config`），拼在命名空间之外。
-- **不留任何兼容逻辑**（2026-09-26 你定）：没有旧键名兜底、没有旧路径（改名前的配置 / 存储 / 引擎目录）兜底、
-  写回不做旧名改名、`custom` 主题不再读成 `minimal`。中间做过一版旧名改名表，随后整个删掉。
-  你本机的配置文件由我按新键名改了一次。
-- **顺带发现**：旧的环境镜像表把 `TING_THEME`、`TING_LANG`、`TING_ASCII`、`TING_SYNC` 镜像进没人读的名字，
-  从来没生效过；现在它们就是真键。
-- **测试随之收窄**：删掉旧名、旧路径、合并键、`custom` 的检查（不写"旧名已不再生效"的检查）；
-  真实配置与存储的守卫只看新路径；`playback.sh` 的环境清扫与 `drive.sh` 的转发只认 `TING_*`。
+- **前缀：全部 `TING_`**。套件键 `TING_<KEY>`，引擎键 `TING_<ENGINE>_<KEY>`，内部名字同样 `TING_`
+  （`TING_VERSION`、`TING_DEFAULTS`、`ting_read_config`、播放器的 `TING_IPC_SOCK` 等）；文件正则 `^TING_`，
+  不可设的按名字拒收：`TING_CONFIG`、`TING_ENGINE_DIR`、`TING_VERSION`、`TING_DEFAULTS` 与播放器那四个。
+- **没有兼容逻辑**：没有别名，没有兜底路径，写回不改键名。本机配置文件按新键名改过。
+- **测试**：只测现行的名字与路径；环境清扫与转发只认 `TING_*`。
 - **两处测试竞态查明**：TUI 撤销段的连锁失败是 `#` 与 `b` 连发被当成未加括号的粘贴 `#b`（改为等 `#` 生效）；
   页码检查读到了 `display_menu` 两遍绘制中的第一遍（改为半秒内重读）。

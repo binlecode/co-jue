@@ -334,7 +334,7 @@ ARCHITECTURE.md「两个存储」"每个功能都要有 agent 面"在这里是�
       ensure_state_dir()             # 0700 的 STATE_DIR + players/（socket 是一条控制通道）
       id = new_player_id()           # mktemp token；启动前 socket 路径就已知
       set -m                         # monitor 模式：被后台化的作业成为组长
-      _TING_IPC_SOCK=… _TING_DETACHED=1 _TING_PLAYER_ID=<id> \
+      TING_IPC_SOCK=… TING_DETACHED=1 TING_PLAYER_ID=<id> \
         nohup bash SELF -f MODE --engine NAME [--volume N] [-S SORT] -- HANDLE \
             </dev/null >mpv-<id>.log 2>&1 &     # pgid == pid（$!）；stdin 见下文
       set +m ; disown
@@ -368,7 +368,7 @@ macOS 与 Linux 上都指"**调用者自己**的进程组"。所以一条 pid �
 一条队列可以混源，所以它不是一次性的（「队列」）。
 
 **句柄是一个单调 token，不是 pid。** `new_player_id` 用 `basename "$(mktemp …)"` 铸出句柄 ——
-原子且不撞。这一下解决两个问题：(1) socket 必须在**启动时**就经 `_TING_IPC_SOCK` 命名，但子进程
+原子且不撞。这一下解决两个问题：(1) socket 必须在**启动时**就经 `TING_IPC_SOCK` 命名，但子进程
 的 pid 要到启动**之后**的 `$!` 才知道 —— token 打破了这个先有鸡还是先有蛋；(2) 它把 pid 复用
 从一个活生生的危险降级成一个**很窄的残余风险**：存活检查针对的是 `<id>.json` 里存着的那个 pid，
 而记录在进程组消失的那一刻就被回收，所以窗口只剩"一条已被回收、但尚未被扫到的记录，且它的 pid
@@ -391,7 +391,7 @@ stdin 重定向到 `/dev/null` —— 但只在作业控制**关**的时候，�
 包含在内。mpv 那个 flag 也保留：它在"读得到 mpv"的地方陈述同一个事实，并且能活过以后有人用
 别的方式启动子进程。
 
-**`_TING_DETACHED=1`（子进程为什么必须知道自己是 detached 的）。** 一个 detached 播放器没有终端，
+**`TING_DETACHED=1`（子进程为什么必须知道自己是 detached 的）。** 一个 detached 播放器没有终端，
 所以永远没人读 mpv 的状态行 —— 但 mpv 照写不误，写进 `mpv-<id>.log`：在一条 24/7 的直播上实测
 ~2.4 MB/小时，也就是说，恰恰是 `-d` 存在的意义所在的那种长命播放器，会在 `$TMPDIR` 里无界增长。
 所以子进程的 `run_mpv` 追加 `--no-term-osd-bar --msg-level=all=error`（放在模式选项之后，
@@ -842,7 +842,7 @@ SIGUSR1，绝不发给整个组 —— USR1 的默认处置是终止，所以一
 **读点为什么在 `run_mpv` 而不是队列循环的开头。** 两者之间隔着一次 JIT 解析 —— 几秒的引擎往返。
 读在循环开头时，落在这个缝里的一次 `--set-loop` 要等到**再下一首**才被看见（实测过这个洞：
 在两首歌之间打开循环，正要开始的那一首没有循环）。读在消费点上，这个窗口缩到微秒。
-脱离 detached 路径它是 no-op（没有 `_TING_PLAYER_ID` 就没有记录），所以前台播放留着标志给的值。
+脱离 detached 路径它是 no-op（没有 `TING_PLAYER_ID` 就没有记录），所以前台播放留着标志给的值。
 
 **`--set-loop` 归状态动词族，不归 socket 动词族。** 它与 `--enqueue`/`--next` 同构：没有目标或
 目标有歧义退 4，其余退 0；socket 那一步失败**不**改变退出码，因为意图已经落盘，下一首必定兑现。

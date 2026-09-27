@@ -100,8 +100,8 @@ fi
 # invoked or asserted: the player is the real one and its state is really written, just not on
 # top of the user's. The playlist store already had this in TING_STATE_DIR; the half that kills
 # processes is the half that needed it more.
-TEST_TMP=$(mktemp -d "${TMPDIR:-/tmp}/ting-contract.XXXXXX") || exit 1
-export TMPDIR="$TEST_TMP"
+TING_TEST_TMP=$(mktemp -d "${TMPDIR:-/tmp}/ting-contract.XXXXXX") || exit 1
+export TMPDIR="$TING_TEST_TMP"
 STATE_DIR="$TMPDIR/ting-$(id -u)"
 
 # ---- the config file, pointed somewhere disposable ----------------------------------
@@ -114,7 +114,7 @@ STATE_DIR="$TMPDIR/ting-$(id -u)"
 # prove the loader actually loads something write their own file and set TING_CONFIG
 # themselves.
 unset TING_STATE_DIR
-export TING_CONFIG="$TEST_TMP/config"
+export TING_CONFIG="$TING_TEST_TMP/config"
 : > "$TING_CONFIG"
 
 # ---- …and the real one, WATCHED --------------------------------------------------------
@@ -186,7 +186,7 @@ cleanup() {
         echo "contract.sh: ORPHAN mpv still running after --stop --all:" >&2
         pgrep -fl "mpv .*--input-ipc-server=$STATE_DIR" >&2
     fi
-    rm -rf "$TEST_TMP"
+    rm -rf "$TING_TEST_TMP"
     return 0
 }
 # INT/TERM exit rather than run the cleanup and carry on: the reap must not happen with the
@@ -327,7 +327,7 @@ undo_pane() {
     # real commands: a real search envelope into the store, and the one-track list by `a`, the
     # key itself. Every "is the list as it was" is read off the store, never the frame.
     UNDO_STATE=$(mktemp -d "${TMPDIR:-/tmp}/ting-undostore.XXXXXX")
-    UNDO_CFG="$TEST_TMP/undo-config"
+    UNDO_CFG="$TING_TEST_TMP/undo-config"
     : >"$UNDO_CFG"
     printf '%s' "$YT_S" | TING_STATE_DIR="$UNDO_STATE" shell/t-playlist --add undo-list -j >/dev/null 2>&1
     [ "$(TING_STATE_DIR="$UNDO_STATE" shell/t-playlist --show undo-list -j 2>/dev/null | jq -r '.count // 0')" -ge 3 ] ||
@@ -1184,11 +1184,11 @@ report "one version, every entry point" 1 \
 # with each other perfectly, so the check above stays green while every one of them is wrong;
 # pinning the value to the file is what gives it teeth. Real symlinks to real scripts, read by
 # the real command — real setup, not a stand-in.
-TEST_VER=$(cat VERSION)
-LINKDIR="$TEST_TMP/bin"
+TING_VER=$(cat VERSION)
+LINKDIR="$TING_TEST_TMP/bin"
 mkdir -p "$LINKDIR"
 for c in $ENTRY_POINTS; do ln -sf "$PWD/$c" "$LINKDIR/$(basename "$c")"; done
-report "…and it is VERSION, via a symlink" "$TEST_VER" \
+report "…and it is VERSION, via a symlink" "$TING_VER" \
     "$(for c in "$LINKDIR"/*; do "$c" --version | awk '{print $NF}'; done | sort -u | tr -d '\n')"
 
 echo "── gates: verbs, engine names and the host allowlist (no network) ─"
@@ -1393,7 +1393,7 @@ report "TING_VIZ_COLOR: silent outside -f viz" "no" "$(viz_says_color_key 'TING_
 # reaches the gate and the gate quotes it back, written with # there is nothing left to
 # reject and the run falls through to the handle gate. Both stay offline for the same reason
 # the checks above do — no engine claims this host.
-VIZCFG="$TEST_TMP/vizcolor.config"
+VIZCFG="$TING_TEST_TMP/vizcolor.config"
 viz_cfg_says() {
     printf '%s\n' "$1" > "$VIZCFG"
     case "$(TING_CONFIG="$VIZCFG" shell/t-play -f viz -- "$VIZ_URL" 2>&1 || true)" in
@@ -1520,9 +1520,9 @@ _sk_max=102
 [ "$(uname -s)" = Linux ] && _sk_max=106
 _sk_suffix="/ting-$(id -u)/mpv-XXXXXX.sock"
 sock_tmpdir() { # <total socket path bytes> — a TMPDIR under this run's scratch that yields it
-    local want=$(( $1 - ${#_sk_suffix} )) d="$TEST_TMP/"
+    local want=$(( $1 - ${#_sk_suffix} )) d="$TING_TEST_TMP/"
     [ "${#d}" -lt "$want" ] ||
-        { echo "contract.sh: \$TEST_TMP is too long to build a socket-limit TMPDIR" >&2; exit 1; }
+        { echo "contract.sh: \$TING_TEST_TMP is too long to build a socket-limit TMPDIR" >&2; exit 1; }
     while [ "${#d}" -lt "$want" ]; do d="${d}s"; done
     printf '%s' "$d"
 }
@@ -1592,9 +1592,9 @@ engine_list() { # <env assignments and argv…> — the TUI's registry, in disco
 engines_verb() { # <env assignments…> — the verb's names, in its order
     env "$@" shell/t-play --engines -j 2>/dev/null | jq -r '[.engines[].name] | join(" ")' 2>/dev/null
 }
-PLUG=$TEST_TMP/plugin-engines
-PATH_ENG=$TEST_TMP/path-engines
-XDG_HOME=$TEST_TMP/xdg-data
+PLUG=$TING_TEST_TMP/plugin-engines
+PATH_ENG=$TING_TEST_TMP/path-engines
+XDG_HOME=$TING_TEST_TMP/xdg-data
 mkdir -p "$PLUG" "$PATH_ENG" "$XDG_HOME/ting/engines"
 for _d in "$PLUG" "$PATH_ENG" "$XDG_HOME/ting/engines"; do
     ln -sf "$PWD/shell/t-engine-yt" "$_d/t-engine-zz"
@@ -1620,8 +1620,8 @@ report "…and a name --engine refuses is not one" "$SIBLINGS zz" "$(engines_ver
 # TING_ENGINE_DIR IS REFUSED FROM A CONFIG FILE, and this is the check that says why the name
 # is on that list at all: it points at a directory of EXECUTABLES the suite runs, so a file
 # that could set it would be PATH under another spelling — exactly what「配置面」's prefix rule
-# buys, and what the _TING_IPC_SOCK refusal further down protects from the other direction.
-ENGCFG=$TEST_TMP/engine-dir.config
+# buys, and what the TING_IPC_SOCK refusal further down protects from the other direction.
+ENGCFG=$TING_TEST_TMP/engine-dir.config
 printf 'TING_ENGINE_DIR=%s\n' "$PLUG" > "$ENGCFG"
 report "a config file cannot point at engines" "$SIBLINGS" "$(engines_verb TING_CONFIG="$ENGCFG")"
 # The TUI reads that answer and nothing else, so in every environment above the two agree —
@@ -1813,7 +1813,7 @@ report "every --capabilities refuses a handle and flags it cannot act on" "$NENG
 # jq on current macOS, so the bare PATH that proves --auth cannot prove this one: the path here
 # is every command in /usr/bin and /bin EXCEPT jq, as links in a directory of its own. It
 # isolates, it seeds nothing.
-CAPS_BIN="$TEST_TMP/caps-nojq-bin"
+CAPS_BIN="$TING_TEST_TMP/caps-nojq-bin"
 mkdir -p "$CAPS_BIN"
 for _d in /usr/bin /bin; do
     for _c in "$_d"/*; do
@@ -2194,9 +2194,9 @@ report "command substitution is never executed" "absent" \
     "$([ -e "$CFGD/PWNED" ] && echo present || echo absent)"
 
 
-# SUITE_VERSION is the constant from VERSION; a config file cannot overwrite it.
-printf 'SUITE_VERSION=fake\n' > "$CFG"
-report "SUITE_VERSION in config is refused" "$TEST_VER" \
+# TING_VERSION is the constant from VERSION; a config file cannot overwrite it.
+printf 'TING_VERSION=fake\n' > "$CFG"
+report "TING_VERSION in config is refused" "$TING_VER" \
     "$(TING_CONFIG="$CFG" shell/ting --version | awk '{print $NF}')"
 
 # --theme takes ONE name. The membership test is an exact compare over the name list, not a
@@ -2339,7 +2339,7 @@ echo "── a cookie store that cannot be read ──────────�
 # The dead proxy keeps it offline AND is what makes the fallback checks discriminating:
 # without the anonymous retry a verb stops at the cookie error (`cookies`); WITH it the
 # retry reaches the transport and fails `network`.
-CK_BASE="$TEST_TMP/cookie-homes"
+CK_BASE="$TING_TEST_TMP/cookie-homes"
 CK_CHROME="Library/Application Support/Google/Chrome"
 [ "$(uname -s)" = Darwin ] || CK_CHROME=".config/google-chrome"
 mkdir -p "$CK_BASE/missing/$CK_CHROME" "$CK_BASE/denied/$CK_CHROME/Default" "$CK_BASE/readable/$CK_CHROME/Default"
@@ -2348,7 +2348,7 @@ printf x >"$CK_BASE/readable/$CK_CHROME/Default/Cookies"
 YT_WATCH="https://www.youtube.com/watch?v=$MEDIA_ID"
 # `ck <home> <cmd…>`: the envelope's reason on stdout, the engine's stderr into CK_ERR. The
 # cookie knob is set, so each engine reads chrome from the scratch HOME whichever it is.
-CK_ERR="$TEST_TMP/cookie.err"
+CK_ERR="$TING_TEST_TMP/cookie.err"
 ck() { local h=$1; shift
        HOME="$CK_BASE/$h" TING_COOKIE_BROWSER=chrome \
            http_proxy=$NOPROXY https_proxy=$NOPROXY "$@" 2>"$CK_ERR" | jq -r '.reason // "none"' 2>/dev/null; }
@@ -2458,7 +2458,7 @@ fi
 # The suite's own runtime is not a claim: nothing below asserts on how long a fetch took
 # (see `bili --parts` for why that check went), so overlapping them cannot make anything pass
 # that would otherwise fail.
-LIVE="$TEST_TMP/live"; mkdir -p "$LIVE"
+LIVE="$TING_TEST_TMP/live"; mkdir -p "$LIVE"
 # `spawn_once <slot> <cmd…>` — the command's stdout, stderr and exit code, kept by name.
 spawn_once() {
     local slot=$1; shift
@@ -2493,7 +2493,7 @@ spawn() {
 out() { cat "$LIVE/$1.out" 2>/dev/null; }
 src() { cat "$LIVE/$1.rc" 2>/dev/null; }
 
-printf 'TING_SEARCH_RESULTS=4\n'   > "$TEST_TMP/cfg-dflt"
+printf 'TING_SEARCH_RESULTS=4\n'   > "$TING_TEST_TMP/cfg-dflt"
 # The searches go first and are waited on BY PID, because one thing downstream needs an
 # answer out of them (the offset block's handle) and everything else does not. Waiting on the
 # whole batch to start that one would serialise the two slowest calls in the file behind each
@@ -2505,7 +2505,7 @@ for n in $ENGINES; do
 done
 for n in $ENGINES; do
     spawn "searchJ-$n"   shell/t-engine-$n --search --raw -n 5  -- lofi
-    spawn "dflt-$n"      env TING_CONFIG="$TEST_TMP/cfg-dflt" $(search_cmd "$n") -j -- lofi
+    spawn "dflt-$n"      env TING_CONFIG="$TING_TEST_TMP/cfg-dflt" $(search_cmd "$n") -j -- lofi
 done
 spawn yt-resolve   shell/t-engine-yt --stream -j -- "$MEDIA_ID"
 spawn yt-info      shell/t-play --engine yt --info -j -- "$MEDIA_ID"
@@ -3266,8 +3266,8 @@ else
     # A config file of the pane's own. No staged behavior keys: TING_ROW_INDEX and TING_LIST_MODE
     # start unset and are driven by real keystrokes.
     # It is a SYMLINK to the real file to verify the preference write-back preserves symlinks.
-    TUI_CFG="$TEST_TMP/tui-config"
-    TUI_CFG_REAL="$TEST_TMP/tui-config.real"
+    TUI_CFG="$TING_TEST_TMP/tui-config"
+    TUI_CFG_REAL="$TING_TEST_TMP/tui-config.real"
     printf '%s\n' '# a config a human wrote' 'TING_PLAY_MODE=audio  # keep me' >"$TUI_CFG_REAL"
     ln -s "$TUI_CFG_REAL" "$TUI_CFG"
     # TING_SORT_FIELD in the pane's ENVIRONMENT is the discriminating input for the refusal:
@@ -3451,7 +3451,7 @@ else
     # gate that closed — would pass that by having nothing to re-send. So the walk is asked
     # for the opposite: twenty keypresses across ten rows and back must put a cover on the
     # wire at least once, and the zero underneath it only means something after this does.
-    IMG_WALK="$TEST_TMP/tui-cover-walk.raw"
+    IMG_WALK="$TING_TEST_TMP/tui-cover-walk.raw"
     : >"$IMG_WALK"
     tmux pipe-pane -o -t "$TS" "cat >> '$IMG_WALK'"
     tmux send-keys -t "$TS" j j j j j j j j j j
@@ -3477,7 +3477,7 @@ else
     tmux pipe-pane -t "$TS"
 
     # The display toggle # tested in both directions.
-    IMG_TOG="$TEST_TMP/tui-cover-toggle.raw"
+    IMG_TOG="$TING_TEST_TMP/tui-cover-toggle.raw"
     : >"$IMG_TOG"
     tmux pipe-pane -o -t "$TS" "cat >> '$IMG_TOG'"
     tmux send-keys -t "$TS" '#'
@@ -4110,7 +4110,7 @@ else
     # pane's preference write-back to land that is not the developer's real file — the same
     # isolation TING_STATE_DIR gives the stores. TING_LANG=en beside it because three checks below
     # name an English chrome string, and a blank config would let the machine's locale decide.
-    ADOPT_CFG="$TEST_TMP/adopt-config"
+    ADOPT_CFG="$TING_TEST_TMP/adopt-config"
     : >"$ADOPT_CFG"
     # TMPDIR is the suite's, deliberately and unlike TING_STATE_DIR: the players directory lives
     # under it, so this shell and the pane have to share one — that shared dir IS how the pane
@@ -4308,7 +4308,7 @@ else
         # Its own config and its own state dir, not the section's above: the `#` check up
         # there TOGGLES TING_ROW_INDEX and writes it back, so borrowing that file would make
         # the row cursor readable or not depending on which checks ran before this one.
-        PTS_CFG="$TEST_TMP/parts-config"
+        PTS_CFG="$TING_TEST_TMP/parts-config"
         : >"$PTS_CFG"
         PTS_STATE=$(mktemp -d "${TMPDIR:-/tmp}/ting-partsstore.XXXXXX")
         TS="ctest-parts-$$"          # the helpers above read $TS; the first session is gone

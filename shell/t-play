@@ -36,9 +36,9 @@ SCRIPT_DIR=$(cd -P "$(dirname "$_self")" && pwd -P)
 # direction for a player that must not know its engines. A one-line file each reads keeps
 # "one fact, one place" with zero code sharing. CLAUDE.md § one fact, one place.
 if [[ -r "$SCRIPT_DIR/../VERSION" ]]; then
-    SUITE_VERSION=$(cat "$SCRIPT_DIR/../VERSION")
+    TING_VERSION=$(cat "$SCRIPT_DIR/../VERSION")
 else
-    SUITE_VERSION="unknown"
+    TING_VERSION="unknown"
 fi
 
 # CONFIGURATION — TWO FILES, FOUR LAYERS. Set-once tuning arrives from a file as well as the
@@ -66,15 +66,15 @@ fi
 # stripped, a leading ~/ expanded. Deliberately NOT sourced as shell: a config file that is
 # executed can run anything, and this suite's safety story is that its inputs are DATA.
 # `eval` assigns from a variable, never from the line, so `TING_X=$(cmd)` stores those nine
-# characters. Only TING_ keys are read, so no file can reach PATH, TMPDIR or LD_PRELOAD. Nor can it reach
-# a constant: SUITE_VERSION (the VERSION line read in above) and SHIPPED_CONFIG are spelled outside
-# the namespace, and so are the four the player sets for its own detached child — _TING_*,
-# the leading underscore is the point: a file-level _TING_IPC_SOCK would aim every player at
-# one socket. Two names inside the namespace are refused. TING_CONFIG, because a file cannot
-# move itself. And TING_ENGINE_DIR, which IS a knob — refused for what its VALUE is rather
-# than for what the name means. It points at a directory of EXECUTABLES this suite runs, so a
-# config file that could set it would be PATH under another spelling, and the sentence above
-# would stop being true. Environment only, like the config path.
+# characters. Only TING_ keys are read, so no file can reach PATH, TMPDIR or LD_PRELOAD.
+# Every name the suite owns is TING_, so the ones a file must not set are refused by name.
+# The names the suite sets itself: TING_VERSION (the VERSION line read in above),
+# TING_DEFAULTS, and the four the player sets for its own detached child (TING_IPC_SOCK and its
+# siblings — a file-level socket path would aim every player at one socket). TING_CONFIG,
+# because a file cannot move itself. And TING_ENGINE_DIR, which IS a knob — refused for what its
+# VALUE is rather than for what the name means. It points at a directory of EXECUTABLES this
+# suite runs, so a config file that could set it would be PATH under another spelling, and
+# the sentence above would stop being true. Environment only, like the config path.
 #
 # Four defaults stay inline and are named in `config`'s own header: TING_STATE_DIR and
 # TING_ENGINE_DIR (both chain through an XDG variable, which a flat file cannot express),
@@ -85,8 +85,8 @@ fi
 # greppable for drift where a sourced file would invert the dependency direction the VERSION
 # data file exists to keep straight.
 TING_CONFIG="${TING_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/ting/config}"
-SHIPPED_CONFIG="$SCRIPT_DIR/../config"
-read_config() {
+TING_DEFAULTS="$SCRIPT_DIR/../config"
+ting_read_config() {
     local file="$1" line key val
     [[ -r "$file" ]] || return 0
     while IFS= read -r line || [[ -n "$line" ]]; do
@@ -100,7 +100,7 @@ read_config() {
         while [[ "$val" == [[:space:]]* ]]; do val="${val#[[:space:]]}"; done
         [[ "$key" =~ ^TING_[A-Z0-9_]+$ ]] || continue
         case "$key" in
-        TING_CONFIG | TING_ENGINE_DIR) continue ;;
+        TING_CONFIG | TING_ENGINE_DIR | TING_VERSION | TING_DEFAULTS | TING_IPC_SOCK | TING_DETACHED | TING_PLAYER_ID | TING_DETACHED_LOG) continue ;;
         esac
         if [[ ${#val} -ge 2 ]] && { [[ "$val" == \"*\" ]] || [[ "$val" == \'*\' ]]; }; then
             val="${val#?}"
@@ -116,13 +116,13 @@ read_config() {
 # checkout missing part of itself is not a dependency gate (yt-dlp, jq and mpv still answer
 # --version without being installed) — it is a broken checkout, and 2 is the exit code for a
 # failure that is not the caller's usage error.
-if [[ ! -r "$SHIPPED_CONFIG" ]]; then
+if [[ ! -r "$TING_DEFAULTS" ]]; then
     printf '%s: cannot read the shipped defaults at %s — that file declares every default value in the suite and is not optional\n' \
-        "$(basename "$0")" "$SHIPPED_CONFIG" >&2
+        "$(basename "$0")" "$TING_DEFAULTS" >&2
     exit 2
 fi
-read_config "$TING_CONFIG"
-read_config "$SHIPPED_CONFIG"
+ting_read_config "$TING_CONFIG"
+ting_read_config "$TING_DEFAULTS"
 # Path to this script, used to re-exec a detached playback child (see detach_play).
 SELF="${BASH_SOURCE[0]}"
 
@@ -569,7 +569,7 @@ validate_loop_mode() {
 # the two files have to agree or the TUI offers a source the player cannot open. The default
 # chains through XDG_DATA_HOME, which is why it is inline here and not in the shipped
 # `config`: a flat KEY=value file cannot express a chain (TING_STATE_DIR is the precedent).
-# It is refused from BOTH config files — see the read_config block above for why.
+# It is refused from BOTH config files — see the ting_read_config block above for why.
 #
 # The suite writes nothing here and does not create it; a checkout with no plugin dir loses
 # one failed glob per lookup and nothing else.
@@ -892,7 +892,7 @@ resolve_media() {
 # nothing when the pid no longer matches, and the empty temp is dropped without touching the
 # live file). Best-effort throughout — a failure leaves title:null, which callers tolerate.
 patch_player_meta() {
-    local id="${_TING_PLAYER_ID:-}" sf tmp i
+    local id="${TING_PLAYER_ID:-}" sf tmp i
     if [[ -z "$id" ]]; then
         return 0
     fi
@@ -954,7 +954,7 @@ run_mpv() {
     # engine round trip during which a --set-loop would land on a record nobody reads again
     # until the track after next. Measured as exactly that hole — repeat turned on in the gap
     # between two tracks did not reach the track that was starting. A no-op off the detached
-    # path (no _TING_PLAYER_ID, no record), so a foreground play keeps the value its flag gave it.
+    # path (no TING_PLAYER_ID, no record), so a foreground play keeps the value its flag gave it.
     refresh_loop_mode
 
     # Optionally load caller-provided mpv input bindings.
@@ -965,7 +965,7 @@ run_mpv() {
     # Launch-time volume. For a foreground/blocking session this is the only lever
     # (mpv's own volume keys work via the TTY); for detached playback it is just the
     # STARTING volume — live adjustment happens over the per-instance IPC socket
-    # (see _TING_IPC_SOCK below and do_set_volume). ARCHITECTURE.md「已知约束」.
+    # (see TING_IPC_SOCK below and do_set_volume). ARCHITECTURE.md「已知约束」.
     if [[ -n "$VOLUME" ]]; then
         mpv_cmd+=(--volume="$VOLUME")
     fi
@@ -995,11 +995,11 @@ run_mpv() {
     fi
 
     # Runtime control channel: only when launched under detach_play, which exports
-    # _TING_IPC_SOCK. mpv's --input-ipc-server is per-process, so each detached player
+    # TING_IPC_SOCK. mpv's --input-ipc-server is per-process, so each detached player
     # points at its own socket and is driven independently. A foreground/blocking
     # session has a real TTY and needs no IPC. ARCHITECTURE.md「已知约束」.
-    if [[ -n "${_TING_IPC_SOCK:-}" ]]; then
-        mpv_cmd+=(--input-ipc-server="$_TING_IPC_SOCK")
+    if [[ -n "${TING_IPC_SOCK:-}" ]]; then
+        mpv_cmd+=(--input-ipc-server="$TING_IPC_SOCK")
     fi
 
     # The headers the engine says these URLs must be fetched with — one of the two things
@@ -1037,7 +1037,7 @@ run_mpv() {
     # explains a failure. These go AFTER the caller's mode options so they win (mpv: last
     # flag wins). ARCH-player.md「进程组模型」.
     local detached_opts=()
-    if [[ -n "${_TING_DETACHED:-}" ]]; then
+    if [[ -n "${TING_DETACHED:-}" ]]; then
         detached_opts=(--no-term-osd-bar --msg-level=all=error)
     fi
 
@@ -1053,7 +1053,7 @@ run_mpv() {
     # its log — there the filter buys nothing and costs correctness: process substitution is
     # not waited on, so play_url_json (which reads the temp file the instant mpv exits) could
     # miss a late-flushed error line and classify a real 403 as `unknown`.
-    if [[ -n "${_TING_DETACHED:-}" ]]; then
+    if [[ -n "${TING_DETACHED:-}" ]]; then
         # BACKGROUND + `wait`, never foreground, and this is a bash 3.2 fact rather than a
         # style choice: 3.2 does not dispatch a trap while a FOREGROUND child runs. Measured
         # on 3.2.57 — a foreground `sleep 5` sent SIGUSR1 ran its trap five seconds later
@@ -1593,7 +1593,7 @@ media_json() {
 # ------------------------------------------------------------------------------
 # The detached child: one player, one queue
 # ------------------------------------------------------------------------------
-# detach_play re-execs this script with _TING_PLAYER_ID set; this is what that re-exec runs. A
+# detach_play re-execs this script with TING_PLAYER_ID set; this is what that re-exec runs. A
 # player plays a QUEUE, and a lone handle is a queue of one, so there is one loop rather than
 # two paths.
 #
@@ -1633,8 +1633,8 @@ child_signal() {
 # has written the record at all (the race patch_player_meta already polls through).
 refresh_loop_mode() {
     local sf v
-    [[ -n "${_TING_PLAYER_ID:-}" ]] || return 0
-    sf=$(player_state "$_TING_PLAYER_ID")
+    [[ -n "${TING_PLAYER_ID:-}" ]] || return 0
+    sf=$(player_state "$TING_PLAYER_ID")
     [[ -f "$sf" ]] || return 0
     v=$(jq -r '.loop // empty' "$sf" 2>/dev/null) || return 0
     case "$v" in
@@ -1654,7 +1654,7 @@ detached_child_loop() {
     trap 'child_signal next' USR1
     trap 'child_signal stopped' TERM INT
 
-    if [[ ! -f "$(player_queue "${_TING_PLAYER_ID:-}")" ]]; then
+    if [[ ! -f "$(player_queue "${TING_PLAYER_ID:-}")" ]]; then
         # No queue file: an older parent, or someone running this child by hand. Play the
         # handle once, exactly as this path did before queues existed.
         rc=0
@@ -1667,7 +1667,7 @@ detached_child_loop() {
     fi
 
     while :; do
-        queue_current "$_TING_PLAYER_ID" || break
+        queue_current "$TING_PLAYER_ID" || break
         played=$QUEUE_POS
         # A queue may mix engines (a playlist can), so the engine is per ITEM and the
         # resolved-binary cache has to be dropped with it.
@@ -1715,9 +1715,9 @@ detached_child_loop() {
         # epitaph in the log (record_player_death); writing one here as well reports a single
         # failure twice — measured, before this order: a bad handle produced both <id> and
         # <id>-q0 in failed[].
-        queue_advance_from "$_TING_PLAYER_ID" "$played" || break
+        queue_advance_from "$TING_PLAYER_ID" "$played" || break
         if ((rc != 0)); then
-            queue_note_failure "$_TING_PLAYER_ID" "$played" "$QUEUE_URL" "$rc"
+            queue_note_failure "$TING_PLAYER_ID" "$played" "$QUEUE_URL" "$rc"
         fi
     done
 
@@ -1729,12 +1729,12 @@ detached_child_loop() {
 
 detached_epitaph() {
     local rc=$1 reason ended_at
-    [[ -n "${_TING_DETACHED_LOG:-}" ]] || return 0
+    [[ -n "${TING_DETACHED_LOG:-}" ]] || return 0
     ((rc == 0 || rc == 130)) && return 0
     # Same taxonomy every other surface publishes (ARCH-cli-contract.md「数据契约」) — the reason a caller branches on
     # must not depend on which verb produced it. The tail bound keeps a long mpv log from
     # becoming an argument the classifier has to grep in full.
-    reason=$(classify_playback_error "$(tail -c 4000 "$_TING_DETACHED_LOG" 2>/dev/null)" "$rc")
+    reason=$(classify_playback_error "$(tail -c 4000 "$TING_DETACHED_LOG" 2>/dev/null)" "$rc")
     ended_at=$(date -u +%FT%TZ 2>/dev/null || echo unknown)
     jq -nc --argjson rc "$rc" --arg reason "$reason" --arg ended_at "$ended_at" \
         '{yt_event: "exit", rc: $rc, reason: $reason, ended_at: $ended_at}' 2>/dev/null || true
@@ -1817,7 +1817,7 @@ history_record() {
         stopped | next) reason="stopped_by_user" ;;
         *)
             if ((rc != 0)); then
-                reason=$(classify_playback_error "$(tail -c 4000 "${_TING_DETACHED_LOG:-/dev/null}" 2>/dev/null)" "$rc")
+                reason=$(classify_playback_error "$(tail -c 4000 "${TING_DETACHED_LOG:-/dev/null}" 2>/dev/null)" "$rc")
             fi
             ;;
         esac
@@ -2328,7 +2328,7 @@ queue_note_failure() {
     local id=$1 pos=$2 url=$3 rc=$4 reason dead ended_at rec
     dead="$PLAYERS_DIR/dead"
     [[ -d "$dead" ]] || mkdir -m 700 "$dead" 2>/dev/null || return 0
-    reason=$(classify_playback_error "$(tail -c 4000 "${_TING_DETACHED_LOG:-/dev/null}" 2>/dev/null)" "$rc")
+    reason=$(classify_playback_error "$(tail -c 4000 "${TING_DETACHED_LOG:-/dev/null}" 2>/dev/null)" "$rc")
     ended_at=$(date -u +%FT%TZ 2>/dev/null || echo unknown)
     rec="$dead/$id-q$pos.json"
     jq -nc --arg id "$id-q$pos" --arg url "$url" --arg engine "$ENGINE" --arg mode "$PLAYBACK_MODE"         --arg started_at "$ended_at" --arg ended_at "$ended_at"         --argjson exit_code "$rc" --arg reason "$reason"         '{id: $id, url: $url, engine: $engine, mode: $mode, started_at: $started_at,
@@ -2372,7 +2372,7 @@ detach_play() {
 
     # Mint the handle BEFORE launch so the socket path is known up front (see
     # new_player_id): the child's pid isn't available until $! after launch, but the
-    # socket must be named at launch via _TING_IPC_SOCK. The id is a monotonic token,
+    # socket must be named at launch via TING_IPC_SOCK. The id is a monotonic token,
     # immune to pid reuse; the pid is stored in the state file for liveness only.
     id=$(new_player_id)
     sock=$(player_sock "$id")
@@ -2392,16 +2392,16 @@ detach_play() {
     # Launch the child in its OWN process group so the whole playback (incl. any
     # fallback mpv) can be stopped as a unit later (see stop_group). Enabling monitor
     # mode (set -m) makes a backgrounded job a process-group leader whose pgid == its
-    # pid; nohup + disown detach it from this shell so it survives our exit. _TING_IPC_SOCK
+    # pid; nohup + disown detach it from this shell so it survives our exit. TING_IPC_SOCK
     # is exported into the child's environment so its run_mpv adds --input-ipc-server.
     # Job-control chatter is routed away from stdout so -j output stays one JSON line.
-    # _TING_DETACHED tells the child's run_mpv there is no terminal to draw on (quiet mpv,
-    # no stderr filter); _TING_DETACHED_LOG hands it the path its own stdout goes to, which is
+    # TING_DETACHED tells the child's run_mpv there is no terminal to draw on (quiet mpv,
+    # no stderr filter); TING_DETACHED_LOG hands it the path its own stdout goes to, which is
     # all detached_epitaph needs to read back what mpv said before classifying its own death.
     # --quality is forwarded like --volume so a quality tier isn't silently lost on the
     # detached path; `--` guards a URL that begins with a dash.
     set -m
-    _TING_IPC_SOCK="$sock" _TING_DETACHED=1 _TING_DETACHED_LOG="$log" _TING_PLAYER_ID="$id" \
+    TING_IPC_SOCK="$sock" TING_DETACHED=1 TING_DETACHED_LOG="$log" TING_PLAYER_ID="$id" \
         nohup bash "$SELF" --engine "$ENGINE" -f "$PLAYBACK_MODE" --loop "$LOOP_MODE" \
         ${VOLUME:+--volume "$VOLUME"} \
         ${PLAY_QUALITY:+--quality "$PLAY_QUALITY"} ${PLAY_START:+--start "$PLAY_START"} \
@@ -3991,7 +3991,7 @@ while getopts ":f:djhV" opt; do
     # Answered before ANY dependency gate: a version is the first thing a bug report needs,
     # and needing yt-dlp installed to find out which version you have is backwards.
     V)
-        printf 't-play %s\n' "$SUITE_VERSION"
+        printf 't-play %s\n' "$TING_VERSION"
         exit 0
         ;;
     :)
@@ -4366,7 +4366,7 @@ if ((IS_HANDLE)); then
     # returns from it. Every other prose caller plays once: rc is captured rather than left
     # to set -e so detached_epitaph gets to run, and the exit status is what set -e would
     # have exited with anyway.
-    if [[ -n "${_TING_PLAYER_ID:-}" && -n "${_TING_DETACHED:-}" ]]; then
+    if [[ -n "${TING_PLAYER_ID:-}" && -n "${TING_DETACHED:-}" ]]; then
         detached_child_loop "$QUERY"
     fi
     rc=0

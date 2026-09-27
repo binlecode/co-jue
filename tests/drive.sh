@@ -74,8 +74,8 @@ command -v tmux >/dev/null 2>&1 || { echo "drive.sh: tmux is required (ting need
 # playlists, exactly as it would outside tmux, and there is no undo for it. That is the price
 # of frames that show the real store; drive a playlist-editing key only against a store you
 # can lose, by exporting TING_STATE_DIR to a scratch dir for that run (it is forwarded).
-TEST_TMP=$(mktemp -d "${TMPDIR:-/tmp}/ting-drive.XXXXXX") || exit 1
-export TMPDIR="$TEST_TMP"
+TING_TEST_TMP=$(mktemp -d "${TMPDIR:-/tmp}/ting-drive.XXXXXX") || exit 1
+export TMPDIR="$TING_TEST_TMP"
 STATE_DIR="$TMPDIR/ting-$(id -u)"
 
 # The config the pane reads is a COPY of the one a human reads, in this run's own temp dir —
@@ -85,7 +85,7 @@ STATE_DIR="$TMPDIR/ting-$(id -u)"
 # file as a side effect of driving a frame. Copied rather than left empty because the read
 # side is the whole point of not redirecting TING_STATE_DIR either: a frame captured here should
 # show the theme and the chrome language a human actually has.
-DRIVE_CFG="$TEST_TMP/config"
+DRIVE_CFG="$TING_TEST_TMP/config"
 cp "${TING_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/ting/config}" "$DRIVE_CFG" 2>/dev/null ||
     : >"$DRIVE_CFG"
 
@@ -112,7 +112,7 @@ cleanup() {
     else
         echo "drive.sh: this run's players stopped, no orphan mpv"
     fi
-    rm -rf "$TEST_TMP"
+    rm -rf "$TING_TEST_TMP"
     return $rc
 }
 trap 'cleanup || exit 1' EXIT

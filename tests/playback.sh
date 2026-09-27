@@ -66,15 +66,15 @@ for _v in $(compgen -v); do
     case "$_v" in TING_*) unset "$_v" 2>/dev/null ;; esac
 done
 unset _v
-TEST_TMP=$(mktemp -d "${TMPDIR:-/tmp}/ting-playback.XXXXXX") || exit 1
-export TMPDIR="$TEST_TMP"
+TING_TEST_TMP=$(mktemp -d "${TMPDIR:-/tmp}/ting-playback.XXXXXX") || exit 1
+export TMPDIR="$TING_TEST_TMP"
 STATE_DIR="$TMPDIR/ting-$(id -u)"
 
 # And the USER-LEVEL store, for the same reason one line up but a longer-lived consequence:
 # a detached player writes a row to the listening log for every track it finishes, so without
 # this every run of this file would append a dozen tracks nobody listened to into the user's
 # real history — and unlike a player, a log is not something --stop takes back.
-export TING_STATE_DIR="$TEST_TMP/state"
+export TING_STATE_DIR="$TING_TEST_TMP/state"
 
 # AND THE USER'S OWN CONFIG FILE, which is the third thing this run must not read — the one
 # that was missed. Every default this file leans on comes from the four-level chain, and the
@@ -87,8 +87,8 @@ export TING_STATE_DIR="$TEST_TMP/state"
 # and empty means "the shipped defaults, and nothing a person happened to prefer".
 # contract.sh has isolated this from the start; this file had not. The environment half of the
 # same chain was swept at the top of this block.
-: >"$TEST_TMP/config"
-export TING_CONFIG="$TEST_TMP/config"
+: >"$TING_TEST_TMP/config"
+export TING_CONFIG="$TING_TEST_TMP/config"
 
 # Two long, stable tracks. Silent at --volume 0; the point is the process, not the audio.
 U1=${YT_TEST_URL1:-https://www.youtube.com/watch?v=n61ULEU7CO0}
@@ -163,7 +163,7 @@ no_orphans() {
 # Always stop everything, however this exits — a leaked player outlives the shell.
 cleanup() {
     shell/t-play --stop --all -j >/dev/null 2>&1
-    rm -rf "$TEST_TMP"
+    rm -rf "$TING_TEST_TMP"
     return 0
 }
 trap cleanup EXIT INT TERM
@@ -347,7 +347,7 @@ report "…and --status agrees"         "false" \
 # accepted; only a real mpv socket proves BSD `nc -U -w1` actually carries a command and brings
 # the answer back. PATH holds jq and the system dirs, so no ncat can stand in for it. Skipped
 # where the premise is absent (no BSD nc with -U, or an ncat in the system dirs).
-NC_ONLY="$TEST_TMP/nc-only"
+NC_ONLY="$TING_TEST_TMP/nc-only"
 mkdir -p "$NC_ONLY"
 ln -sf "$(command -v jq)" "$NC_ONLY/jq"
 _nch=""
@@ -952,7 +952,7 @@ echo "── --watch: one player as a stream, across its queue, to its end ─�
 wq=$(printf '[{"engine":"yt","url":"%s"},{"engine":"yt","url":"%s"}]' "$SHORT" "$SHORT" |
     shell/t-play -d -j --volume 0 --queue - 2>/dev/null)
 wid=$(printf '%s' "$wq" | jq -r '.id // empty')
-WOUT="$TEST_TMP/watch.out"
+WOUT="$TING_TEST_TMP/watch.out"
 shell/t-play --watch --id "$wid" -j >"$WOUT" 2>/dev/null &
 wpid=$!
 # wait_watch <jq over the slurped lines>. A line still being written makes the slurp fail,
@@ -981,7 +981,7 @@ w_ok "--pause arrives, carrying paused:true" 'any(.[]; .event=="pause" and .paus
 # the one moment this can leak is exactly now. The reader is a FIFO read for one line and
 # closed, which makes "the reader is gone" a fact rather than a guess about when `head` exits.
 # The next event (a volume change) must then take the verb AND its nc down.
-RFIFO="$TEST_TMP/watch-reader"
+RFIFO="$TING_TEST_TMP/watch-reader"
 mkfifo "$RFIFO"
 shell/t-play --watch --id "$wid" -j >"$RFIFO" 2>/dev/null &
 rpid=$!
@@ -1032,7 +1032,7 @@ report "no nc outlives the stream" 0 "$(pgrep -f "nc(at)? -U $STATE_DIR" 2>/dev/
 kq=$(shell/t-play -d -j --volume 0 --engine yt -- "$SHORT" 2>/dev/null)
 kid=$(printf '%s' "$kq" | jq -r '.id // empty')
 kpgid=$(printf '%s' "$kq" | jq -r '.pid // empty')
-WOUT="$TEST_TMP/watch-kill.out"
+WOUT="$TING_TEST_TMP/watch-kill.out"
 shell/t-play --watch --id "$kid" -j >"$WOUT" 2>/dev/null &
 kwpid=$!
 if wait_watch 'any(.[]; .ready==true)'; then
@@ -1062,13 +1062,13 @@ report "failing player launched" 0 "$([ -n "$f_id" ] && echo 0 || echo 1)"
 # Watched from launch: the engine's refusal takes seconds of network, so the watch is attached
 # long before the player dies — and it dies before mpv ever answers, so this is also the path
 # where `end` has no live state to fall back on. The tombstone is what it reports.
-shell/t-play --watch --id "$f_id" -j >"$TEST_TMP/fwatch.out" 2>/dev/null &
+shell/t-play --watch --id "$f_id" -j >"$TING_TEST_TMP/fwatch.out" 2>/dev/null &
 fwpid=$!
 for i in $(seq 1 240); do kill -0 "$fwpid" 2>/dev/null || break; sleep 0.25; done
 wait "$fwpid"
 report "--watch on a failing player exits 0" 0 $?
 report "…its end line carries the tombstone" 0 \
-    "$(jq -e -s '.[-1] | .event=="end" and .exit_code > 0 and (.reason|type)=="string"' "$TEST_TMP/fwatch.out" >/dev/null 2>&1; echo $?)"
+    "$(jq -e -s '.[-1] | .event=="end" and .exit_code > 0 and (.reason|type)=="string"' "$TING_TEST_TMP/fwatch.out" >/dev/null 2>&1; echo $?)"
 wait_failed() {
     local id=$1 i
     for i in $(seq 1 40); do

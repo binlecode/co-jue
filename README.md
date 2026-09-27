@@ -216,8 +216,7 @@ ln -s "$PWD/shell/t-playlist"   ~/bin/t-playlist
 ln -s "$PWD/shell/t-history"    ~/bin/t-history
 ```
 
-One name per command, one name per key, one path per store: the suite keeps no second
-spelling of anything it once called differently.
+One name per command, one name per key, one path per store: no aliases.
 
 Only `ting` is strictly required: every command resolves its siblings from its own location,
 so a single symlink is enough to use the whole suite by hand. The rest are for calling the verbs

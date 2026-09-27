@@ -40,13 +40,13 @@ SCRIPT_DIR=$(cd -P "$(dirname "$_self")" && pwd -P)
 # place). Read before any dependency gate, so --version answers on a machine with nothing
 # installed.
 if [[ -r "$SCRIPT_DIR/../VERSION" ]]; then
-    SUITE_VERSION=$(cat "$SCRIPT_DIR/../VERSION")
+    TING_VERSION=$(cat "$SCRIPT_DIR/../VERSION")
 else
-    SUITE_VERSION="unknown"
+    TING_VERSION="unknown"
 fi
 
 # WHAT THE ENVIRONMENT ALREADY PINS, noted BEFORE the chain below resolves — this is the one
-# fact reading the config destroys. read_config skips every key that is already set (that
+# fact reading the config destroys. ting_read_config skips every key that is already set (that
 # is what makes the environment beat a file), so once it has run, "the user exported it" and
 # "the file supplied it" are indistinguishable. The write-back path needs the difference: a
 # key the environment pins would be written to the file and then IGNORED at the next startup,
@@ -65,8 +65,8 @@ unset _pk
 # Duplicated VERBATIM in every entry point — see the same block in t-play for why, and
 # ARCH-cli-contract.md「配置面」 for the keys.
 TING_CONFIG="${TING_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/ting/config}"
-SHIPPED_CONFIG="$SCRIPT_DIR/../config"
-read_config() {
+TING_DEFAULTS="$SCRIPT_DIR/../config"
+ting_read_config() {
     local file="$1" line key val
     [[ -r "$file" ]] || return 0
     while IFS= read -r line || [[ -n "$line" ]]; do
@@ -80,7 +80,7 @@ read_config() {
         while [[ "$val" == [[:space:]]* ]]; do val="${val#[[:space:]]}"; done
         [[ "$key" =~ ^TING_[A-Z0-9_]+$ ]] || continue
         case "$key" in
-        TING_CONFIG | TING_ENGINE_DIR) continue ;;
+        TING_CONFIG | TING_ENGINE_DIR | TING_VERSION | TING_DEFAULTS | TING_IPC_SOCK | TING_DETACHED | TING_PLAYER_ID | TING_DETACHED_LOG) continue ;;
         esac
         if [[ ${#val} -ge 2 ]] && { [[ "$val" == \"*\" ]] || [[ "$val" == \'*\' ]]; }; then
             val="${val#?}"
@@ -96,13 +96,13 @@ read_config() {
 # checkout missing part of itself is not a dependency gate (yt-dlp, jq and mpv still answer
 # --version without being installed) — it is a broken checkout, and 2 is the exit code for a
 # failure that is not the caller's usage error.
-if [[ ! -r "$SHIPPED_CONFIG" ]]; then
+if [[ ! -r "$TING_DEFAULTS" ]]; then
     printf '%s: cannot read the shipped defaults at %s — that file declares every default value in the suite and is not optional\n' \
-        "$(basename "$0")" "$SHIPPED_CONFIG" >&2
+        "$(basename "$0")" "$TING_DEFAULTS" >&2
     exit 2
 fi
-read_config "$TING_CONFIG"
-read_config "$SHIPPED_CONFIG"
+ting_read_config "$TING_CONFIG"
+ting_read_config "$TING_DEFAULTS"
 
 # ── PREFERENCE WRITE-BACK ───────────────────────────────────────────────────────────────
 # The eleven keys above are the ones this TUI changes at runtime, and they are written back to
@@ -126,7 +126,7 @@ read_config "$SHIPPED_CONFIG"
 #               character lives in the RENDERER, and padding by bytes here would misalign
 #               every Chinese comment in a file that stays perfectly legal and reports nothing.
 #   ROUND TRIP  the only correctness test that matters: what is written must read back
-#               identically through read_config. That is what pref_value_ok enforces.
+#               identically through ting_read_config. That is what pref_value_ok enforces.
 PREF_DIRTY=""      # keys whose value has changed and is not on disk yet
 PREF_WRITE_OFF=0   # a write failed once; stop retrying at every tick
 PREF_SAID=""       # keys already refused out loud, so the notice is said once each
@@ -156,7 +156,7 @@ pref_listed() {
     return 1
 }
 
-# A value is acceptable only if read_config would read it back UNCHANGED. The eleven are
+# A value is acceptable only if ting_read_config would read it back UNCHANGED. The eleven are
 # enumerations and a number, so this never fires today; it is here so a twelfth key cannot
 # quietly write a line the loader mangles — `#` starts a comment, one matching quote pair is
 # stripped, surrounding space is trimmed and a leading ~/ becomes $HOME.
@@ -321,7 +321,7 @@ fi
 # The listening log, located the same way and just as optionally. HISTORY_BIN, not
 # TING_HISTORY: that name is already the player's set-once switch for whether a row is
 # written at all (ARCH-cli-contract.md「配置面」) — and like its two siblings above, an internal
-# does not wear the TING_ prefix, which read_config accepts as settable.
+# does not wear the TING_ prefix, which ting_read_config accepts as settable.
 # This file only READS it, and only when h is pressed — the writing is the player's, where
 # the fact "a track ended, and why" exists.
 HISTORY_BIN=""
@@ -791,7 +791,7 @@ while (($#)); do
     # fork t-play and awk the last field out of its PROSE — a second command's help-line
     # format turned into a dependency, in a suite whose whole argument is that callers
     # branch on envelopes rather than parse sentences.
-    -V | --version) printf 'ting %s\n' "$SUITE_VERSION"; exit 0 ;;
+    -V | --version) printf 'ting %s\n' "$TING_VERSION"; exit 0 ;;
     --engine)
         [[ $# -ge 2 ]] || die "$1 requires a value"
         ENGINE="$2"; shift 2 ;;

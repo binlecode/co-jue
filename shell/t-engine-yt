@@ -41,9 +41,9 @@ SCRIPT_DIR=$(cd -P "$(dirname "$_self")" && pwd -P)
 # any one of them would make the others ask IT for the version, which is the wrong
 # dependency direction for a player that must not know its engines. CLAUDE.md § one fact, one place.
 if [[ -r "$SCRIPT_DIR/../VERSION" ]]; then
-    SUITE_VERSION=$(cat "$SCRIPT_DIR/../VERSION")
+    TING_VERSION=$(cat "$SCRIPT_DIR/../VERSION")
 else
-    SUITE_VERSION="unknown"
+    TING_VERSION="unknown"
 fi
 
 # CONFIGURATION — the chain is flag > environment > the user's config > the shipped defaults
@@ -51,8 +51,8 @@ fi
 # Duplicated VERBATIM in every entry point — see the same block in t-play for why, and
 # ARCH-cli-contract.md「配置面」 for the keys.
 TING_CONFIG="${TING_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/ting/config}"
-SHIPPED_CONFIG="$SCRIPT_DIR/../config"
-read_config() {
+TING_DEFAULTS="$SCRIPT_DIR/../config"
+ting_read_config() {
     local file="$1" line key val
     [[ -r "$file" ]] || return 0
     while IFS= read -r line || [[ -n "$line" ]]; do
@@ -66,7 +66,7 @@ read_config() {
         while [[ "$val" == [[:space:]]* ]]; do val="${val#[[:space:]]}"; done
         [[ "$key" =~ ^TING_[A-Z0-9_]+$ ]] || continue
         case "$key" in
-        TING_CONFIG | TING_ENGINE_DIR) continue ;;
+        TING_CONFIG | TING_ENGINE_DIR | TING_VERSION | TING_DEFAULTS | TING_IPC_SOCK | TING_DETACHED | TING_PLAYER_ID | TING_DETACHED_LOG) continue ;;
         esac
         if [[ ${#val} -ge 2 ]] && { [[ "$val" == \"*\" ]] || [[ "$val" == \'*\' ]]; }; then
             val="${val#?}"
@@ -81,13 +81,13 @@ read_config() {
 # clear line with `TING_ASCII_VO: unbound variable` from set -u somewhere further down. A
 # checkout missing part of itself is not a dependency gate — it is a broken checkout, and 2 is
 # the exit code for a failure that is not the caller's usage error.
-if [[ ! -r "$SHIPPED_CONFIG" ]]; then
+if [[ ! -r "$TING_DEFAULTS" ]]; then
     printf '%s: cannot read the shipped defaults at %s — that file declares every default value in the suite and is not optional\n' \
-        "$(basename "$0")" "$SHIPPED_CONFIG" >&2
+        "$(basename "$0")" "$TING_DEFAULTS" >&2
     exit 2
 fi
-read_config "$TING_CONFIG"
-read_config "$SHIPPED_CONFIG"
+ting_read_config "$TING_CONFIG"
+ting_read_config "$TING_DEFAULTS"
 
 # The engine's own name, as it appears in every envelope AND as the suffix of this file's
 # name. Name == suffix is deliberate: it lets `t-play --engine yt` find `t-engine-yt` by string
@@ -1659,7 +1659,7 @@ while (($#)); do
     -V | --version)
         # Answered before ANY dependency gate: a version is the first thing a bug report
         # needs, and needing yt-dlp installed to find out which version you have is backwards.
-        printf '%s %s\n' "$PROG" "$SUITE_VERSION"
+        printf '%s %s\n' "$PROG" "$TING_VERSION"
         exit 0
         ;;
     -j | --json)

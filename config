@@ -170,8 +170,8 @@ TING_NE_INCLUDE_VIP=0               # 1 = ne's search also returns rows whose ac
 
 # ── not settable here ───────────────────────────────────────────────────────────────────
 # TING_CONFIG relocates the user config file, so it can only come from the environment, and
-# SHIPPED_CONFIG — this file's own path — is not settable at all: each entry point derives it
-# from its resolved location. SUITE_VERSION is the VERSION line read in from the root — what
-# `--version` answers is not a setting. TING_CONFIG is refused if written here; the other two,
-# like the player's _TING_IPC_SOCK, _TING_DETACHED, _TING_PLAYER_ID and _TING_DETACHED_LOG
-# (set for its own detached child), are not keys at all: they are spelled outside TING_.
+# TING_DEFAULTS — this file's own path — is not settable at all: each entry point derives it
+# from its resolved location. TING_VERSION is the VERSION line read in from the root — what
+# `--version` answers is not a setting. So are TING_IPC_SOCK, TING_DETACHED, TING_PLAYER_ID and
+# TING_DETACHED_LOG, which the player sets for its own detached child. All seven are refused if
+# written here.

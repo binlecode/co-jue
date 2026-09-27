@@ -330,10 +330,8 @@ ROADMAP 那条 Go 重写 NO 的全部账**：收益只剩"删渲染负债"，分
               一个命令一个名字；不发短名（「平级动词，没有内核」）
 ```
 
-**改名是一次性的，不留旧拼法。** 命令名、配置键名、数据路径都只有一个：一个东西一个名字，
-这条规矩不为自己的历史破例 —— 一个躺在磁盘上、文档里又不提的第二拼法，正是它要防的那种漂移，
-而每一条「新名先看、旧名兜底」的链都是要一直测、一直写文档的代码。改名时把用户自己的文件
-改过来一次，比在套件里永远背着兼容逻辑便宜。
+**一个东西一个名字。** 命令名、配置键名、数据路径都只有一个：一个躺在磁盘上、文档里又不提的
+第二拼法正是漂移的来源，而每一条兜底链都是要一直测、一直写文档的代码。
 
 ```
    运行时依赖图 —— 站点知识**只**在一对引擎里，播放**只**在播放器里：
@@ -353,7 +351,7 @@ ROADMAP 那条 Go 重写 NO 的全部账**：收益只剩"删渲染负债"，分
 
 **这些名字怎么来的（「平级动词，没有内核」）。** 三条命名规矩，一条对一类受众：人机面用发行名（`ting`），
 播放器与存储带套件前缀（`t-play` / `t-playlist` / `t-history`），一个引擎带它那个**站点**的名字 —— 因为那是调用方必须知道的
-唯一一件事。早先曾用 `uting` / `ut-` 前缀，多音源扩展后统一升华为纯粹的 `ting`（听）与 `t-` 前缀。说 "tui" 而不说 "ui"：ting 恰恰是一个全屏的*终端* UI。
+唯一一件事。说 "tui" 而不说 "ui"：ting 恰恰是一个全屏的*终端* UI。
 
 **引擎名就是命令前缀（「站点知识的边界」）。** `--engine yt` 靠字符串拼接找到 `yt-resolve`
 （`t-play` 的 `engine_resolve_bin`：先试 `$SCRIPT_DIR/$ENGINE-resolve`，再试
@@ -432,7 +430,7 @@ dotfiles 布局里成立；把套件抽成自己的仓库，才把它暴露出�
 播放器里，与站点有关就加在引擎里 —— 这样每一个面都继承它；绝不往**上**加进某个 UI。
 一个本可以由 `t-play` 做的修复却做在了 `ting` 里，那是一个"改错了文件"的 bug。
 
-**十个脚本之间的重复是刻意的，不是漂移，而这里就是它被数的地方。** `read_config` 在
+**十个脚本之间的重复是刻意的，不是漂移，而这里就是它被数的地方。** `ting_read_config` 在
 **十个入口点**里各出现一次，十份逐字节相同（函数体 sha 一致，2026-09-02 复测）—— 配置层是
 一个根上的数据文件加一份复制过去的读取器，不是第十一个文件（「两个根数据文件」）；同理 `die` 在**十个**里
 各一份，`fmt_dur` 在**八个**里 —— 六个引擎，加上 `t-playlist` 与 `t-history` 两个存储：
@@ -547,7 +545,7 @@ ARCH-engine.md「搜索子系统」（一个引擎自己的时长规矩住在那
    │        IS_HANDLE：
    │           DETACH      → detach_play      （后台）
    │           OUTPUT=json → play_url_json    （结构化）
-   │           detached 子进程（_TING_DETACHED）→ detached_child_loop（队列循环，不返回）
+   │           detached 子进程（TING_DETACHED）→ detached_child_loop（队列循环，不返回）
    │           否则        → play_url_directly（散文）
    │        否则 → die "'<x>' 不是一个视频 id 或 URL —— 用
    │                    '<engine>-search -- <x>' 去搜它"
@@ -656,7 +654,7 @@ ARCH-cli-contract.md「数据契约」）。`bili-resolve` 根本没有 `--trans
              └── 发出 {status:"started", id, pid, sock, log, title:null} 然后**退出**
                         │
                         ▼
-   进程 2 ：t-play（_TING_DETACHED=1、_TING_PLAYER_ID=<id>、_TING_IPC_SOCK=<sock>）
+   进程 2 ：t-play（TING_DETACHED=1、TING_PLAYER_ID=<id>、TING_IPC_SOCK=<sock>）
             → 进 detached_child_loop（一个播放器消费一条队列 —— 单句柄就是
             长度 1 的队列，ARCH-player.md「队列」）：每一首走上面的 B，自己回填自己的
             记录（patch_player_meta —— 不是一个后台兄弟进程，ARCH-player.md「进程组模型」），
@@ -878,7 +876,7 @@ ARCH-cli-contract.md「命令规格」）与 `-j`（结构化结果），
 | 停止之后留下还在响的孤儿 mpv | 对**进程组**下手，不走 PID 树（pgid 在改挂父进程时不变） | ARCH-player.md「进程组模型」 |
 | 一条 pid 写坏的记录把 `--stop` 变成自杀：`pgrep -g 0` 与 `kill -TERM 0` 指的都是**调用者自己**的进程组 | 发信号前先过 `is_live_pid`：正整数才发，0／负数／非数字一个信号都不发 | ARCH-player.md「进程组模型」 |
 | 一个被捕获的 `-d` stdout 阻塞在某个后台作业上 | detach 路径上没有后台作业；未来任何 `… &` 必须自己关掉 fd | ARCH-player.md「进程组模型」 |
-| 长命 detached 播放器的 mpv 状态行把磁盘写满 | `_TING_DETACHED` → 子进程里把日志钉在有界大小 | ARCH-player.md「进程组模型」 |
+| 长命 detached 播放器的 mpv 状态行把磁盘写满 | `TING_DETACHED` → 子进程里把日志钉在有界大小 | ARCH-player.md「进程组模型」 |
 | 别的进程连上某个播放器的 IPC socket | `STATE_DIR/players` 0700；Linux 回退到 `/tmp` 时钉住权限 | ARCH-player.md「运行时 IPC」 |
 | 并发的元数据回填与 `--set-volume` 互相覆盖同一份记录 | 按 id 的 `mkdir` 锁串行化两次 temp+mv，回填另加 pid 守卫 | ARCH-player.md「运行时 IPC」 |
 | 客户端在 `--status` 背后经 socket 改了音量，记录从此说谎 | `--status` 从 socket **活读**，记录值只作兜底 | ARCH-player.md「运行时 IPC」 |
