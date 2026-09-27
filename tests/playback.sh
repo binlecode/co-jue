@@ -177,7 +177,7 @@ t0=$(date +%s)
 o1=$(shell/ting-play -d -j --volume 0 -- "$U1" 2>/dev/null)
 t1=$(date +%s)
 report "detach envelope" 0 \
-    "$(printf '%s' "$o1" | jq -e '.id and .pid and .sock' >/dev/null 2>&1; echo $?)"
+    "$(printf '%s' "$o1" | jq -e '.status=="started" and (.id|length)>0 and (.pid|type)=="number" and (.sock|length)>0' >/dev/null 2>&1; echo $?)"
 if [ $((t1 - t0)) -le 3 ]; then ok "detach returned in $((t1 - t0))s (<= 3)"
 else bad "detach took $((t1 - t0))s — is something holding the pipe?"; fi
 
@@ -414,7 +414,7 @@ echo "── a second engine: the envelope's http_headers reach mpv ────
 # headers too, but its CDN has not been shown to refuse a bare URL, so its green is a pipeline
 # claim and not a header one.
 report "bili detach envelope" 0 \
-    "$(printf '%s' "$o3" | jq -e '.id and .pid and .sock' >/dev/null 2>&1; echo $?)"
+    "$(printf '%s' "$o3" | jq -e '.status=="started" and (.id|length)>0 and (.pid|type)=="number" and (.sock|length)>0' >/dev/null 2>&1; echo $?)"
 id3=$(printf '%s' "$o3" | jq -r '.id // empty')
 sock3=$(printf '%s' "$o3" | jq -r '.sock // empty')
 # A record is a CALL: {engine, url} is the argv that produced it, so a caller reading --status
@@ -445,7 +445,7 @@ if [ -z "$NE_ROW" ]; then
     bad "ne --search returned no playable row — the third engine's pipeline is untested"
 else
     report "ne detach envelope" 0 \
-        "$(printf '%s' "$o6" | jq -e '.id and .pid and .sock' >/dev/null 2>&1; echo $?)"
+        "$(printf '%s' "$o6" | jq -e '.status=="started" and (.id|length)>0 and (.pid|type)=="number" and (.sock|length)>0' >/dev/null 2>&1; echo $?)"
     id6=$(printf '%s' "$o6" | jq -r '.id // empty')
     sock6=$(printf '%s' "$o6" | jq -r '.sock // empty')
     report "the record names the engine that resolved it" "ne" \
@@ -482,7 +482,7 @@ echo "── the quality tier, the start offset and the loop mode, one player �
 # target — measured 599 for this stream. Asserting 600 exactly would be asserting the
 # keyframe interval of whatever U1 resolves to today.
 report "quality + start-offset detach envelope" 0 \
-    "$(printf '%s' "$o4" | jq -e '.id and .pid and .sock' >/dev/null 2>&1; echo $?)"
+    "$(printf '%s' "$o4" | jq -e '.status=="started" and (.id|length)>0 and (.pid|type)=="number" and (.sock|length)>0' >/dev/null 2>&1; echo $?)"
 id4=$(printf '%s' "$o4" | jq -r '.id // empty')
 sock4=$(printf '%s' "$o4" | jq -r '.sock // empty')
 # The LAUNCH half of the loop field: --loop rides a detach the way -f and --quality do, and the
@@ -674,7 +674,7 @@ shell/ting-play --next -j >/dev/null 2>&1
 # NOT a wait, and so not a poll: this sleep is SETUP. It puts the --stop below in the middle
 # of the between-tracks resolve, which is the race being driven; without it the stop lands
 # before the child has spawned anything and the check passes without touching the claim.
-sleep 0.5
+sleep 0.5  # clean-tests: allow-sleep (setup that places the stop mid-resolve, explained above)
 report "--stop ends the queue" 0 "$(shell/ting-play --stop --all -j >/dev/null 2>&1; echo $?)"
 report "no players after a queue" 0 "$(shell/ting-play --status -j | jq -e '.players==[]' >/dev/null 2>&1; echo $?)"
 no_orphans "no orphan mpv after a queue"
@@ -1067,8 +1067,9 @@ fwpid=$!
 for i in $(seq 1 240); do kill -0 "$fwpid" 2>/dev/null || break; sleep 0.25; done
 wait "$fwpid"
 report "--watch on a failing player exits 0" 0 $?
-report "…its end line carries the tombstone" 0 \
-    "$(jq -e -s '.[-1] | .event=="end" and .exit_code > 0 and (.reason|type)=="string"' "$TING_TEST_TMP/fwatch.out" >/dev/null 2>&1; echo $?)"
+# A dead id is the engine's `unavailable`, an external failure: exit 2 (the four-tier split).
+report "…its end line carries the tombstone" "end 2 unavailable" \
+    "$(jq -r -s '.[-1] | "\(.event) \(.exit_code) \(.reason)"' "$TING_TEST_TMP/fwatch.out" 2>/dev/null)"
 wait_failed() {
     local id=$1 i
     for i in $(seq 1 40); do
@@ -1078,8 +1079,8 @@ wait_failed() {
     return 1
 }
 report "reaper puts dead player in failed[]" 0 "$(wait_failed "$f_id" && echo 0 || echo 1)"
-report "death records non-zero exit code" 0 \
-    "$(shell/ting-play --status -j | jq -e --arg i "$f_id" '.failed[]|select(.id==$i)|.exit_code > 0' >/dev/null 2>&1; echo $?)"
+report "death records the engine's exit and reason" "2 unavailable" \
+    "$(shell/ting-play --status -j | jq -r --arg i "$f_id" '.failed[]|select(.id==$i)|"\(.exit_code) \(.reason)"')"
 report "death record identifies engine" "yt" \
     "$(shell/ting-play --status -j | jq -r --arg i "$f_id" '.failed[]|select(.id==$i)|.engine')"
 

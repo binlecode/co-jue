@@ -290,6 +290,7 @@ func TestPlaylistRoundTrip(t *testing.T) {
 // different formats (YouTube's .jpg arrives as webp).
 func TestCoverFitsTheBox(t *testing.T) {
 	m := model(t, Options{Query: "piano", Search: verb.SearchOpts{N: 3}, Batch: 3})
+	checked := 0
 	for _, e := range m.opt.Engines {
 		res, err := m.suite.Search(context.Background(), e.Name, "piano", verb.SearchOpts{N: 3})
 		if err != nil || len(res.Results) == 0 || res.Results[0].Thumbnail == "" {
@@ -307,9 +308,14 @@ func TestCoverFitsTheBox(t *testing.T) {
 			t.Errorf("%s: %s did not decode: %v", e.Name, res.Results[0].Thumbnail, err)
 			continue
 		}
+		checked++
 		if img.cols < 1 || img.cols > coverCols {
 			t.Errorf("%s: the cover takes %d columns, the box is %d", e.Name, img.cols, coverCols)
 		}
+	}
+	// One stalling CDN is tolerated; every download failing leaves nothing proved.
+	if checked == 0 {
+		t.Error("no engine's cover downloaded: the fit is unchecked")
 	}
 }
 

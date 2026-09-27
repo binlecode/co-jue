@@ -2069,12 +2069,13 @@ done
 # The opposite failure is just as real: a host list tightened too far silently drops a
 # spelling users actually type. youtu.be is the one every share button produces.
 #
-# The claim is the GATE, so the assertion is "not refused" rather than "resolved": under the
-# same dead proxy a gate that ACCEPTS this host reaches the transport and fails 2, and a gate
-# that dropped it dies at 1 without one. Extraction itself is proved on the canonical URL
+# The claim is the GATE, so the assertion is "reached the transport" rather than "resolved":
+# under the same dead proxy a gate that ACCEPTS this host fails 2, and a gate that dropped it
+# dies at 1 without one. The engine file is called directly because --stream is its private
+# verb; ting-play has no public spelling of it. Extraction itself is proved on the canonical URL
 # form by the resolve envelope, live, in the half below.
-report "ting-engine-yt still takes youtu.be" 1 \
-    "$([ "$(http_proxy=$NOPROXY https_proxy=$NOPROXY rc shell/ting-engine-yt --stream -j -- https://youtu.be/$MEDIA_ID)" != 1 ] && echo 1 || echo 0)"
+report "ting-engine-yt still takes youtu.be" 2 \
+    "$(http_proxy=$NOPROXY https_proxy=$NOPROXY rc shell/ting-engine-yt --stream -j -- https://youtu.be/$MEDIA_ID)"
 
 # ── ONE SONG, FOUR SPELLINGS, ONE CANONICAL URL ────────────────────────────────────────────
 # Every handle grammar in this suite is per-engine and duplicated (each `normalize_target` is
@@ -2321,9 +2322,12 @@ else
     # Esc with the pasted text still on the line — the same cancel a user makes, and a harder
     # input than an empty prompt.
     tmux send-keys -t "$PS_TS" Escape 2>/dev/null
-    sleep 0.6
-    report "Esc closes the prompt inside 600ms, not a whole second" 1 \
-        "$(tmux capture-pane -t "$PS_TS" -p -J 2>/dev/null | grep -c '__GONE__' | awk '{print ($1 > 0) ? 1 : 0}')"
+    closed=0; i=0
+    while [ $i -lt 12 ]; do   # 12 ticks of 0.05s: the 600ms bound, left the moment it closes
+        tmux capture-pane -t "$PS_TS" -p -J 2>/dev/null | grep -q '__GONE__' && { closed=1; break; }
+        sleep 0.05; i=$((i + 1))
+    done
+    report "Esc closes the prompt inside 600ms, not a whole second" 1 "$closed"
     tmux kill-session -t "$PS_TS" 2>/dev/null
     rm -rf "$PS_STATE"
 fi
@@ -2485,11 +2489,11 @@ spawn() {
             [ $try -ge 3 ] && break
             grep -q '"reason":"network"' "$LIVE/$slot.out" 2>/dev/null || {
                 if [ "$slot" = "bili-zh" ] && [ "$(jq -r '.count // 0' "$LIVE/$slot.out" 2>/dev/null)" -lt 15 ]; then
-                    sleep 1; continue
+                    sleep 1; continue  # clean-tests: allow-sleep (retry backoff, not a readiness wait)
                 fi
                 break
             }
-            sleep 2
+            sleep 2  # clean-tests: allow-sleep (retry backoff after a network reason)
         done
     } &
 }
@@ -2521,7 +2525,7 @@ spawn bili-stream  shell/ting-engine-bili --stream -j -- "$BILI_ID"
 spawn bili-info    shell/ting-play --engine bili --info -j -- "$BILI_ID"
 spawn ne-info      shell/ting-play --engine ne --info -j -- "$NE_LYRIC"
 spawn bili-zh      shell/ting-play --engine bili --search -j -n 20 --max-duration 600 -- 周杰伦
-spawn yt-zh        shell/ting-engine-yt --search --raw -n 15 -- 周杰伦
+spawn yt-zh        shell/ting-engine-yt --search --raw -n 15 -- 周杰伦  # clean-tests: allow-private (--raw is the engine's self-check; ting-play refuses it)
 spawn bili-offset  shell/ting-engine-bili --stream -j -- "https://www.bilibili.com/video/$BILI_PARTS_ID?p=2&t=601"
 spawn bili-parts   shell/ting-play --engine bili --items -j -- "$BILI_PARTS_ID"
 spawn bili-part1   shell/ting-play --engine bili --items -j -- "$BILI_ID"
@@ -2912,17 +2916,25 @@ report "search result keys agree" \
 # fails here. The enum is TWO values: a container has no value here because it is not a
 # row at all (the clause above is what drops it), so `kind:"collection"` fails too. The non-empty result requirement is what stops the whole thing passing
 # vacuously on an engine that returned nothing.
-ROW_IS_A_CALL='(.results|length)>0 and all(.results[];
-      (.url|type=="string") and (.url|length)>0
+ROW_CALL='(.url|type=="string") and (.url|length)>0
       and (.id|type=="string") and (.id|length)>0
       and (.kind|IN("track","multipart"))
       and (.access|IN("full","preview","paywalled"))
-      and ((.duration|type)=="number" or (.live_status|type)=="string"))'
+      and ((.duration|type)=="number" or (.live_status|type)=="string")'
+ROW_IS_A_CALL="(.results|length)>0 and all(.results[]; $ROW_CALL)"
+# A red here names what came back: the live output is gone with the run, and a live service
+# is exactly where "it passed when I reran it" hides a real answer.
+row_call_report() {
+    local got; got=$(jqv "$ROW_IS_A_CALL" "$(out "$2")")
+    report "$1 rows are calls" 0 "$got"
+    [ "$got" = 0 ] || printf '    rc %s, envelope %s\n    offending rows %s\n    stderr %s\n' "$(src "$2")" \
+        "$(out "$2" | jq -c '{status, reason, count}' 2>/dev/null | head -c 200)" \
+        "$(out "$2" | jq -c "[.results[]? | select(($ROW_CALL) | not)]" 2>/dev/null | head -c 600)" \
+        "$(head -c 300 "$LIVE/$2.err" 2>/dev/null)"
+}
 for n in $ENGINES; do
-    report "$n --search -j rows are calls" 0 \
-        "$(jqv "$ROW_IS_A_CALL" "$(out "search-$n")")"
-    report "$n --search --raw rows are calls" 0 \
-        "$(jqv "$ROW_IS_A_CALL" "$(out "searchJ-$n")")"
+    row_call_report "$n --search -j" "search-$n"
+    row_call_report "$n --search --raw" "searchJ-$n"
 done
 # The same predicate over EVERY OTHER live search this file already paid for — the default
 # envelopes, and the three 周杰伦 ones. Not one extra request, and it is what
