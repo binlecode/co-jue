@@ -121,7 +121,7 @@
 - 先增加能复现预期失败的真实契约检查，再实现 `sc-search` 与 `sc-resolve`。
 - 严守 bash 3.2；不得使用关联数组、大小写展开、`mapfile`、负数组下标或空数组的不安全展开。
 - 临时文件全部位于 `$TMPDIR/ting-<uid>/`；不引入第六个运行时依赖。
-- 在出厂 `config` 一次声明 `SC_COOKIE_BROWSER` 与 `SC_AUDIO_FORMAT`，并同步配置前缀白名单；不增加搜索专属默认条数。
+- 在出厂 `config` 一次声明 `TING_SC_AUDIO_FORMAT`（cookie 走套件键，载入块的前缀白名单不用动）；不增加搜索专属默认条数。
 
 ### Milestone 3：把测试从“三个样本”升级到“四个样本”
 

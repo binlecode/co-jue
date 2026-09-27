@@ -21,7 +21,7 @@ did, and a mode nothing can produce is a mode that quietly passes. The checks:
                scrollbar gutter and its cell of air, so it is MEASURED rather than assumed —
                the renderer derives every right-hand flush from one expression, and this
                asserts they agree with each other, which stays true when the gutter's width
-               changes (█ and │ are Ambiguous: two cells under YT_AMBIG_WIDE).
+               changes (█ and │ are Ambiguous: two cells under TING_AMBIG_WIDE).
 
   gutter       Every result row ends with a scrollbar cell, all in the same column, and a
                list longer than its window shows BOTH glyphs — all thumb or all track means
@@ -49,7 +49,7 @@ did, and a mode nothing can produce is a mode that quietly passes. The checks:
 
 Captures come from `tmux capture-pane -p` — which is what the capture-pane skill feeds this, and the
 only source now that the pty rigs are gone. Ambiguous-width characters count as ONE cell, matching the suite's default
-(YT_AMBIG_WIDE unset); pass --ambig-wide to match the other setting.
+(TING_AMBIG_WIDE unset); pass --ambig-wide to match the other setting.
 
 usage: assert_pane.py <capture.txt> <pane_width> [list] [--rows N] [--ambig-wide]
                       [--sgr <capture-pe.txt> [--off-window]]
@@ -170,7 +170,7 @@ def main(argv):
     body = "\n".join(lines)
 
     if view == "list":
-        # The wordmark is language-dependent (YT_LANG=zh draws the seal 【 听 】), so this
+        # The wordmark is language-dependent (TING_LANG=zh draws the seal 【 听 】), so this
         # asks for either spelling rather than the English one — a frame captured on a zh config is
         # not a scrolled header.
         if not lines or not BRAND.search(lines[0]):

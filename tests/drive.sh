@@ -30,15 +30,15 @@
 #   tests/drive.sh -k 'i'                           send keys after the list is ready
 #   tests/drive.sh -k 'Enter' -w Playing            send Enter, wait for the banner (en chrome)
 #   tests/drive.sh -k 'Enter' -w 播放中              the same under a zh chrome
-#   YT_LANG=en tests/drive.sh -k Enter -w Playing   pin the chrome for one run
+#   TING_LANG=en tests/drive.sh -k Enter -w Playing  pin the chrome for one run
 #   tests/drive.sh -i                               leave it up and ATTACH (interactive)
-#   YT_ASCII=1 tests/drive.sh                       any YT_* var is passed through
+#   TING_ASCII=1 tests/drive.sh                     any YT_* var is passed through
 #
 # -w greps the pane for a string, and the pane speaks whichever chrome language the COPIED
 # config (below) or the locale picks — so a banner marker is per language. The language is not
 # pinned here, and deliberately: this driver exists to photograph what a human sees, and a
 # pinned `en` would make every zh frame it dumps a frame nobody actually gets. An exported
-# YT_LANG is forwarded and beats the config file, so pinning is one word at the call site.
+# TING_LANG is forwarded and beats the config file, so pinning is one word at the call site.
 # Exit: 0 = reached a ready frame and cleaned up; 1 = never got a frame, or orphans remained.
 set -uo pipefail
 cd "$(cd -P "$(dirname "$0")/.." && pwd -P)" || exit 1
@@ -121,12 +121,12 @@ trap 'exit 130' INT TERM
 
 # The suite's own knobs are forwarded EXPLICITLY, not inherited. A new tmux session does not
 # get this shell's environment: it gets the tmux SERVER's, and the server is whichever one is
-# already running — often started hours ago from another window. `YT_ASCII=1 tests/drive.sh`
+# already running — often started hours ago from another window. `TING_ASCII=1 tests/drive.sh`
 # looked like it worked only when no server was up yet; with one up it silently drove the
 # default. Verified by driving UT_STATE_DIR: the pane reported an empty store while the same
 # variable listed four playlists outside tmux.
 #
-# YT_SYNC=0 (tmux and DCS frame sync do not mix), TMPDIR and the two config names are placed
+# TING_SYNC=0 (tmux and DCS frame sync do not mix), TMPDIR and the two config names are placed
 # AFTER the forwarded block so the driver's own choice wins over an inherited one — TMPDIR
 # because the isolation above is not negotiable, and it is not a YT_*/UT_*/TING_* name so it
 # is never forwarded anyway; the config names because a forwarded one would put the pane's
@@ -150,7 +150,7 @@ while IFS= read -r line; do
 done < <(env)
 
 tmux new-session -d -s "$S" -x "$COLS" -y "$ROWS" \
-    "cd '$PWD' && UT_HISTORY=0$env_prefix TMPDIR='$TMPDIR' UT_CONFIG='$DRIVE_CFG' TING_CONFIG='$DRIVE_CFG' YT_SYNC=0 shell/ting '$QUERY'"
+    "cd '$PWD' && UT_HISTORY=0$env_prefix TMPDIR='$TMPDIR' UT_CONFIG='$DRIVE_CFG' TING_CONFIG='$DRIVE_CFG' TING_SYNC=0 shell/ting '$QUERY'"
 
 # Wait on the ready MARKER, never on a sleep: a captured spinner frame is a picture of the
 # loading state, not of the layout. A cold yt-dlp search takes ~10s.

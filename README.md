@@ -138,7 +138,7 @@ mkdir -p ~/.config/ting
 cat >> ~/.config/ting/config <<'EOF'
 UT_DEFAULT_ENGINE=bili        # search Bilibili unless --engine says otherwise
 UT_SEARCH_RESULTS=40          # fetch 40 rows per query instead of 20
-YT_THEME=nord
+TING_THEME=nord
 UT_COOKIE_BROWSER=safari      # read site logins from Safari instead of Chrome
 EOF
 ```
@@ -155,7 +155,7 @@ Extensionless and flat, the same spelling `yt-dlp` uses for `~/.config/yt-dlp/co
 dependency it refuses.
 
 Both files are **read as data, never sourced**, so `UT_X=$(cmd)` stores those characters
-instead of running anything, and only `UT_`/`YT_`/`BILI_`/`NE_` keys are read — no config can
+instead of running anything, and only `TING_`/`UT_` keys are read — no config can
 reach `PATH`, `TMPDIR` or `LD_PRELOAD`. `UT_ENGINE_DIR` wears an allowed prefix and would be
 the hole in that: it names a directory of programs the suite runs, so it is refused from both
 files and read from the environment only.
@@ -170,7 +170,7 @@ written to a file that could never win against it.
 
 `UT_CONFIG` relocates your file, from the environment only. Three knobs are deliberately
 absent from the shipped defaults because their unset state *is* an auto-detection that a
-value would defeat: `YT_LANG` (zh under a zh\* locale), `YT_ASCII` (on under a non-UTF-8
+value would defeat: `TING_LANG` (zh under a zh\* locale), `TING_ASCII` (on under a non-UTF-8
 locale) and `UT_STATE_DIR` (its default chains through `XDG_STATE_HOME`). Set those in your
 own config or the environment.
 

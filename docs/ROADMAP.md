@@ -161,7 +161,7 @@
 - **【最高优先级 · TUI Design / 视觉排版】付费权限徽章（`access`）要不要上屏，以及上在哪一行。**
   **收益**：高。优化单行视觉设计与信息密度。`ne` 的信封已经免费带着 `fee → access`（`full` / `preview` / `paywalled`），一枚设计精炼的 `30s 试听` / `VIP` 徽章能让用户在按 Enter 之前一眼预判单曲可用性。
   **成本**：中。`load_rows` 现在建的是 `R_TITLE/R_DUR/R_VIEWS/R_CHAN/R_LIVE/R_ENGINE/R_RAIL`，多一个 `R_ACCESS` 是跨引擎的数据模型改动，不是一处渲染改动。
-  **待决问题一（信息量）**：`ne-search` 与 `ne-resolve` 默认就 `select(.access == "full")`，所以默认配置下屏上每一行都是 `full` —— 徽章会是一枚贴在每行、什么都不说的常量，只有 `NE_INCLUDE_VIP=1` 时才携带信息。
+  **待决问题一（信息量）**：`ne-search` 与 `ne-resolve` 默认就 `select(.access == "full")`，所以默认配置下屏上每一行都是 `full` —— 徽章会是一枚贴在每行、什么都不说的常量，只有 `TING_NE_INCLUDE_VIP=1` 时才携带信息。
   **待决问题二（归谁）**：`access` 是行级事实，而 `yt` / `bili` 没有对位字段。放状态行对其余行是假陈述；放行尾需改变行预算；放焦点行的 details meta 行不动行预算，但只说得出一行。
 
 ---

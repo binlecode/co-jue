@@ -16,30 +16,46 @@ import (
 	"strings"
 )
 
-var keyRe = regexp.MustCompile(`^(TING|UT|YT|BILI|NE)_[A-Z0-9_]+$`)
+var keyRe = regexp.MustCompile(`^(TING|UT)_[A-Z0-9_]+$`)
 
 // Names a file may never set, for the reasons ut_read_config states: the two config paths (a
 // file cannot move itself), the version (a data file, not a setting), the engine dir (it names
-// programs the suite runs), and the four the player sets for its own detached child.
+// programs the suite runs). The four the player sets for its own detached child are spelled
+// _TING_, outside keyRe, so no refusal is needed for them.
 var refused = map[string]bool{
 	"TING_CONFIG": true, "TING_DEFAULTS": true, "TING_ENGINE_DIR": true, "TING_VERSION": true,
 	"UT_CONFIG": true, "UT_DEFAULTS": true, "UT_ENGINE_DIR": true, "UT_VERSION": true,
-	"YT_IPC_SOCK": true, "YT_DETACHED": true, "YT_PLAYER_ID": true, "YT_DETACHED_LOG": true,
 }
 
 // envRenamed is the `for _v in …` list duplicated in every shell entry point: the knobs whose
 // TING_ environment spelling is honoured. A file honours TING_ for every key.
-var envRenamed = strings.Fields("STATE_DIR ENGINE_DIR HISTORY THEME VOLUME LANG IMAGE KEYS " +
-	"RESOURCE ASCII SYNC PLAY_QUALITY VIZ_STYLE VIZ_COLOR DEFAULT_ENGINE")
+var envRenamed = strings.Fields("STATE_DIR ENGINE_DIR HISTORY VOLUME IMAGE KEYS " +
+	"RESOURCE PLAY_QUALITY VIZ_STYLE VIZ_COLOR DEFAULT_ENGINE")
 
-// merged maps a key that was folded into another onto the key that replaced it: the old
-// name still reads, one version, in the environment and in a file.
-var merged = map[string]string{
-	"UT_START_RESULTS":    "UT_SEARCH_RESULTS",
-	"YT_COOKIE_BROWSER":   "UT_COOKIE_BROWSER",
-	"BILI_COOKIE_BROWSER": "UT_COOKIE_BROWSER",
-	"NE_COOKIE_BROWSER":   "UT_COOKIE_BROWSER",
-}
+// renamedOrder is CFG_RENAMED, the OLD:NEW list every shell entry point carries: a key that
+// was renamed or folded into another, and the key that replaced it. The old name still reads,
+// one version, in the environment and in a file. In the shell's order, so when two old names
+// disagree the same one wins.
+var renamedOrder = strings.Fields("UT_START_RESULTS:UT_SEARCH_RESULTS YT_COOKIE_BROWSER:UT_COOKIE_BROWSER " +
+	"BILI_COOKIE_BROWSER:UT_COOKIE_BROWSER NE_COOKIE_BROWSER:UT_COOKIE_BROWSER YT_THEME:TING_THEME " +
+	"YT_LANG:TING_LANG YT_ASCII:TING_ASCII YT_ASCII_VO:TING_ASCII_VO " +
+	"YT_MPV_INPUT_CONF:TING_MPV_INPUT_CONF YT_BG:TING_BG YT_SYNC:TING_SYNC " +
+	"YT_AMBIG_WIDE:TING_AMBIG_WIDE YT_AUDIO_FORMAT:TING_YT_AUDIO_FORMAT " +
+	"YT_VIDEO_FORMAT:TING_YT_VIDEO_FORMAT YT_VIDEO_FORMAT_FAST:TING_YT_VIDEO_FORMAT_FAST " +
+	"YT_SUB_LANG_CHAIN:TING_YT_SUB_LANG_CHAIN BILI_AUDIO_FORMAT:TING_BILI_AUDIO_FORMAT " +
+	"BILI_VIDEO_FORMAT:TING_BILI_VIDEO_FORMAT BILI_VIDEO_FORMAT_FAST:TING_BILI_VIDEO_FORMAT_FAST " +
+	"BILI_UA:TING_BILI_UA BILI_BUVID:TING_BILI_BUVID NE_AUDIO_FORMAT:TING_NE_AUDIO_FORMAT " +
+	"NE_UA:TING_NE_UA NE_INCLUDE_VIP:TING_NE_INCLUDE_VIP")
+
+// renamed is renamedOrder as a map, old name to new.
+var renamed = func() map[string]string {
+	m := map[string]string{}
+	for _, p := range renamedOrder {
+		i := strings.IndexByte(p, ':')
+		m[p[:i]] = p[i+1:]
+	}
+	return m
+}()
 
 // Config holds the resolved value of every key any layer set. TING_X and UT_X are one key,
 // stored under its UT_ spelling.
@@ -50,11 +66,11 @@ type Config struct {
 	UserPath string
 }
 
-// canon folds the new-name spelling onto the old one, and a merged key onto the key that
-// replaced it, so every spelling looks up the same slot.
+// canon folds an old name onto the key that replaced it, and the TING_ spelling onto the UT_
+// one, so every spelling looks up the same slot.
 func canon(key string) string {
-	if k, ok := merged[key]; ok {
-		return k
+	if k, ok := renamed[key]; ok {
+		key = k
 	}
 	if strings.HasPrefix(key, "TING_") {
 		return "UT_" + strings.TrimPrefix(key, "TING_")
@@ -118,24 +134,27 @@ func Load(environ []string, shipped string) (*Config, error) {
 	getenv := func(k string) (string, bool) { v, ok := env[k]; return v, ok }
 	c := &Config{vals: map[string]string{}, pinned: map[string]bool{}, UserPath: UserPath(getenv)}
 
-	// The environment: set-ness, not emptiness, is what counts (`${TING_X+x}`). Only the
-	// renamed knobs have a TING_ spelling in the environment — the list every entry point
-	// carries verbatim — and there the new name wins over the old one.
-	for k, v := range env {
-		if keyRe.MatchString(k) && !strings.HasPrefix(k, "TING_") && merged[k] == "" {
-			c.vals[k], c.pinned[k] = v, true
-		}
+	// The environment: set-ness, not emptiness, is what counts (`${TING_X+x}`). A TING_
+	// spelling is honoured for the knobs on envRenamed (where it wins over the UT_ one) and
+	// for every new name on CFG_RENAMED; an old name only when its new key is still unset.
+	newName := map[string]bool{}
+	for _, n := range renamed {
+		newName[n] = true
 	}
-	// In the shell's order, so when two old names disagree the same one wins.
-	for _, old := range []string{"UT_START_RESULTS", "YT_COOKIE_BROWSER", "BILI_COOKIE_BROWSER", "NE_COOKIE_BROWSER"} {
-		k := merged[old]
-		if v, ok := env[old]; ok && !c.pinned[k] {
-			c.vals[k], c.pinned[k] = v, true
+	for k, v := range env {
+		if keyRe.MatchString(k) && (!strings.HasPrefix(k, "TING_") || newName[k]) {
+			c.vals[canon(k)], c.pinned[canon(k)] = v, true
 		}
 	}
 	for _, n := range envRenamed {
 		if v, ok := env["TING_"+n]; ok {
 			c.vals["UT_"+n], c.pinned["UT_"+n] = v, true
+		}
+	}
+	for _, p := range renamedOrder {
+		old := p[:strings.IndexByte(p, ':')]
+		if v, ok := env[old]; ok && !c.pinned[canon(old)] {
+			c.vals[canon(old)], c.pinned[canon(old)] = v, true
 		}
 	}
 
@@ -169,8 +188,8 @@ func (c *Config) read(path, home string) error {
 }
 
 // ParseLine is one line of ut_read_config: it returns the key and value a line assigns, or
-// ok=false for a comment, a blank, a non-assignment, a key outside the five prefixes, or a
-// refused key.
+// ok=false for a comment, a blank, a non-assignment, a key outside TING_/UT_, or a refused
+// key. An old name on CFG_RENAMED comes back as the key that replaced it.
 func ParseLine(line, home string) (key, val string, ok bool) {
 	if i := strings.IndexByte(line, '#'); i >= 0 {
 		line = line[:i]
@@ -182,6 +201,9 @@ func ParseLine(line, home string) (key, val string, ok bool) {
 	}
 	key = strings.TrimRightFunc(line[:i], isSpace)
 	val = strings.TrimLeftFunc(line[i+1:], isSpace)
+	if k, ok := renamed[key]; ok {
+		key = k
+	}
 	if !keyRe.MatchString(key) || refused[key] {
 		return "", "", false
 	}

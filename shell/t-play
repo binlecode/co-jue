@@ -49,8 +49,8 @@ fi
 #
 # The shipped defaults are `<checkout>/config`, read from one level above this script's own
 # RESOLVED location — the same mechanism, and the same reason, as the VERSION read above.
-# That file is where every default value in the suite is declared, ONCE, for all ten entry
-# points. Before it existed each default was inlined per script, which meant a cross-engine
+# That file is where every default value in the suite is declared, ONCE, for every entry
+# point. Before it existed each default was inlined per script, which meant a cross-engine
 # value like UT_SEARCH_RESULTS was written twice and could drift apart with nothing to
 # catch it. It is therefore NOT optional: a checkout without it is broken, and says so with
 # exit 2 rather than letting set -u abort somewhere further in. --version and --help still
@@ -66,23 +66,25 @@ fi
 # stripped, a leading ~/ expanded. Deliberately NOT sourced as shell: a config file that is
 # executed can run anything, and this suite's safety story is that its inputs are DATA.
 # `eval` assigns from a variable, never from the line, so `UT_X=$(cmd)` stores those nine
-# characters. Only UT_/YT_/BILI_/NE_ keys are read, so no file can reach PATH, TMPDIR or
-# LD_PRELOAD; and the four the player sets for its own detached child are refused inside
-# those namespaces — a file-level YT_IPC_SOCK would aim every player at one socket. So are
-# the three names in there that are not knobs at all: the two config paths (a file cannot
-# move itself) and UT_VERSION, which is the VERSION line read in above — what `--version`
-# answers is not a setting. And so is UT_ENGINE_DIR, which IS a knob — the one refused for
-# what its VALUE is rather than for what the name means. It points at a directory of
-# EXECUTABLES this suite runs, so a config file that could set it would be PATH under
-# another spelling, and the sentence three lines up would stop being true. Environment
-# only, like the two config paths. Eight names, and the refusal is what makes the prefix
-# safe to wear: a constant is only reachable from a config file because it is spelled UT_.
+# characters. Only TING_ and UT_ keys are read (an old YT_/BILI_/NE_ name is first renamed
+# through CFG_RENAMED below), so no file can reach PATH, TMPDIR or LD_PRELOAD — nor the four
+# the player sets for its own detached child, which are spelled _TING_ for exactly that: a
+# file-level _TING_IPC_SOCK would aim every player at one socket. Refused inside those
+# namespaces are the three names that are not knobs at all: the two config paths (a file
+# cannot move itself) and UT_VERSION, which is the VERSION line read in above — what
+# `--version` answers is not a setting. And so is UT_ENGINE_DIR, which IS a knob — the one
+# refused for what its VALUE is rather than for what the name means. It points at a
+# directory of EXECUTABLES this suite runs, so a config file that could set it would be PATH
+# under another spelling, and the sentence above would stop being true. Environment only,
+# like the two config paths. Four names in both spellings, and the refusal is what makes
+# the prefix safe to wear: a constant is only reachable from a config file because it is
+# spelled UT_.
 #
 # Four defaults stay inline and are named in `config`'s own header: UT_STATE_DIR and
 # UT_ENGINE_DIR (both chain through an XDG variable, which a flat file cannot express),
-# YT_LANG and YT_ASCII (unset IS the locale probe for both).
+# TING_LANG and TING_ASCII (unset IS the locale probe for both).
 #
-# The key list is ARCH-cli-contract.md「配置面」. This block is duplicated VERBATIM in all ten
+# The key list is ARCH-cli-contract.md「配置面」. This block is duplicated VERBATIM in every
 # entry points: ten independent executables share no library, and a byte-for-byte copy is
 # greppable for drift where a sourced file would invert the dependency direction the VERSION
 # data file exists to keep straight.
@@ -95,12 +97,24 @@ if [[ -z "$TING_CONFIG" ]]; then
     fi
 fi
 UT_CONFIG="$TING_CONFIG"
-for _v in STATE_DIR ENGINE_DIR HISTORY THEME VOLUME LANG IMAGE KEYS RESOURCE ASCII SYNC PLAY_QUALITY VIZ_STYLE VIZ_COLOR DEFAULT_ENGINE; do
+for _v in STATE_DIR ENGINE_DIR HISTORY VOLUME IMAGE KEYS RESOURCE PLAY_QUALITY VIZ_STYLE VIZ_COLOR DEFAULT_ENGINE; do
     eval "[[ -n \"\${TING_$_v+x}\" ]] && UT_$_v=\"\$TING_$_v\" || true"
     eval "[[ -n \"\${UT_$_v+x}\" && -z \"\${TING_$_v+x}\" ]] && TING_$_v=\"\$UT_$_v\" || true"
 done
-# Merged keys: the old name still reads, one version, into the key that replaced it.
-for _v in UT_START_RESULTS:UT_SEARCH_RESULTS YT_COOKIE_BROWSER:UT_COOKIE_BROWSER BILI_COOKIE_BROWSER:UT_COOKIE_BROWSER NE_COOKIE_BROWSER:UT_COOKIE_BROWSER; do
+# Renamed and merged keys, OLD:NEW. The old name still reads, one version, into the key that
+# replaced it: from the environment here, from a file in ut_read_config, and ting's write-back
+# renames the line in place. Lower-level than a knob, so it is not spelled with a key prefix.
+CFG_RENAMED="UT_START_RESULTS:UT_SEARCH_RESULTS YT_COOKIE_BROWSER:UT_COOKIE_BROWSER \
+    BILI_COOKIE_BROWSER:UT_COOKIE_BROWSER NE_COOKIE_BROWSER:UT_COOKIE_BROWSER YT_THEME:TING_THEME \
+    YT_LANG:TING_LANG YT_ASCII:TING_ASCII YT_ASCII_VO:TING_ASCII_VO \
+    YT_MPV_INPUT_CONF:TING_MPV_INPUT_CONF YT_BG:TING_BG YT_SYNC:TING_SYNC \
+    YT_AMBIG_WIDE:TING_AMBIG_WIDE YT_AUDIO_FORMAT:TING_YT_AUDIO_FORMAT \
+    YT_VIDEO_FORMAT:TING_YT_VIDEO_FORMAT YT_VIDEO_FORMAT_FAST:TING_YT_VIDEO_FORMAT_FAST \
+    YT_SUB_LANG_CHAIN:TING_YT_SUB_LANG_CHAIN BILI_AUDIO_FORMAT:TING_BILI_AUDIO_FORMAT \
+    BILI_VIDEO_FORMAT:TING_BILI_VIDEO_FORMAT BILI_VIDEO_FORMAT_FAST:TING_BILI_VIDEO_FORMAT_FAST \
+    BILI_UA:TING_BILI_UA BILI_BUVID:TING_BILI_BUVID NE_AUDIO_FORMAT:TING_NE_AUDIO_FORMAT \
+    NE_UA:TING_NE_UA NE_INCLUDE_VIP:TING_NE_INCLUDE_VIP"
+for _v in $CFG_RENAMED; do
     eval "[[ -n \"\${${_v%%:*}+x}\" && -z \"\${${_v#*:}+x}\" ]] && ${_v#*:}=\"\$${_v%%:*}\" || true"
 done
 UT_DEFAULTS="$SCRIPT_DIR/../config"
@@ -116,13 +130,16 @@ ut_read_config() {
         val="${line#*=}"
         while [[ "$key" == *[[:space:]] ]]; do key="${key%[[:space:]]}"; done
         while [[ "$val" == [[:space:]]* ]]; do val="${val#[[:space:]]}"; done
-        [[ "$key" =~ ^(TING|UT|YT|BILI|NE)_[A-Z0-9_]+$ ]] || continue
-        case "$key" in
-        TING_CONFIG | TING_DEFAULTS | TING_ENGINE_DIR | TING_VERSION | UT_CONFIG | UT_DEFAULTS | UT_ENGINE_DIR | UT_VERSION | YT_IPC_SOCK | YT_DETACHED | YT_PLAYER_ID | YT_DETACHED_LOG) continue ;;
+        case " $CFG_RENAMED " in
+        *" $key:"*)
+            _ut_k=" $CFG_RENAMED"
+            _ut_k="${_ut_k#* $key:}"
+            key="${_ut_k%% *}"
+            ;;
         esac
+        [[ "$key" =~ ^(TING|UT)_[A-Z0-9_]+$ ]] || continue
         case "$key" in
-        UT_START_RESULTS) key=UT_SEARCH_RESULTS ;;
-        YT_COOKIE_BROWSER | BILI_COOKIE_BROWSER | NE_COOKIE_BROWSER) key=UT_COOKIE_BROWSER ;;
+        TING_CONFIG | TING_DEFAULTS | TING_ENGINE_DIR | TING_VERSION | UT_CONFIG | UT_DEFAULTS | UT_ENGINE_DIR | UT_VERSION) continue ;;
         esac
         if [[ ${#val} -ge 2 ]] && { [[ "$val" == \"*\" ]] || [[ "$val" == \'*\' ]]; }; then
             val="${val#?}"
@@ -133,19 +150,16 @@ ut_read_config() {
             _ut_k="UT_${key#TING_}"
             eval "[[ -n \"\${$key+x}\" ]] || $key=\$val"
             eval "[[ -n \"\${$_ut_k+x}\" ]] || $_ut_k=\$val"
-        elif [[ "$key" == UT_* ]]; then
+        else
             _ting_k="TING_${key#UT_}"
             eval "[[ -n \"\${$key+x}\" ]] || $key=\$val"
             eval "[[ -n \"\${$_ting_k+x}\" ]] || $_ting_k=\$val"
-        else
-            eval "[[ -n \"\${$key+x}\" ]]" && continue
-            eval "$key=\$val"
         fi
     done < "$file"
 }
 # FAIL FAST AND SAY WHY. There is deliberately no escape hatch for --version or --help: they
 # were tried, and letting execution continue past a missing defaults file replaced this one
-# clear line with `YT_ASCII_VO: unbound variable` from set -u somewhere further down. A
+# clear line with `TING_ASCII_VO: unbound variable` from set -u somewhere further down. A
 # checkout missing part of itself is not a dependency gate (yt-dlp, jq and mpv still answer
 # --version without being installed) — it is a broken checkout, and 2 is the exit code for a
 # failure that is not the caller's usage error.
@@ -193,7 +207,7 @@ MPV_AUDIO_OPTIONS=(--msg-level=display-tags=warn,osd/libass=error --term-osd-bar
 # (does NOT stop CoreText). See ARCH-player.md「终端噪声压制」.
 MPV_VIDEO_OPTIONS=(--msg-level=display-tags=warn,osd/libass=error --term-osd-bar)
 # mpv docs suggest sw-fast/really-quiet for terminal VOs to reduce glitches and improve speed.
-MPV_ASCII_OPTIONS=(--vo="${YT_ASCII_VO}" --profile=sw-fast --really-quiet --term-osd-bar)
+MPV_ASCII_OPTIONS=(--vo="${TING_ASCII_VO}" --profile=sw-fast --really-quiet --term-osd-bar)
 
 
 # ==============================================================================
@@ -431,8 +445,8 @@ Environment:
   UT_HISTORY           0 stops a detached player writing to the listening log (default: on)
   UT_VIZ_STYLE         -f viz picture: bars (log-scaled spectrum) | wave (waveform)
                        (default: $UT_VIZ_STYLE)
-  YT_ASCII_VO          mpv terminal video output driver (default: tct)
-  YT_MPV_INPUT_CONF    Path to an optional custom mpv input.conf
+  TING_ASCII_VO        mpv terminal video output driver (default: tct)
+  TING_MPV_INPUT_CONF  Path to an optional custom mpv input.conf
 EOF
 }
 
@@ -934,7 +948,7 @@ resolve_media() {
 # nothing when the pid no longer matches, and the empty temp is dropped without touching the
 # live file). Best-effort throughout — a failure leaves title:null, which callers tolerate.
 patch_player_meta() {
-    local id="${YT_PLAYER_ID:-}" sf tmp i
+    local id="${_TING_PLAYER_ID:-}" sf tmp i
     if [[ -z "$id" ]]; then
         return 0
     fi
@@ -996,18 +1010,18 @@ run_mpv() {
     # engine round trip during which a --set-loop would land on a record nobody reads again
     # until the track after next. Measured as exactly that hole — repeat turned on in the gap
     # between two tracks did not reach the track that was starting. A no-op off the detached
-    # path (no YT_PLAYER_ID, no record), so a foreground play keeps the value its flag gave it.
+    # path (no _TING_PLAYER_ID, no record), so a foreground play keeps the value its flag gave it.
     refresh_loop_mode
 
     # Optionally load caller-provided mpv input bindings.
-    if [[ -n "$YT_MPV_INPUT_CONF" && -r "$YT_MPV_INPUT_CONF" ]]; then
-        mpv_cmd+=(--input-conf="$YT_MPV_INPUT_CONF")
+    if [[ -n "$TING_MPV_INPUT_CONF" && -r "$TING_MPV_INPUT_CONF" ]]; then
+        mpv_cmd+=(--input-conf="$TING_MPV_INPUT_CONF")
     fi
 
     # Launch-time volume. For a foreground/blocking session this is the only lever
     # (mpv's own volume keys work via the TTY); for detached playback it is just the
     # STARTING volume — live adjustment happens over the per-instance IPC socket
-    # (see YT_IPC_SOCK below and do_set_volume). ARCHITECTURE.md「已知约束」.
+    # (see _TING_IPC_SOCK below and do_set_volume). ARCHITECTURE.md「已知约束」.
     if [[ -n "$VOLUME" ]]; then
         mpv_cmd+=(--volume="$VOLUME")
     fi
@@ -1037,11 +1051,11 @@ run_mpv() {
     fi
 
     # Runtime control channel: only when launched under detach_play, which exports
-    # YT_IPC_SOCK. mpv's --input-ipc-server is per-process, so each detached player
+    # _TING_IPC_SOCK. mpv's --input-ipc-server is per-process, so each detached player
     # points at its own socket and is driven independently. A foreground/blocking
     # session has a real TTY and needs no IPC. ARCHITECTURE.md「已知约束」.
-    if [[ -n "${YT_IPC_SOCK:-}" ]]; then
-        mpv_cmd+=(--input-ipc-server="$YT_IPC_SOCK")
+    if [[ -n "${_TING_IPC_SOCK:-}" ]]; then
+        mpv_cmd+=(--input-ipc-server="$_TING_IPC_SOCK")
     fi
 
     # The headers the engine says these URLs must be fetched with — one of the two things
@@ -1079,7 +1093,7 @@ run_mpv() {
     # explains a failure. These go AFTER the caller's mode options so they win (mpv: last
     # flag wins). ARCH-player.md「进程组模型」.
     local detached_opts=()
-    if [[ -n "${YT_DETACHED:-}" ]]; then
+    if [[ -n "${_TING_DETACHED:-}" ]]; then
         detached_opts=(--no-term-osd-bar --msg-level=all=error)
     fi
 
@@ -1095,7 +1109,7 @@ run_mpv() {
     # its log — there the filter buys nothing and costs correctness: process substitution is
     # not waited on, so play_url_json (which reads the temp file the instant mpv exits) could
     # miss a late-flushed error line and classify a real 403 as `unknown`.
-    if [[ -n "${YT_DETACHED:-}" ]]; then
+    if [[ -n "${_TING_DETACHED:-}" ]]; then
         # BACKGROUND + `wait`, never foreground, and this is a bash 3.2 fact rather than a
         # style choice: 3.2 does not dispatch a trap while a FOREGROUND child runs. Measured
         # on 3.2.57 — a foreground `sleep 5` sent SIGUSR1 ran its trap five seconds later
@@ -1635,7 +1649,7 @@ media_json() {
 # ------------------------------------------------------------------------------
 # The detached child: one player, one queue
 # ------------------------------------------------------------------------------
-# detach_play re-execs this script with YT_PLAYER_ID set; this is what that re-exec runs. A
+# detach_play re-execs this script with _TING_PLAYER_ID set; this is what that re-exec runs. A
 # player plays a QUEUE, and a lone handle is a queue of one, so there is one loop rather than
 # two paths.
 #
@@ -1675,8 +1689,8 @@ child_signal() {
 # has written the record at all (the race patch_player_meta already polls through).
 refresh_loop_mode() {
     local sf v
-    [[ -n "${YT_PLAYER_ID:-}" ]] || return 0
-    sf=$(player_state "$YT_PLAYER_ID")
+    [[ -n "${_TING_PLAYER_ID:-}" ]] || return 0
+    sf=$(player_state "$_TING_PLAYER_ID")
     [[ -f "$sf" ]] || return 0
     v=$(jq -r '.loop // empty' "$sf" 2>/dev/null) || return 0
     case "$v" in
@@ -1696,7 +1710,7 @@ detached_child_loop() {
     trap 'child_signal next' USR1
     trap 'child_signal stopped' TERM INT
 
-    if [[ ! -f "$(player_queue "${YT_PLAYER_ID:-}")" ]]; then
+    if [[ ! -f "$(player_queue "${_TING_PLAYER_ID:-}")" ]]; then
         # No queue file: an older parent, or someone running this child by hand. Play the
         # handle once, exactly as this path did before queues existed.
         rc=0
@@ -1709,7 +1723,7 @@ detached_child_loop() {
     fi
 
     while :; do
-        queue_current "$YT_PLAYER_ID" || break
+        queue_current "$_TING_PLAYER_ID" || break
         played=$QUEUE_POS
         # A queue may mix engines (a playlist can), so the engine is per ITEM and the
         # resolved-binary cache has to be dropped with it.
@@ -1757,9 +1771,9 @@ detached_child_loop() {
         # epitaph in the log (record_player_death); writing one here as well reports a single
         # failure twice — measured, before this order: a bad handle produced both <id> and
         # <id>-q0 in failed[].
-        queue_advance_from "$YT_PLAYER_ID" "$played" || break
+        queue_advance_from "$_TING_PLAYER_ID" "$played" || break
         if ((rc != 0)); then
-            queue_note_failure "$YT_PLAYER_ID" "$played" "$QUEUE_URL" "$rc"
+            queue_note_failure "$_TING_PLAYER_ID" "$played" "$QUEUE_URL" "$rc"
         fi
     done
 
@@ -1771,12 +1785,12 @@ detached_child_loop() {
 
 detached_epitaph() {
     local rc=$1 reason ended_at
-    [[ -n "${YT_DETACHED_LOG:-}" ]] || return 0
+    [[ -n "${_TING_DETACHED_LOG:-}" ]] || return 0
     ((rc == 0 || rc == 130)) && return 0
     # Same taxonomy every other surface publishes (ARCH-cli-contract.md「数据契约」) — the reason a caller branches on
     # must not depend on which verb produced it. The tail bound keeps a long mpv log from
     # becoming an argument the classifier has to grep in full.
-    reason=$(classify_playback_error "$(tail -c 4000 "$YT_DETACHED_LOG" 2>/dev/null)" "$rc")
+    reason=$(classify_playback_error "$(tail -c 4000 "$_TING_DETACHED_LOG" 2>/dev/null)" "$rc")
     ended_at=$(date -u +%FT%TZ 2>/dev/null || echo unknown)
     jq -nc --argjson rc "$rc" --arg reason "$reason" --arg ended_at "$ended_at" \
         '{yt_event: "exit", rc: $rc, reason: $reason, ended_at: $ended_at}' 2>/dev/null || true
@@ -1859,7 +1873,7 @@ history_record() {
         stopped | next) reason="stopped_by_user" ;;
         *)
             if ((rc != 0)); then
-                reason=$(classify_playback_error "$(tail -c 4000 "${YT_DETACHED_LOG:-/dev/null}" 2>/dev/null)" "$rc")
+                reason=$(classify_playback_error "$(tail -c 4000 "${_TING_DETACHED_LOG:-/dev/null}" 2>/dev/null)" "$rc")
             fi
             ;;
         esac
@@ -2370,7 +2384,7 @@ queue_note_failure() {
     local id=$1 pos=$2 url=$3 rc=$4 reason dead ended_at rec
     dead="$PLAYERS_DIR/dead"
     [[ -d "$dead" ]] || mkdir -m 700 "$dead" 2>/dev/null || return 0
-    reason=$(classify_playback_error "$(tail -c 4000 "${YT_DETACHED_LOG:-/dev/null}" 2>/dev/null)" "$rc")
+    reason=$(classify_playback_error "$(tail -c 4000 "${_TING_DETACHED_LOG:-/dev/null}" 2>/dev/null)" "$rc")
     ended_at=$(date -u +%FT%TZ 2>/dev/null || echo unknown)
     rec="$dead/$id-q$pos.json"
     jq -nc --arg id "$id-q$pos" --arg url "$url" --arg engine "$ENGINE" --arg mode "$PLAYBACK_MODE"         --arg started_at "$ended_at" --arg ended_at "$ended_at"         --argjson exit_code "$rc" --arg reason "$reason"         '{id: $id, url: $url, engine: $engine, mode: $mode, started_at: $started_at,
@@ -2414,7 +2428,7 @@ detach_play() {
 
     # Mint the handle BEFORE launch so the socket path is known up front (see
     # new_player_id): the child's pid isn't available until $! after launch, but the
-    # socket must be named at launch via YT_IPC_SOCK. The id is a monotonic token,
+    # socket must be named at launch via _TING_IPC_SOCK. The id is a monotonic token,
     # immune to pid reuse; the pid is stored in the state file for liveness only.
     id=$(new_player_id)
     sock=$(player_sock "$id")
@@ -2434,16 +2448,16 @@ detach_play() {
     # Launch the child in its OWN process group so the whole playback (incl. any
     # fallback mpv) can be stopped as a unit later (see stop_group). Enabling monitor
     # mode (set -m) makes a backgrounded job a process-group leader whose pgid == its
-    # pid; nohup + disown detach it from this shell so it survives our exit. YT_IPC_SOCK
+    # pid; nohup + disown detach it from this shell so it survives our exit. _TING_IPC_SOCK
     # is exported into the child's environment so its run_mpv adds --input-ipc-server.
     # Job-control chatter is routed away from stdout so -j output stays one JSON line.
-    # YT_DETACHED tells the child's run_mpv there is no terminal to draw on (quiet mpv,
-    # no stderr filter); YT_DETACHED_LOG hands it the path its own stdout goes to, which is
+    # _TING_DETACHED tells the child's run_mpv there is no terminal to draw on (quiet mpv,
+    # no stderr filter); _TING_DETACHED_LOG hands it the path its own stdout goes to, which is
     # all detached_epitaph needs to read back what mpv said before classifying its own death.
     # --quality is forwarded like --volume so a quality tier isn't silently lost on the
     # detached path; `--` guards a URL that begins with a dash.
     set -m
-    YT_IPC_SOCK="$sock" YT_DETACHED=1 YT_DETACHED_LOG="$log" YT_PLAYER_ID="$id" \
+    _TING_IPC_SOCK="$sock" _TING_DETACHED=1 _TING_DETACHED_LOG="$log" _TING_PLAYER_ID="$id" \
         nohup bash "$SELF" --engine "$ENGINE" -f "$PLAYBACK_MODE" --loop "$LOOP_MODE" \
         ${VOLUME:+--volume "$VOLUME"} \
         ${PLAY_QUALITY:+--quality "$PLAY_QUALITY"} ${PLAY_START:+--start "$PLAY_START"} \
@@ -4346,8 +4360,8 @@ fi
 require_deps jq mpv
 
 if [[ "$PLAYBACK_MODE" == "ascii" ]]; then
-    if ! mpv_supports_vo "$YT_ASCII_VO"; then
-        die "mpv does not support --vo=$YT_ASCII_VO (run 'mpv --vo=help' to choose a supported terminal VO)"
+    if ! mpv_supports_vo "$TING_ASCII_VO"; then
+        die "mpv does not support --vo=$TING_ASCII_VO (run 'mpv --vo=help' to choose a supported terminal VO)"
     fi
 fi
 
@@ -4377,16 +4391,16 @@ fi
 # recorded NO in ROADMAP.md for exactly that reason. A refusal the caller can act on beats a
 # picture they cannot trust.
 #
-# NOT read from YT_ASCII: that is `ting`'s chrome switch for its own renderer, the player
+# NOT read from TING_ASCII: that is `ting`'s chrome switch for its own renderer, the player
 # does not read it, and it must not start — a UI's knowledge does not descend into the player
-# (CLAUDE.md's governing principle). The locale is the fact; YT_ASCII is one surface's opinion
+# (CLAUDE.md's governing principle). The locale is the fact; TING_ASCII is one surface's opinion
 # about it.
 #
 # Scoped to the modes that actually draw half blocks: viz hardcodes --vo=tct, ascii takes
-# YT_ASCII_VO, so a user who pointed that at sixel or kitty is not affected and is not asked
+# TING_ASCII_VO, so a user who pointed that at sixel or kitty is not affected and is not asked
 # about a glyph their VO never emits.
 if { [[ "$PLAYBACK_MODE" == "viz" ]] ||
-    [[ "$PLAYBACK_MODE" == "ascii" && "$YT_ASCII_VO" == "tct" ]]; } &&
+    [[ "$PLAYBACK_MODE" == "ascii" && "$TING_ASCII_VO" == "tct" ]]; } &&
     ! locale_is_utf8; then
     die "-f $PLAYBACK_MODE needs a UTF-8 locale: --vo=tct draws in half blocks (U+2584), which '${LC_ALL:-${LC_CTYPE:-${LANG:-unset}}}' cannot encode (re-run as 'LC_ALL=en_US.UTF-8 t-play …', or use -f audio, video or fast)"
 fi
@@ -4408,7 +4422,7 @@ if ((IS_HANDLE)); then
     # returns from it. Every other prose caller plays once: rc is captured rather than left
     # to set -e so detached_epitaph gets to run, and the exit status is what set -e would
     # have exited with anyway.
-    if [[ -n "${YT_PLAYER_ID:-}" && -n "${YT_DETACHED:-}" ]]; then
+    if [[ -n "${_TING_PLAYER_ID:-}" && -n "${_TING_DETACHED:-}" ]]; then
         detached_child_loop "$QUERY"
     fi
     rc=0

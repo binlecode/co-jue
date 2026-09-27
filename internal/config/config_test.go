@@ -22,12 +22,16 @@ func TestParseLine(t *testing.T) {
 		{"UT_X=$(rm -rf /)", "UT_X", "$(rm -rf /)", true},
 		{"UT_X=", "UT_X", "", true},
 		{"TING_X=1", "TING_X", "1", true},
-		{"YT_LANG=zh", "YT_LANG", "zh", true},
+		{"TING_LANG=zh", "TING_LANG", "zh", true},
 		{"PATH=/evil", "", "", false},
 		{"ut_x=1", "", "", false},
 		{"UT_ENGINE_DIR=/evil", "", "", false},
 		{"TING_CONFIG=/x", "", "", false},
+		{"_TING_IPC_SOCK=/x", "", "", false},
 		{"YT_IPC_SOCK=/x", "", "", false},
+		{"YT_THEME=nord", "TING_THEME", "nord", true},
+		{"BILI_UA=x", "TING_BILI_UA", "x", true},
+		{"YT_UNKNOWN=1", "", "", false},
 		{"# UT_X=1", "", "", false},
 		{"just words", "", "", false},
 		{"", "", "", false},
@@ -52,15 +56,15 @@ func TestChain(t *testing.T) {
 	dir := t.TempDir()
 	shipped := filepath.Join(dir, "config")
 	user := filepath.Join(dir, "user")
-	write(t, shipped, "UT_A=shipped\nUT_B=shipped\nUT_C=shipped\nUT_D=shipped\nYT_E=shipped\nUT_THEME=shipped\n")
+	write(t, shipped, "UT_A=shipped\nUT_B=shipped\nUT_C=shipped\nUT_D=shipped\nTING_BG=shipped\n")
 	write(t, user, "UT_B=user\nUT_B=second-line-loses\nTING_C=user-new-name\nUT_ENGINE_DIR=/evil\n")
 	env := []string{
 		"HOME=" + dir,
 		"UT_CONFIG=" + user,
 		"UT_D=env",
-		"YT_E=env",
-		"UT_THEME=old-name",
-		"TING_THEME=new-name",    // on the renamed list: wins over UT_THEME
+		"YT_BG=old-name",
+		"TING_BG=new-name",       // a renamed key's new name wins over its old one
+		"YT_SYNC=old-only",       // an old name alone still reads into the new key
 		"TING_A=not-on-the-list", // TING_A is not a renamed knob in the environment
 	}
 	c, err := Load(env, shipped)
@@ -69,7 +73,7 @@ func TestChain(t *testing.T) {
 	}
 	want := map[string]string{
 		"UT_A": "shipped", "UT_B": "user", "TING_B": "user", "UT_C": "user-new-name",
-		"UT_D": "env", "YT_E": "env", "UT_THEME": "new-name",
+		"UT_D": "env", "TING_BG": "new-name", "TING_SYNC": "old-only",
 	}
 	for k, v := range want {
 		if got := c.Value(k); got != v {
@@ -79,7 +83,7 @@ func TestChain(t *testing.T) {
 	if _, ok := c.Get("UT_ENGINE_DIR"); ok {
 		t.Error("a config file set UT_ENGINE_DIR")
 	}
-	if !c.Pinned("UT_D") || !c.Pinned("TING_THEME") || c.Pinned("UT_B") {
+	if !c.Pinned("UT_D") || !c.Pinned("TING_BG") || !c.Pinned("YT_SYNC") || c.Pinned("UT_B") {
 		t.Error("pinned should be exactly the environment's keys")
 	}
 	if c.UserPath != user {

@@ -26,8 +26,8 @@ when it doesn't fit), so a frame without its geometry stated is not a claim anyo
 | playing | `Enter`, wait for the banner | `-x 100 -y 30` | banner + progress bar + the playing row's ground; needs a `-pe` capture too |
 | page mode | `Tab` | `-x 100 -y 30` | the other windowing: a fixed page, and a `page N/M` segment |
 | filter open | `/` then text | `-x 100 -y 30` | caret + narrowed page + bottom input row |
-| ASCII fallback | `YT_ASCII=1` | any | the whole glyph set in its ASCII form |
-| zh chrome | `YT_LANG=zh` | any | translated chrome at the same measured width |
+| ASCII fallback | `TING_ASCII=1` | any | the whole glyph set in its ASCII form |
+| zh chrome | `TING_LANG=zh` | any | translated chrome at the same measured width |
 
 Keep every capture destined for one doc section at the **same width** so the blocks line up
 visually, and put that width in the surrounding prose.
@@ -44,7 +44,7 @@ picture of their theme and their chrome language rather than of the shipped defa
 S=cap
 CAPCFG=$(mktemp "${TMPDIR:-/tmp}/ting-capture.XXXXXX")
 tmux kill-session -t $S 2>/dev/null
-tmux new-session -d -s $S -x 100 -y 30 "cd $PWD && YT_LANG=en UT_CONFIG=$CAPCFG shell/ting 'lofi hip hop'"
+tmux new-session -d -s $S -x 100 -y 30 "cd $PWD && TING_LANG=en UT_CONFIG=$CAPCFG shell/ting 'lofi hip hop'"
 timeout 30 bash -c "until tmux capture-pane -t $S -p | grep -q \"query='\"; do sleep 0.5; done"
 tmux capture-pane -t $S -p > tmp/raw-list.txt
 ```

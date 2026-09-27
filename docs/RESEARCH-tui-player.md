@@ -192,7 +192,7 @@
   `netcat-traditional` / busybox 没有）。曾是这份清单上唯一当场拦人的一条；
   **2026-08-29 起由 `resolve_nc_unix` 按能力探测关掉了大半**（`ARCHITECTURE.md`「已知约束」），
   Linux 朋友装一个带 `-U` 的 netcat 变体即可，剩下的账只是 README 里那一句安装说明。
-- **终端动物园**：DCS 帧同步、Ambiguous 宽度、tmux 透传 —— 宽度层与 `YT_AMBIG_WIDE` 存在的全部理由。
+- **终端动物园**：DCS 帧同步、Ambiguous 宽度、tmux 透传 —— 宽度层与 `TING_AMBIG_WIDE` 存在的全部理由。
   换一个终端、换一台机器就可能露头。
 - **五个运行时依赖**（yt-dlp、jq、mpv、nc、curl），全部由用户负责安装并保持可用；且**每加一个
   音源就多一份站点维护面** —— 引擎对是本仓唯一会因外部网站变动而坏掉的地方（`ARCHITECTURE.md`「平级动词，没有内核」
@@ -216,7 +216,7 @@
 
 - 契约纪律：`-j` 单行 JSON、退出码分类（1 用法 / 2+ 传递 / 4 未生效）、US 而非 tab 作分隔、不从渲染
   串反解数据。
-- 边界处理：EAW 宽度表 + CJK 精确宽度、`YT_ASCII` 全量回退、中英 i18n 无串泄漏、reflow 验到 40×12。
+- 边界处理：EAW 宽度表 + CJK 精确宽度、`TING_ASCII` 全量回退、中英 i18n 无串泄漏、reflow 验到 40×12。
 - 一份与代码同步的设计文档，带一份可复查的验证矩阵。
 - **`shellcheck --severity=warning` 基线是一个被跟踪的计数，不是一张干净的体检单**
   （2026-08-27 八个脚本重测，`--format=json1` 计数 —— 一行上落两条时 `grep '^In'` 会少数）

@@ -405,10 +405,10 @@ UT_VIZ_COLOR=0xff6188
 UT_DEFAULT_ENGINE=bili
 
 # 设置默认主题（可填 minimal, tokyonight, nord, gruvbox, catppuccin 等）
-YT_THEME=nord
+TING_THEME=nord
 
 # 默认界面语言：zh（中文）或 en（英文）
-YT_LANG=zh
+TING_LANG=zh
 
 # 默认音质档位：auto（自动）、medium（中等）、high（高品质）
 UT_PLAY_QUALITY=high
@@ -456,7 +456,7 @@ UT_COOKIE_BROWSER=chrome
 这是由于部分终端字体的“中文双字符宽度（Ambiguous Width）”渲染设定引起的：
 - 推荐使用支持现代特性的终端模拟器（如 iTerm2、Ghostty、Kitty、WezTerm 等）；
 - 在终端配置中将字体设置为支持 Nerd Font / 宽字符的标准等宽字体；
-- 或者在 ting 配置文件中加入 `YT_ASCII=1`，开启绝对对齐的纯 ASCII 模式。
+- 或者在 ting 配置文件中加入 `TING_ASCII=1`，开启绝对对齐的纯 ASCII 模式。
 
 ---
 

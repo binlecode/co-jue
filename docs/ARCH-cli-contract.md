@@ -57,7 +57,7 @@
   在里面：十个命令名本身 · 各自的 argv 与 flag 面 · 退出码表(0/1/2+/4) ·
           单行 JSON envelope 的字段与形状 · player record · 生命周期语义 ·
           引擎契约（<engine>-search / <engine>-resolve 两张 envelope） ·
-          YT_* / UT_* / BILI_* / NE_* 环境变量 · 配置面（四层链、两个文件的位置、
+          TING_* / UT_* 环境变量 · 配置面（四层链、两个文件的位置、
           键的前缀命名空间、缺出厂文件 = 2，「配置面」）
   不在里面：内部函数名 · 键位、视图、渲染与主题（ARCH-tui.md） · 注释 · docs/ · tests/ · .claude/skills/ ·
           引擎背后用哪个原语（curl / yt-dlp / openssl —— seam 是 envelope，
@@ -801,14 +801,14 @@ search、resolve、`--info`、`--transcript`、`-d`、`--status`、`--stop`、`-
 
 **出厂默认值住在 `<checkout>/config`** —— 每个入口点从自己**解析后**位置的上一级读它，
 和上面读 `VERSION` 同一个机制、同一个理由。**套件里每一个默认值都在那里声明，一次，
-供十个入口点共用。** 在它之前，每个默认值是各脚本内联的 `: "${KEY:=值}"`，
+供每个入口点共用。** 在它之前，每个默认值是各脚本内联的 `: "${KEY:=值}"`，
 于是一个跨引擎的值（`UT_SEARCH_RESULTS`）要写两遍、可以各自漂移而没有东西会发现 ——
 这次搬迁当场就抓出了两处：`UT_PLAY_MODE` 在四个脚本里不一致、`UT_SORT_FIELD` 在三个里不一致
 （根因是 `ting` 拿**轮换顺序**当**合法值域**用，见下面「轮换顺序不是合法值域」一条）。
 
 所以这个文件**不是可选的**：缺了它的 checkout 是坏的，并且会这么说 —— 一行话，退 **2**。
 **没有给 `--version` / `--help` 留后门**，那条路试过：放行之后 `set -u` 会在一百行之后
-报一句 `YT_ASCII_VO: unbound variable`，把一句清楚的话换成一句不清楚的。
+报一句 `TING_ASCII_VO: unbound variable`，把一句清楚的话换成一句不清楚的。
 一个缺了自己一部分的 checkout 不是**依赖门** —— yt-dlp / jq / mpv 没装时 `--version`
 照样答 —— 它是坏 checkout。
 
@@ -824,7 +824,7 @@ search、resolve、`--info`、`--transcript`、`-d`、`--status`、`--stop`、`-
 
 ```
    UT_DEFAULT_ENGINE   e 键切来源            UT_SORT_FIELD      o 键换排序字段
-   YT_THEME            t 键换配色家族        YT_LANG            l 键换界面语言
+   TING_THEME          t 键换配色家族        TING_LANG          l 键换界面语言
    UT_PLAY_MODE        v 键换播放模式        UT_SEARCH_RESULTS  → / ← 两条边改行数
    UT_PLAY_QUALITY     f 键换质量档          UT_KEYS            ? 键换提示块的档
    UT_ROW_INDEX        # 键开关行号        UT_LIST_MODE       Tab 键换列表模式
@@ -839,7 +839,8 @@ search、resolve、`--info`、`--transcript`、`-d`、`--status`、`--stop`、`-
   注释列**刻意不重排** —— 会重排的实现要去依赖那个知道一个中文注释每字两格的宽度层，
   而宽度层住在渲染路径里；按字节补齐会把中文注释全部错位，并且文件仍然合法、什么都不报。
   文件里没有的键**追加**一行到末尾；文件本身不存在就建目录、写一个三行表头再追加。
-  被合并掉的旧键名（`UT_START_RESULTS`）那一行照同样的规矩就地改成新键名 —— 这就是全部迁移。
+  改名或合并掉的旧键名（`YT_THEME`、`UT_START_RESULTS`……）那一行照同样的规矩就地改成新键名，
+  不论这一次写不写它的值 —— 这就是全部迁移。
 - **值必须能原样读回来。** 唯一的正确性判据是 round-trip：写下去的东西必须能被
   `ut_read_config` 一字不差地读回来，所以含 `#`、引号、换行、首尾空白或开头 `~/` 的值
   会被拒绝（这十一个的值域是枚举和数字，今天到不了这条闸；它为第十二个键存在）。
@@ -857,7 +858,7 @@ search、resolve、`--info`、`--transcript`、`-d`、`--status`、`--stop`、`-
   **临时文件落在 symlink 解析之后的真实路径旁边**：`UT_CONFIG` 指的很可能是一条指向
   dotfiles 仓库的符号链接，而 `mv -f` 落在链接本身上会把链接换成一个普通文件、把用户真正
   的那份**架空**（此后他在 dotfiles 里改的每一笔都不再生效），而且什么都不报。写之前先
-  沿链走到真实文件（与十个入口点自解析用的是同一个惯用法，bash 3.2 没有 `readlink -f`），
+  沿链走到真实文件（与每个入口点自解析用的是同一个惯用法，bash 3.2 没有 `readlink -f`），
   `cp -p`/`>`/`mv -f` 全部对着它做，原子性不变。这一条与 `t-playlist` 的 temp+mv 不同，
   是因为**所有权不同**：那个存储改写的是它自己在自己目录里造的文件。
 
@@ -868,19 +869,18 @@ search、resolve、`--info`、`--transcript`、`-d`、`--status`、`--stop`、`-
 开头的 `~/` 展开成 `$HOME`。这个文件是**当数据读的，绝不 source** ——
 一个会被执行的配置文件可以运行任何东西，而这个套件的整个安全故事就是它的输入是数据；
 `eval` 从一个变量赋值，从不从那一行赋值，所以 `UT_X=$(cmd)` 存下的就是那九个字符。
-**只有套件自己的命名空间可设**（`UT_` / `YT_` / `BILI_` / `NE_`，正则 `^(UT|YT|BILI|NE)_[A-Z0-9_]+$`
-——**加一个引擎就要加一个前缀，而且是在每一个入口点那份逐字重复的载入块里加**，漏一处那个引擎的
-键就静默读不到），
-于是一个文件永远够不到 `PATH`、`TMPDIR` 或 `LD_PRELOAD`；而播放器为自己 detached 子进程
-设的那四个**在允许的命名空间之内被拒**（`config` 末尾「not settable here」点名它们），因为一个文件级的 `YT_IPC_SOCK`
-会把每一个播放器都指向同一个 socket；`UT_CONFIG` 与 `UT_DEFAULTS`（两个配置文件各自的路径）
+**只有套件自己的命名空间可设**（`TING_` / `UT_`，正则 `^(TING|UT)_[A-Z0-9_]+$`；旧的 `YT_`/`BILI_`/`NE_`
+键名先按改名表换成新名再过这道正则），于是一个文件永远够不到 `PATH`、`TMPDIR` 或 `LD_PRELOAD`。
+引擎键住在 `TING_<ENGINE>_` 之下，所以**加一个引擎不加前缀**，仓外引擎也有合法的键名可用。
+播放器为自己 detached 子进程设的那四个拼成 `_TING_*`：前导下划线把它们放在命名空间**之外**，
+一个文件级的 `_TING_IPC_SOCK`（本会把每一个播放器都指向同一个 socket）被正则本身挡掉，不必进拒收名单。
+命名空间之内被拒的是：`UT_CONFIG` 与 `UT_DEFAULTS`（两个配置文件各自的路径）
 同样被拒 —— 一个文件不能搬动自己；`UT_VERSION` 也在名单上 —— 它是从 `VERSION` 那一行读进来的
 **常量**，不是旋钮，只是穿着一个能被配置够到的前缀，而 `--version` 答的话不该由一个配置文件
 改写。`UT_ENGINE_DIR` 是名单上**唯一一个真旋钮** —— 它被拒不是因为名字不是旋钮，而是因为
 **值是一批会被运行的可执行文件**：一个能设它的配置文件就是换了个拼法的 `PATH`，
-上面那句"一个文件永远够不到 `PATH`"当场作废。这条与 `YT_IPC_SOCK` 是同一种形状
-（命名空间之内的拒收，前缀白名单一个都挡不住），只是它挡的是**执行**而不是一个 socket。
-拒收名单共八个名字。载入块在**十个入口点里逐字重复**，
+上面那句"一个文件永远够不到 `PATH`"当场作废 —— 命名空间之内的拒收，前缀白名单一个都挡不住。
+拒收名单是这四个名字，各带 `TING_` 与 `UT_` 两种拼法。载入块在**每个入口点里逐字重复**，
 和 `VERSION` 读法一样：逐字节的副本可以 grep 出漂移，而一个 source 进来的文件
 会把 `VERSION` 数据文件存在所要理正的依赖方向反过来。
 
@@ -889,8 +889,8 @@ search、resolve、`--info`、`--transcript`、`-d`、`--status`、`--stop`、`-
 **第三个因为它的默认值是一条平的 KEY=value 表达不了的链**：
 
 ```
-   YT_LANG        未设置 = zh* locale 下 zh，否则英文
-   YT_ASCII       未设置 = 非 UTF-8 locale 下自动开
+   TING_LANG      未设置 = zh* locale 下 zh，否则英文
+   TING_ASCII     未设置 = 非 UTF-8 locale 下自动开
    UT_STATE_DIR   默认是 ${XDG_STATE_HOME:-$HOME/.local/state}/ting ——
                   一条穿过另一个变量的链，平的 KEY=value 文件表达不了，
                   而摊平成一个字面路径会悄悄丢掉本节承诺的 XDG 支持
@@ -899,16 +899,15 @@ search、resolve、`--info`、`--transcript`、`-d`、`--status`、`--stop`、`-
 **还有第四个，但它连用户那份也进不去：`UT_ENGINE_DIR` 只能从环境来。** 它同样是一条穿过
 `XDG_DATA_HOME` 的链（默认 `${XDG_DATA_HOME:-$HOME/.local/share}/ting/engines`），
 所以也内联 —— 但把它排除在两个文件之外的是上面那条执行边界，不是表达力。
-它在 `ting` 与 `t-play` 各内联一次（十个平级入口点不共享库），两份副本必须给出同一个默认值，
+它在 `ting` 与 `t-play` 各内联一次（平级入口点不共享库），两份副本必须给出同一个默认值，
 `tests/contract.sh` 以 `XDG_DATA_HOME` 驱动两边来钉住这一点。
 
 这三个仍然内联（前两个在 `ting` / 各引擎，UT_STATE_DIR 在 `t-playlist` /
 `t-history`），要钉住就在自己的配置或环境里设。
 
-**按 SCOPE 分组，不按前缀分组。** `YT_` 前缀是历史遗留，**不**代表"只关 YouTube"：
-`YT_THEME` 与 `YT_LANG` 只有 `ting` 读，`YT_ASCII` 由 `ting` 和全部六个引擎脚本读，
-`YT_ASCII_VO` 由 `t-play` 读 —— 而 `ting` 与 `t-play` 都不知道什么是来源。
-`config` 因此按作用域排（suite / player / tui / engine:yt / engine:bili）。
+**作用域写在名字里。** 引擎键是 `TING_<ENGINE>_<KEY>`（`TING_YT_AUDIO_FORMAT`、`TING_BILI_UA`），
+套件键不带引擎段（`TING_THEME`、`TING_LANG`）。`config` 按作用域排（suite / player / tui / engine:yt /
+engine:bili / engine:ne），分组与名字说的是同一件事。
 
 **逐键的语义与默认值住在 `config` 里，一键一行，注释就在值旁边** —— 本节不再复述任何一个键
 的取值或默认：那曾是同一个数字的两份事实，2026-09-01 剪掉（ROADMAP 里那条"语义并进 config 注释"
@@ -923,7 +922,7 @@ search、resolve、`--info`、`--transcript`、`-d`、`--status`、`--stop`、`-
   那个键，四个走同一道闸 —— 在第一次按键时才死，离用户写下的那一行太远。
 - **颜色模式反过来是标志，不是键**：`COLOR_MODE` 在启动时写死为 auto，只有 `--color` 会改它，
   所以一个同名环境值永远不会被读；`NO_COLOR` 被尊重，但那是终端惯例，不是套件的旋钮。
-  主题与背景（`YT_THEME` / `YT_BG`）**是**键，因为它们是设一次的。
+  主题与背景（`TING_THEME` / `TING_BG`）**是**键，因为它们是设一次的。
 - **轮换顺序是产品设计，不是键。** `v`/`o`/`t`/`f`/`r` 各自的顺序写死在 `ting` 里，每个顺序
   为什么这样排，注释就在那个数组旁边；五个 `_CYCLE` 键调的是没人会调的东西，已删。
   `-f`/`-s` 对着引擎的封闭集校验，从不对着 cycle：cycle 可配置的那些年，拿它当值域就会
@@ -938,9 +937,9 @@ search、resolve、`--info`、`--transcript`、`-d`、`--status`、`--stop`、`-
   引擎内部的成本策略，刻意不做成配置键）。放宽其中一个不该顺带放宽另一个。
   一次搜索的行数**上限**（200）是每个引擎自己的常量，不是旋钮：它护的是站方的请求预算
   （bili 一页 20 条，200 即十次请求），那是站点知识，不是用户偏好。
-- **引擎旋钮戴引擎的前缀，而且必须是。** `<ENGINE>_*_FORMAT`、`<ENGINE>_UA`
-  按命令前缀同一条拼接规矩起名（「加一个引擎」），只有**引擎**读。`YT_SUB_LANG_CHAIN` 与
-  `NE_INCLUDE_VIP` 之所以不是 `UT_`：bili 根本没有字幕链，而"要不要看大会员限定的行"只有
+- **引擎旋钮戴引擎段，而且必须是。** `TING_<ENGINE>_*_FORMAT`、`TING_<ENGINE>_UA`
+  按命令前缀同一条拼接规矩起名（「加一个引擎」），只有**引擎**读。`TING_YT_SUB_LANG_CHAIN` 与
+  `TING_NE_INCLUDE_VIP` 之所以不是套件键：bili 根本没有字幕链，而"要不要看大会员限定的行"只有
   网易云这一侧算得出 —— 一个半个套件必须忽略的跨引擎旋钮比没有旋钮更糟，调用方分不出是哪一半。
   **反过来，三家都读、意思也一样的就是套件键**：`UT_COOKIE_BROWSER` 一个人一个浏览器，
   从前三个引擎各一份同义的键已并成它。它仍然只有引擎读，播放器没有任何 cookie 代码路径
@@ -950,10 +949,12 @@ search、resolve、`--info`、`--transcript`、`-d`、`--status`、`--stop`、`-
   一个终端而一次 Linux 移植不该需要第二套布局；播放器的 `$TMPDIR/ting-<uid>` 重启即抹。
   它不是方便旋钮：两个测试套件都设它，不设就会写进用户真实的存储。
 
-**三个前缀，一条时间线，刻意一个都不清算。** `YT_` 是最早那一层：套件早就不只有 YouTube，
-但重命名十来个正在工作的变量，会为了买文档里的一致性而弄坏每一个用户的 shell 配置。
-`UT_` 是第二层，套件还叫 `uting` 时的套件级前缀。`TING_` 是改名之后的正名，**新键只用它**；
-已有的两层原样保留，一个也不废弃。
+**一个前缀，`TING_`。** 从前是五套：`YT_` 最早（而且一身两义 —— `YT_THEME` 属于套件，
+`YT_AUDIO_FORMAT` 属于 YouTube 引擎），`UT_` 是套件还叫 `uting` 时的套件级前缀，`BILI_`、`NE_`
+各是一个引擎的，`TING_` 是改名之后的正名。当初不清算的理由是改名会弄坏用户的配置；
+旧名兜底一个版本、写回时就地改名之后这个代价没了，而一身两义的 `YT_` 与"加一个引擎就要给
+载入块加一个前缀"的代价一直都在。`YT_`/`BILI_`/`NE_` 的键已经改完；`UT_` 的键是下一步，
+在那之前 `UT_X` 与 `TING_X` 照下一段互为别名。
 
 **两个名字同时设时，`TING_` 赢。** 每个入口点在读两个配置文件之前跑一遍镜像：`TING_X` 有值
 就写进 `UT_X`，只有 `UT_X` 有值时才反向补一份 —— 于是照着旧名写的脚本一个字都不用改，而两个
@@ -970,9 +971,10 @@ search、resolve、`--info`、`--transcript`、`-d`、`--status`、`--stop`、`-
 这三条平时没有任何检查会走到 —— 别的检查都把旋钮指向临时目录 —— 所以
 `tests/contract.sh` 专门造一个只放旧拼法的 XDG 根来驱动它们。
 
-**被合并掉的键，旧名兜底一个版本。** `UT_START_RESULTS` 并进了 `UT_SEARCH_RESULTS`，
-`YT_`/`BILI_`/`NE_COOKIE_BROWSER` 并进了 `UT_COOKIE_BROWSER`。载入块在文件里读到旧名就当
-新名收，环境里的旧名只在新名没设时补上 —— 所以写着旧名的用户配置照样生效，而且因为用户那份
+**改名与合并的键，旧名兜底一个版本。** 改名：`YT_THEME` → `TING_THEME` 一类的套件键，
+`YT_AUDIO_FORMAT` → `TING_YT_AUDIO_FORMAT` 一类的引擎键；合并：`UT_START_RESULTS` 并进了
+`UT_SEARCH_RESULTS`，`YT_`/`BILI_`/`NE_COOKIE_BROWSER` 并进了 `UT_COOKIE_BROWSER`。全部旧名 → 新名
+写在载入块里的一张表上（`CFG_RENAMED`）。载入块在文件里读到旧名就当新名收，环境里的旧名只在新名没设时补上 —— 所以写着旧名的用户配置照样生效，而且因为用户那份
 先读，它照样压过出厂默认值；两个名字都在时新名赢。`ting` 写回时再把旧名那一行就地改成新名，
 第一次写回就迁完。
 
@@ -1005,15 +1007,13 @@ Cookie 处理：`UT_COOKIE_BROWSER` 是按平台做存在性检查的（那个�
    （`bili-resolve` 就是这样，yt-dlp 对 B 站任何形态都不给这个键）。
    本站根本没有时间戳语法就恒填 `null` —— 那是合法状态，不是缺口。
    同时检查这个站的 `webpage_url` 会不会把偏移带进 `url`；会的话就剥掉它，且**只剥它**。
-4. **`foo-resolve --auth`** —— cookie 决定读自 `FOO_COOKIE_BROWSER`（引擎名大写，
-   「配置面」），信封按 「数据契约」，且 `auth=="cookie"` 与 `cookie_browser != "none" and profile_found`
+4. **`foo-resolve --auth`** —— cookie 决定读自套件键 `UT_COOKIE_BROWSER`（「配置面」），信封按 「数据契约」，且 `auth=="cookie"` 与 `cookie_browser != "none" and profile_found`
    等价；`cookie_readable` 来自这个引擎自己的 `cookie_probe`。不吃位置参数，拒 `-f`/`--raw`，在依赖门之前作答。
    `tests/contract.sh` 把这几条当作对**每一个被发现的**引擎的不变量来断言，
    所以第三个引擎落地那天它就被覆盖了 —— 不是等谁想起来去加一行。
-5. **旋钮前缀：** 引擎自己的调校一律读 `FOO_*`（引擎名大写 —— cookie、格式、传输，
-   同一条规矩；「配置面」 里 `BILI_*` 那族就是样子）。`UT_*` 是套件级的（`UT_STATE_DIR`、
-   `UT_DEFAULT_ENGINE`、`UT_HISTORY`），引擎不得新增；`YT_*` 是 yt 引擎自己的前缀，
-   外加那批冻结的遗留套件级名字（「配置面」 结尾）—— 它不是模板。
+5. **旋钮前缀：** 引擎自己的调校一律读 `TING_FOO_*`（引擎名大写 —— 格式、传输，
+   同一条规矩；`config` 里 `TING_BILI_*` 那族就是样子），载入块不用改。不带引擎段的是套件键
+   （`UT_STATE_DIR`、`UT_DEFAULT_ENGINE`、`TING_THEME`），引擎不得新增。
 6. **两半都要：** `ENGINE_NAME` 从一个常量印出来；每一个信封（包括错误）里都有 `status` 与
    `engine`；一个信封一行（「数据契约」）；`-V` 在任何依赖门之前回答（「退出码」）；
    门把跨界标志指向正确的动词（「门模型」）。**`--capabilities -j` 两半都要**，

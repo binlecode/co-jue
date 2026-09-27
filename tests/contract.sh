@@ -351,12 +351,16 @@ undo_pane() {
     TS="ctest-undo-$$"
     tmux kill-session -t "$TS" 2>/dev/null
     tmux new-session -d -s "$TS" -x 100 -y 30 \
-        "cd '$PWD' && env YT_SYNC=0 UT_HISTORY=0 TMPDIR='$TMPDIR' UT_STATE_DIR='$UNDO_STATE' TING_STATE_DIR='$UNDO_STATE' UT_CONFIG='$UNDO_CFG' TING_CONFIG='$UNDO_CFG' YT_LANG=en shell/ting --volume 0 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
+        "cd '$PWD' && env TING_SYNC=0 UT_HISTORY=0 TMPDIR='$TMPDIR' UT_STATE_DIR='$UNDO_STATE' TING_STATE_DIR='$UNDO_STATE' UT_CONFIG='$UNDO_CFG' TING_CONFIG='$UNDO_CFG' TING_LANG=en shell/ting --volume 0 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
     undo_up=$(poll_until 40 pane_has "query='")
     report "the undo pane paints a list" 1 "$undo_up"
     if [ "$undo_up" = 1 ]; then
-        # Row numbers on, so "the cursor is on row 2" is a thing the frame can say.
+        # Row numbers on, so "the cursor is on row 2" is a thing the frame can say. Waited out
+        # before b: two different keys queued behind one read are, to ting, an unbracketed
+        # paste of the text "#b" (check_unbracketed_tail), and then neither key happens — the
+        # intermittent chain of failures that started at "b lists the stored list".
         tmux send-keys -t "$TS" '#'
+        poll_until 10 pane_has '^[>▶▎] +1\.' >/dev/null
         tmux send-keys -t "$TS" b
         # Asserted, not waited on blind: every step below rides on this picker, and a poll
         # whose answer was thrown away made a slow picker read as "the list did not open".
@@ -576,7 +580,7 @@ undo_pane() {
         # frame and after z, the two places it appears.
         tmux kill-session -t "$TS" 2>/dev/null
         tmux new-session -d -s "$TS" -x 100 -y 30 \
-            "cd '$PWD' && env YT_SYNC=0 UT_HISTORY=0 TMPDIR='$TMPDIR' UT_STATE_DIR='$UNDO_STATE' TING_STATE_DIR='$UNDO_STATE' UT_CONFIG='$UNDO_CFG' TING_CONFIG='$UNDO_CFG' YT_LANG=zh shell/ting 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
+            "cd '$PWD' && env TING_SYNC=0 UT_HISTORY=0 TMPDIR='$TMPDIR' UT_STATE_DIR='$UNDO_STATE' TING_STATE_DIR='$UNDO_STATE' UT_CONFIG='$UNDO_CFG' TING_CONFIG='$UNDO_CFG' TING_LANG=zh shell/ting 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
         if [ "$(poll_until 40 pane_has "query='")" = 1 ]; then
             tmux send-keys -t "$TS" b
             poll_until 10 pane_has '[0-9]\. undo-list' >/dev/null
@@ -1245,7 +1249,7 @@ NE_SILENT="478507889"
 #   NE_LIST    an official chart, 99 tracks — the number matters: this site returns ALL of a
 #              playlist's ids and only a handful of full records, so a `count` that reaches
 #              `total` here is the batch path having completed the truncated first response.
-#              It needs NE_INCLUDE_VIP=1, because a chart is mostly VIP-only and the default
+#              It needs TING_NE_INCLUDE_VIP=1, because a chart is mostly VIP-only and the default
 #              filter is doing its job when it drops those.
 # No count is asserted as a literal: these are living catalogues, and a red that is someone
 # adding a track is a red nobody can act on.
@@ -1354,7 +1358,7 @@ report "t-play --quality keeps the engine gate" 1 \
 # And the claim is the MESSAGE, not the exit code: every one of these exits 1 and so does the
 # TTY gate a few lines further down the same file, so an exit code alone cannot separate
 # "refused the value" from "refused the pipe" and the check could not fail.
-for spec in UT_PLAY_QUALITY=bogus UT_KEYS=bogus YT_BG=sideways UT_RESOURCE=maybe UT_IMAGE=bogus; do
+for spec in UT_PLAY_QUALITY=bogus UT_KEYS=bogus TING_BG=sideways UT_RESOURCE=maybe UT_IMAGE=bogus; do
     KNOB_OUT=$(env "$spec" shell/ting </dev/null 2>&1 || true)
     case "$KNOB_OUT" in
     *"${spec%%=*}"*) KNOB_HIT=yes ;;
@@ -1562,7 +1566,7 @@ report "…with exit 1"                          1 \
 # The same loop is also the doc's example block executed. Every line there ends at the TTY
 # gate when it is piped, so one assertion covers both claims — and it caught the block's fifth
 # line being wrong: it read `--theme nord --lang zh`, and `--lang` is not a ting flag at all
-# (the chrome language is YT_LANG, cycled live by the `l` key). Nothing had ever run it. The
+# (the chrome language is TING_LANG, cycled live by the `l` key). Nothing had ever run it. The
 # argv below is the corrected line, and the doc now matches it — the CHECK is the authority.
 ting_gate() { # <env assignments and argv…> — which gate answered
     case "$(env "$@" </dev/null 2>&1 || true)" in
@@ -1579,7 +1583,7 @@ report "…search args forwarded"     tty "$(ting_gate shell/ting --engine bili 
 # a different gate in the answer. A ting that checked the tty first would answer `tty` up
 # there too and this pair would say nothing.
 report "…menu args, and -f is legal" tty "$(ting_gate shell/ting -f video --volume 60 "lofi")"
-report "…chrome args"               tty "$(ting_gate YT_LANG=zh shell/ting --theme nord "lofi")"
+report "…chrome args"               tty "$(ting_gate TING_LANG=zh shell/ting --theme nord "lofi")"
 
 # ── WHERE A THIRD-PARTY ENGINE MAY LIVE: three places, one order. `ting` once scanned PATH
 # only when the sibling glob came up empty, which made the one situation an installed
@@ -1630,7 +1634,7 @@ report "…and a name --engine refuses is not one" "$SIBLINGS zz" "$(engines_ver
 # UT_ENGINE_DIR IS REFUSED FROM A CONFIG FILE, and this is the check that says why the name
 # is on that list at all: it points at a directory of EXECUTABLES the suite runs, so a file
 # that could set it would be PATH under another spelling — exactly what「配置面」's prefix rule
-# buys, and what the YT_IPC_SOCK refusal further down protects from the other direction.
+# buys, and what the _TING_IPC_SOCK refusal further down protects from the other direction.
 ENGCFG=$UT_TEST_TMP/engine-dir.config
 printf 'UT_ENGINE_DIR=%s\n' "$PLUG" > "$ENGCFG"
 report "a config file cannot point at engines" "$SIBLINGS" "$(engines_verb UT_CONFIG="$ENGCFG")"
@@ -2254,18 +2258,11 @@ printf 'PATH=/nonexistent\nLD_PRELOAD=/evil.so\nlowercase_key=x\nUT_INJECT=$(tou
 # Asserted through a command that NEEDS its PATH after the file is read: `t-play --status -j`
 # runs jq, so a PATH=/nonexistent that got through would fail it. `ting --version` could not
 # — it answers from a builtin printf, and was green whether the key was inert or not.
-report "a config key outside TING_/UT_/YT_/BILI_/NE_ is inert" "0" \
+report "a config key outside TING_/UT_ is inert" "0" \
     "$(UT_CONFIG="$CFG" rc shell/t-play --status -j)"
 report "command substitution is never executed" "absent" \
     "$([ -e "$CFGD/PWNED" ] && echo present || echo absent)"
 
-# The player's own four. A file-level YT_IPC_SOCK would aim every player at one socket, so it
-# is refused INSIDE an allowed namespace — which is the case a prefix allowlist alone misses.
-# Only survival is asserted here: the socket is chosen on an mpv launch, and nothing in the
-# offline half launches one, so an "the hijack socket was not created" check could not fail.
-printf 'YT_IPC_SOCK=%s/hijack.sock\n' "$CFGD" > "$CFG"
-report "the player still answers with YT_IPC_SOCK set" "0" \
-    "$(UT_CONFIG="$CFG" rc shell/t-play --stop --all -j)"
 
 # UT_VERSION is the constant from VERSION; a config file cannot overwrite it.
 printf 'UT_VERSION=fake\n' > "$CFG"
@@ -2294,10 +2291,16 @@ case "$CFG_OUT" in
 *) CFG_HIT=no ;;
 esac
 report "UT_START_RESULTS in a file reads as UT_SEARCH_RESULTS" yes "$CFG_HIT"
+# RENAMED KEYS take the same road. A theme no gate accepts is the discriminating value: only a
+# loader that renamed the old name reaches the theme gate (mode); one that dropped it starts (tty).
+printf 'YT_THEME=__nope__\n' > "$CFG"
+report "YT_THEME in a file reads as TING_THEME" mode "$(ting_gate UT_CONFIG="$CFG" shell/ting q)"
+report "…and from the environment" mode "$(ting_gate YT_THEME=__nope__ shell/ting q)"
+report "…and the new name wins over it" tty "$(ting_gate YT_THEME=__nope__ TING_THEME=nord shell/ting q)"
 
 # `custom` WAS A THEME, and the t key wrote it into user configs. Such a file must still start:
 # it reads as minimal for one version. Without that, the theme gate answers `mode`, not `tty`.
-printf 'YT_THEME=custom\n' > "$CFG"
+printf 'TING_THEME=custom\n' > "$CFG"
 report "a config still naming custom starts" tty "$(ting_gate UT_CONFIG="$CFG" shell/ting q)"
 # --theme takes ONE name. The membership test is an exact compare over the name list, not a
 # substring of it: "gruvbox onedark" IS a substring of that list and a substring gate would
@@ -2318,10 +2321,10 @@ THEME_USAGE_FLAG=$(printf '%s\n' "$THEME_HELP" | tr '\n' ' ' |
 # names is over 100 columns on one help line, so the env list wraps like the flag's does, and a
 # per-line regex would have read only the first half and called the other half a drift.
 THEME_USAGE_ENV=$(printf '%s\n' "$THEME_HELP" | tr '\n' ' ' |
-    sed -e 's/.*YT_THEME=//' -e 's/ *Palette family.*//' |
+    sed -e 's/.*TING_THEME=//' -e 's/ *Palette family.*//' |
     tr '|' '\n' | tr -d ' ' | grep -v '^$' | sort | tr '\n' ' ')
 report "usage()'s --theme list == the gate's" "$THEME_GATE_SET" "$THEME_USAGE_FLAG"
-report "usage()'s YT_THEME list == the gate's" "$THEME_GATE_SET" "$THEME_USAGE_ENV"
+report "usage()'s TING_THEME list == the gate's" "$THEME_GATE_SET" "$THEME_USAGE_ENV"
 # Not vacuous: the gate set must really hold names, or all three could agree on nothing.
 # Written OUTSIDE the command substitution — on bash 3.2 a case pattern's `)` closes the
 # `$( )`.
@@ -2387,15 +2390,15 @@ else
     # ENGLISH chrome string, and this pane's language comes from whichever config it reads.
     # The export at the top of this file reaches a pane only when THIS run happens to start
     # the tmux server; a developer who already had tmux open gets a server without it, the
-    # pane reads their own config, and a `YT_LANG=zh` in it draws 搜索 where the grep wants
+    # pane reads their own config, and a `TING_LANG=zh` in it draws 搜索 where the grep wants
     # Search — three checks red on their machine and green here (reproduced 2026-09-03 with
-    # `env -u UT_CONFIG tmux -L … new-session`). YT_LANG=en is pinned beside it because the
+    # `env -u UT_CONFIG tmux -L … new-session`). TING_LANG=en is pinned beside it because the
     # config is only one of the two ways the language is decided: blank means auto-detect,
     # so a zh* locale would draw the same 搜索 through an empty file. Both spelled out, the
     # way the TUI section spells its knobs out, so the pane's language is an input.
     tmux kill-session -t "$PS_TS" 2>/dev/null
     tmux new-session -d -s "$PS_TS" -x 80 -y 20 \
-        "UT_STATE_DIR='$PS_STATE' TING_STATE_DIR='$PS_STATE' TMPDIR='$TMPDIR' UT_CONFIG='$UT_CONFIG' TING_CONFIG='$UT_CONFIG' YT_LANG=en UT_HISTORY=0 '$PWD/shell/ting'; echo __GONE__; sleep 5" 2>/dev/null
+        "UT_STATE_DIR='$PS_STATE' TING_STATE_DIR='$PS_STATE' TMPDIR='$TMPDIR' UT_CONFIG='$UT_CONFIG' TING_CONFIG='$UT_CONFIG' TING_LANG=en UT_HISTORY=0 '$PWD/shell/ting'; echo __GONE__; sleep 5" 2>/dev/null
     pasted=0
     i=0
     while [ $i -lt 100 ]; do
@@ -2490,7 +2493,7 @@ if tmux_ok; then
     CK_STATE=$(mktemp -d "${TMPDIR:-/tmp}/ting-cookie.XXXXXX")
     tmux kill-session -t "$CK_TS" 2>/dev/null
     tmux new-session -d -s "$CK_TS" -x 200 -y 20 \
-        "HOME='$CK_BASE/missing' UT_COOKIE_BROWSER=chrome http_proxy='$NOPROXY' https_proxy='$NOPROXY' UT_STATE_DIR='$CK_STATE' TING_STATE_DIR='$CK_STATE' TMPDIR='$TMPDIR' UT_CONFIG='$UT_CONFIG' TING_CONFIG='$UT_CONFIG' YT_LANG=en UT_HISTORY=0 '$PWD/shell/ting' lofi; echo __GONE__; sleep 5" 2>/dev/null
+        "HOME='$CK_BASE/missing' UT_COOKIE_BROWSER=chrome http_proxy='$NOPROXY' https_proxy='$NOPROXY' UT_STATE_DIR='$CK_STATE' TING_STATE_DIR='$CK_STATE' TMPDIR='$TMPDIR' UT_CONFIG='$UT_CONFIG' TING_CONFIG='$UT_CONFIG' TING_LANG=en UT_HISTORY=0 '$PWD/shell/ting' lofi; echo __GONE__; sleep 5" 2>/dev/null
     said=0
     i=0
     while [ $i -lt 200 ]; do
@@ -2533,7 +2536,7 @@ if tmux_ok; then
     CQ_STATE=$(mktemp -d "${TMPDIR:-/tmp}/ting-cookieq.XXXXXX")
     tmux kill-session -t "$CQ_TS" 2>/dev/null
     tmux new-session -d -s "$CQ_TS" -x 200 -y 24 \
-        "HOME='$CK_BASE/missing' UT_COOKIE_BROWSER=chrome UT_STATE_DIR='$CQ_STATE' TING_STATE_DIR='$CQ_STATE' TMPDIR='$TMPDIR' UT_CONFIG='$UT_CONFIG' TING_CONFIG='$UT_CONFIG' YT_LANG=en UT_HISTORY=0 '$PWD/shell/ting' lofi; echo __GONE__; sleep 30" 2>/dev/null && CQ_UP=1
+        "HOME='$CK_BASE/missing' UT_COOKIE_BROWSER=chrome UT_STATE_DIR='$CQ_STATE' TING_STATE_DIR='$CQ_STATE' TMPDIR='$TMPDIR' UT_CONFIG='$UT_CONFIG' TING_CONFIG='$UT_CONFIG' TING_LANG=en UT_HISTORY=0 '$PWD/shell/ting' lofi; echo __GONE__; sleep 30" 2>/dev/null && CQ_UP=1
 fi
 
 # ---- fetch once, assert many, and fetch them ALL AT ONCE ------------------------------
@@ -2623,13 +2626,13 @@ spawn bili-parts   shell/t-play --engine bili --items -j -- "$BILI_PARTS_ID"
 spawn bili-part1   shell/t-play --engine bili --items -j -- "$BILI_ID"
 spawn bili-nopart  shell/t-play --engine bili --items -j -- av999999999999
 spawn bili-route   shell/t-play      --engine bili -j -- BV1111111111
-spawn ne-vip       env NE_INCLUDE_VIP=1 shell/t-play --engine ne --search -j -n 20 -- 周杰伦
+spawn ne-vip       env TING_NE_INCLUDE_VIP=1 shell/t-play --engine ne --search -j -n 20 -- 周杰伦
 spawn ne-trans     shell/t-play --engine ne --transcript -j -- "$NE_LYRIC"
 spawn ne-notrans   shell/t-play --engine ne --transcript -j -- "$NE_SILENT"
 spawn ne-novip     shell/t-play --engine ne --search -j -n 20 -- 周杰伦
 spawn yt-items     shell/t-play --engine yt --items -j -- "$YT_LIST"
 spawn bili-items   shell/t-play --engine bili --items -j -- "$BILI_MENU"
-spawn ne-items     env NE_INCLUDE_VIP=1 shell/t-play --engine ne --items -j -- "$NE_LIST"
+spawn ne-items     env TING_NE_INCLUDE_VIP=1 shell/t-play --engine ne --items -j -- "$NE_LIST"
 spawn ne-items-def shell/t-play --engine ne --items -j -- "$NE_LIST"
 spawn bili-fav     shell/t-play --engine bili --items -j -- "$BILI_FAV"
 spawn bili-season  shell/t-play --engine bili --items -j -- "$BILI_SEASON"
@@ -3074,13 +3077,13 @@ fi
 # on the first line below and goes red.
 #
 # The second line is the DEFAULT FILTER, and it is the same envelope pair read from the other
-# side: with NE_INCLUDE_VIP unset, every row that survives must be playable. That is what
+# side: with TING_NE_INCLUDE_VIP unset, every row that survives must be playable. That is what
 # makes a stored row a CALL rather than a reference — and the two lines cannot both pass
 # unless the filter and the mapping are really wired to each other, since they read the SAME
 # query through the one knob.
 report "ne computes access from the site's own fee" "true" \
     "$(out ne-vip | jq -r '(.results|length) > 0 and any(.results[]; .access != "full")' 2>/dev/null)"
-report "…and NE_INCLUDE_VIP=0 keeps only playable rows" "true" \
+report "…and TING_NE_INCLUDE_VIP=0 keeps only playable rows" "true" \
     "$(out ne-novip | jq -r '(.results|length) > 0 and all(.results[]; .access == "full")' 2>/dev/null)"
 
 report "resolve envelopes agree" \
@@ -3366,18 +3369,19 @@ else
     # A config file of the pane's own. No staged behavior keys: UT_ROW_INDEX and UT_LIST_MODE
     # start unset and are driven by real keystrokes.
     # It is a SYMLINK to the real file to verify the preference write-back preserves symlinks.
-    # Its third line is the result count under its OLD name, at the shipped value so nothing
-    # on screen changes: the write-back must rename that line in place, not append a second.
+    # Its third and fourth lines are a merged and a renamed key under their OLD names, at the
+    # shipped values so nothing on screen changes: the write-back must rename each line in
+    # place, not append a second.
     TUI_CFG="$UT_TEST_TMP/tui-config"
     TUI_CFG_REAL="$UT_TEST_TMP/tui-config.real"
-    printf '%s\n' '# a config a human wrote' 'UT_PLAY_MODE=audio    # keep me' 'UT_START_RESULTS=20' >"$TUI_CFG_REAL"
+    printf '%s\n' '# a config a human wrote' 'UT_PLAY_MODE=audio    # keep me' 'UT_START_RESULTS=20' 'YT_THEME=minimal' >"$TUI_CFG_REAL"
     ln -s "$TUI_CFG_REAL" "$TUI_CFG"
     # UT_SORT_FIELD in the pane's ENVIRONMENT is the discriminating input for the refusal:
     # the environment beats the file at every startup, so a ting that wrote this key would
     # record view_count and then discard it on the next run. The value it would write
     # (view_count) differs from the pinned one (relevance), so the check cannot pass by
     # accident — which is exactly what a file that agreed with the environment would do.
-    # YT_LANG=en pins the pane's CHROME LANGUAGE. Every assertion in this section used to be
+    # TING_LANG=en pins the pane's CHROME LANGUAGE. Every assertion in this section used to be
     # language-neutral by necessity — the default is "zh under a zh* locale, English
     # otherwise", so the pane spoke whichever language the machine did, and a check that named
     # a chrome string would have been green on one host and red on the next. The `i` checks
@@ -3412,7 +3416,7 @@ else
     # UT_, and a pane gets the tmux SERVER's environment, not this shell's — so the `unset` at
     # the top cannot reach it, and a server started from a shell that exported TING_CONFIG or
     # TING_STATE_DIR would have walked this pane's R and D y onto the user's own playlists.
-    TUI_CMD="cd '$PWD' && env -u NO_COLOR YT_SYNC=0 UT_IMAGE=on TMPDIR='$TMPDIR' UT_STATE_DIR='$TUI_STATE' TING_STATE_DIR='$TUI_STATE' UT_CONFIG='$TUI_CFG' TING_CONFIG='$TUI_CFG' UT_SORT_FIELD=relevance YT_LANG=en shell/ting 'lofi hip hop'"
+    TUI_CMD="cd '$PWD' && env -u NO_COLOR TING_SYNC=0 UT_IMAGE=on TMPDIR='$TMPDIR' UT_STATE_DIR='$TUI_STATE' TING_STATE_DIR='$TUI_STATE' UT_CONFIG='$TUI_CFG' TING_CONFIG='$TUI_CFG' UT_SORT_FIELD=relevance TING_LANG=en shell/ting 'lofi hip hop'"
     TUI_CMD="$TUI_CMD"'; printf "RC=%s\n" $?'
     TUI_CMD="$TUI_CMD"'; stty -a </dev/tty | tr " " "\n" | grep -E "^-?(echo|icanon)$" | tr "\n" " " | sed "s/^/FLAGS= /"; echo; sleep 20'
     tmux new-session -d -s "$TS" -x 100 -y 30 "$TUI_CMD"
@@ -3624,6 +3628,7 @@ else
     report "the count lands in its own key" 1 "$appended"
     report "…renamed in place from its old name" UT_SEARCH_RESULTS=20 "$(sed -n 3p "$TUI_CFG")"
     report "…which is gone" 0 "$(grep -c '^UT_START_RESULTS' "$TUI_CFG")"
+    report "a renamed key's line is renamed in place too" TING_THEME "$(sed -n 4p "$TUI_CFG" | cut -d= -f1)"
     report "and not in the step key" 0 "$(grep -c '^UT_FETCH_BATCH' "$TUI_CFG")"
 
     # ---- the page counter across a tier change, and keys that arrive as one burst --------
@@ -3689,7 +3694,7 @@ else
     # is the ROTATION — a key wired to set one value passes the first check and fails the
     # second — and because the third has to bring the default back, which spends no width at
     # all (the rule quality= and min=/max= already follow). This pane's chrome is pinned to
-    # English by YT_LANG, so naming the segment is safe here.
+    # English by TING_LANG, so naming the segment is safe here.
     tmux send-keys -t "$TS" 'r'
     shown=$(poll_until 10 pane_has 'loop seq')
     report "r puts the loop mode on the status line" 1 "$shown"
@@ -3738,7 +3743,7 @@ else
     # anyone quitting the app.
     # The count is read by pane_results (defined above) as a SEGMENT — `40 results`, not
     # `results=40`. The unit word is what keeps it from matching any other number on the line,
-    # and YT_LANG=en (pinned in TUI_CMD) is what makes naming that word safe here.
+    # and TING_LANG=en (pinned in TUI_CMD) is what makes naming that word safe here.
     tmux send-keys -t "$TS" v
     wrote=$(poll_until 10 cfg_has '^UT_PLAY_MODE=video')
     report "v writes the mode to your config" 1 "$wrote"
@@ -4155,7 +4160,7 @@ else
         cp -R shell config VERSION "$RL_BASE/inst/"
         tmux kill-session -t "$TS" 2>/dev/null
         tmux new-session -d -s "$TS" -x 100 -y 30 \
-            "env PATH='$1' YT_SYNC=0 UT_HISTORY=0 TMPDIR='$TMPDIR' UT_STATE_DIR='$RL_BASE/state' TING_STATE_DIR='$RL_BASE/state' UT_CONFIG='$RL_BASE/cfg' TING_CONFIG='$RL_BASE/cfg' YT_LANG=en '$RL_BASE/inst/shell/ting' --volume 0 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
+            "env PATH='$1' TING_SYNC=0 UT_HISTORY=0 TMPDIR='$TMPDIR' UT_STATE_DIR='$RL_BASE/state' TING_STATE_DIR='$RL_BASE/state' UT_CONFIG='$RL_BASE/cfg' TING_CONFIG='$RL_BASE/cfg' TING_LANG=en '$RL_BASE/inst/shell/ting' --volume 0 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
         poll_until 40 pane_has "query='" >/dev/null
         tmux send-keys -t "$TS" Enter
         [ "$(poll_until 40 pane_has 'Playing: ')" = 1 ] || return 1
@@ -4197,7 +4202,7 @@ else
     ADOPT_STATE=$(mktemp -d "${TMPDIR:-/tmp}/ting-adopt.XXXXXX")
     # An EMPTY config, and empty is the point: it stages nothing, it is only somewhere for the
     # pane's preference write-back to land that is not the developer's real file — the same
-    # isolation UT_STATE_DIR gives the stores. YT_LANG=en beside it because three checks below
+    # isolation UT_STATE_DIR gives the stores. TING_LANG=en beside it because three checks below
     # name an English chrome string, and a blank config would let the machine's locale decide.
     ADOPT_CFG="$UT_TEST_TMP/adopt-config"
     : >"$ADOPT_CFG"
@@ -4215,7 +4220,7 @@ else
     adopt_boot() {
         tmux kill-session -t "$ADOPT_TS" 2>/dev/null
         tmux new-session -d -s "$ADOPT_TS" -x 100 -y 30 \
-            "cd '$PWD' && env YT_SYNC=0 UT_HISTORY=0 TMPDIR='$TMPDIR' UT_STATE_DIR='$ADOPT_STATE' TING_STATE_DIR='$ADOPT_STATE' UT_CONFIG='$ADOPT_CFG' TING_CONFIG='$ADOPT_CFG' YT_LANG=en shell/ting 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
+            "cd '$PWD' && env TING_SYNC=0 UT_HISTORY=0 TMPDIR='$TMPDIR' UT_STATE_DIR='$ADOPT_STATE' TING_STATE_DIR='$ADOPT_STATE' UT_CONFIG='$ADOPT_CFG' TING_CONFIG='$ADOPT_CFG' TING_LANG=en shell/ting 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
         # The header's own count word, the same first-frame marker the section above waits on:
         # the spinner line that precedes it says `searching "…"` and never `results`.
         poll_until 40 pane_has 'results'
@@ -4403,7 +4408,7 @@ else
         TS="ctest-parts-$$"          # the helpers above read $TS; the first session is gone
         tmux kill-session -t "$TS" 2>/dev/null
         tmux new-session -d -s "$TS" -x 100 -y 30 \
-            "cd '$PWD' && env YT_SYNC=0 TMPDIR='$TMPDIR' UT_STATE_DIR='$PTS_STATE' TING_STATE_DIR='$PTS_STATE' UT_CONFIG='$PTS_CFG' TING_CONFIG='$PTS_CFG' YT_LANG=en shell/ting --engine $PARTS_ENG -n 10 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
+            "cd '$PWD' && env TING_SYNC=0 TMPDIR='$TMPDIR' UT_STATE_DIR='$PTS_STATE' TING_STATE_DIR='$PTS_STATE' UT_CONFIG='$PTS_CFG' TING_CONFIG='$PTS_CFG' TING_LANG=en shell/ting --engine $PARTS_ENG -n 10 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
         up=$(poll_until 30 pane_has "query='")
         if [ "$up" != 1 ]; then
             report "the parts pane came up" 1 "$up"

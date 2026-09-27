@@ -59,12 +59,24 @@ if [[ -z "$TING_CONFIG" ]]; then
     fi
 fi
 UT_CONFIG="$TING_CONFIG"
-for _v in STATE_DIR ENGINE_DIR HISTORY THEME VOLUME LANG IMAGE KEYS RESOURCE ASCII SYNC PLAY_QUALITY VIZ_STYLE VIZ_COLOR DEFAULT_ENGINE; do
+for _v in STATE_DIR ENGINE_DIR HISTORY VOLUME IMAGE KEYS RESOURCE PLAY_QUALITY VIZ_STYLE VIZ_COLOR DEFAULT_ENGINE; do
     eval "[[ -n \"\${TING_$_v+x}\" ]] && UT_$_v=\"\$TING_$_v\" || true"
     eval "[[ -n \"\${UT_$_v+x}\" && -z \"\${TING_$_v+x}\" ]] && TING_$_v=\"\$UT_$_v\" || true"
 done
-# Merged keys: the old name still reads, one version, into the key that replaced it.
-for _v in UT_START_RESULTS:UT_SEARCH_RESULTS YT_COOKIE_BROWSER:UT_COOKIE_BROWSER BILI_COOKIE_BROWSER:UT_COOKIE_BROWSER NE_COOKIE_BROWSER:UT_COOKIE_BROWSER; do
+# Renamed and merged keys, OLD:NEW. The old name still reads, one version, into the key that
+# replaced it: from the environment here, from a file in ut_read_config, and ting's write-back
+# renames the line in place. Lower-level than a knob, so it is not spelled with a key prefix.
+CFG_RENAMED="UT_START_RESULTS:UT_SEARCH_RESULTS YT_COOKIE_BROWSER:UT_COOKIE_BROWSER \
+    BILI_COOKIE_BROWSER:UT_COOKIE_BROWSER NE_COOKIE_BROWSER:UT_COOKIE_BROWSER YT_THEME:TING_THEME \
+    YT_LANG:TING_LANG YT_ASCII:TING_ASCII YT_ASCII_VO:TING_ASCII_VO \
+    YT_MPV_INPUT_CONF:TING_MPV_INPUT_CONF YT_BG:TING_BG YT_SYNC:TING_SYNC \
+    YT_AMBIG_WIDE:TING_AMBIG_WIDE YT_AUDIO_FORMAT:TING_YT_AUDIO_FORMAT \
+    YT_VIDEO_FORMAT:TING_YT_VIDEO_FORMAT YT_VIDEO_FORMAT_FAST:TING_YT_VIDEO_FORMAT_FAST \
+    YT_SUB_LANG_CHAIN:TING_YT_SUB_LANG_CHAIN BILI_AUDIO_FORMAT:TING_BILI_AUDIO_FORMAT \
+    BILI_VIDEO_FORMAT:TING_BILI_VIDEO_FORMAT BILI_VIDEO_FORMAT_FAST:TING_BILI_VIDEO_FORMAT_FAST \
+    BILI_UA:TING_BILI_UA BILI_BUVID:TING_BILI_BUVID NE_AUDIO_FORMAT:TING_NE_AUDIO_FORMAT \
+    NE_UA:TING_NE_UA NE_INCLUDE_VIP:TING_NE_INCLUDE_VIP"
+for _v in $CFG_RENAMED; do
     eval "[[ -n \"\${${_v%%:*}+x}\" && -z \"\${${_v#*:}+x}\" ]] && ${_v#*:}=\"\$${_v%%:*}\" || true"
 done
 UT_DEFAULTS="$SCRIPT_DIR/../config"
@@ -80,13 +92,16 @@ ut_read_config() {
         val="${line#*=}"
         while [[ "$key" == *[[:space:]] ]]; do key="${key%[[:space:]]}"; done
         while [[ "$val" == [[:space:]]* ]]; do val="${val#[[:space:]]}"; done
-        [[ "$key" =~ ^(TING|UT|YT|BILI|NE)_[A-Z0-9_]+$ ]] || continue
-        case "$key" in
-        TING_CONFIG | TING_DEFAULTS | TING_ENGINE_DIR | TING_VERSION | UT_CONFIG | UT_DEFAULTS | UT_ENGINE_DIR | UT_VERSION | YT_IPC_SOCK | YT_DETACHED | YT_PLAYER_ID | YT_DETACHED_LOG) continue ;;
+        case " $CFG_RENAMED " in
+        *" $key:"*)
+            _ut_k=" $CFG_RENAMED"
+            _ut_k="${_ut_k#* $key:}"
+            key="${_ut_k%% *}"
+            ;;
         esac
+        [[ "$key" =~ ^(TING|UT)_[A-Z0-9_]+$ ]] || continue
         case "$key" in
-        UT_START_RESULTS) key=UT_SEARCH_RESULTS ;;
-        YT_COOKIE_BROWSER | BILI_COOKIE_BROWSER | NE_COOKIE_BROWSER) key=UT_COOKIE_BROWSER ;;
+        TING_CONFIG | TING_DEFAULTS | TING_ENGINE_DIR | TING_VERSION | UT_CONFIG | UT_DEFAULTS | UT_ENGINE_DIR | UT_VERSION) continue ;;
         esac
         if [[ ${#val} -ge 2 ]] && { [[ "$val" == \"*\" ]] || [[ "$val" == \'*\' ]]; }; then
             val="${val#?}"
@@ -97,19 +112,16 @@ ut_read_config() {
             _ut_k="UT_${key#TING_}"
             eval "[[ -n \"\${$key+x}\" ]] || $key=\$val"
             eval "[[ -n \"\${$_ut_k+x}\" ]] || $_ut_k=\$val"
-        elif [[ "$key" == UT_* ]]; then
+        else
             _ting_k="TING_${key#UT_}"
             eval "[[ -n \"\${$key+x}\" ]] || $key=\$val"
             eval "[[ -n \"\${$_ting_k+x}\" ]] || $_ting_k=\$val"
-        else
-            eval "[[ -n \"\${$key+x}\" ]]" && continue
-            eval "$key=\$val"
         fi
     done < "$file"
 }
 # FAIL FAST AND SAY WHY. There is deliberately no escape hatch for --version or --help: they
 # were tried, and letting execution continue past a missing defaults file replaced this one
-# clear line with `YT_ASCII_VO: unbound variable` from set -u somewhere further down. A
+# clear line with `TING_ASCII_VO: unbound variable` from set -u somewhere further down. A
 # checkout missing part of itself is not a dependency gate — it is a broken checkout, and 2 is
 # the exit code for a failure that is not the caller's usage error.
 if [[ ! -r "$UT_DEFAULTS" ]]; then
@@ -240,13 +252,13 @@ SUB_LANG=""
 #
 # ENGINE-SPECIFIC, and it has to be: Bilibili carries no caption track at all. A cross-engine
 # spelling would be a knob half the suite must ignore. ARCH-cli-contract.md「配置面」.
-SUB_LANG_CHAIN="$YT_SUB_LANG_CHAIN"
+SUB_LANG_CHAIN="$TING_YT_SUB_LANG_CHAIN"
 
-# Glyph fallback shares ONE switch with ting (YT_ASCII): a
+# Glyph fallback shares ONE switch with ting (TING_ASCII): a
 # terminal whose font can't draw ♫ can't draw it in either surface, and a non-UTF-8 locale
 # (bare cron/launchd) would emit mojibake. Empty = drop the glyph, as ting does.
 MUSIC_CHAR="♫"
-case "${YT_ASCII:-}" in
+case "${TING_ASCII:-}" in
 1 | true | yes | on) MUSIC_CHAR="" ;;
 "")
     case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
@@ -998,10 +1010,10 @@ search_run() {
 # and the player must never learn to read one. t-play sends a MODE and gets back bytes.
 format_for_mode() {
     case "$1" in
-    video) echo "$YT_VIDEO_FORMAT" ;;
-    fast) echo "$YT_VIDEO_FORMAT_FAST" ;;
-    ascii) echo "$YT_VIDEO_FORMAT" ;;
-    *) echo "$YT_AUDIO_FORMAT" ;; # audio, viz
+    video) echo "$TING_YT_VIDEO_FORMAT" ;;
+    fast) echo "$TING_YT_VIDEO_FORMAT_FAST" ;;
+    ascii) echo "$TING_YT_VIDEO_FORMAT" ;;
+    *) echo "$TING_YT_AUDIO_FORMAT" ;; # audio, viz
     esac
 }
 
@@ -1659,8 +1671,8 @@ Exactly one verb per call. A modifier belongs to one verb and is refused next to
 Exit codes: 0 ok · 1 usage/validation · 2+ a missing dependency, or a propagated
             yt-dlp failure (see .reason)
 
-Environment: UT_COOKIE_BROWSER (default chrome; "none" = anonymous), YT_AUDIO_FORMAT,
-  YT_VIDEO_FORMAT, YT_VIDEO_FORMAT_FAST, YT_SUB_LANG_CHAIN — defaults in <checkout>/config,
+Environment: UT_COOKIE_BROWSER (default chrome; "none" = anonymous), TING_YT_AUDIO_FORMAT,
+  TING_YT_VIDEO_FORMAT, TING_YT_VIDEO_FORMAT_FAST, TING_YT_SUB_LANG_CHAIN — defaults in <checkout>/config,
   see ARCH-cli-contract.md「配置面」.
 EOF
 }

@@ -256,7 +256,7 @@ ROADMAP 那条 Go 重写 NO 的全部账**：收益只剩"删渲染负债"，分
   除非经由播放器已经公布出来的那个 socket。（ARCH-cli-contract.md「门模型」）
 - **TUI 里不用 emoji**：一份封闭的字形库存，全部文本呈现，宽度表因此**精确**
   而不只是保守。**一个新字形先进宽度表，而且要进对的那一张** —— EastAsianWidth 把盒绘块
-  从中间劈开（满长横线 Ambiguous，重半线 Neutral），进错表的字形会在 `YT_AMBIG_WIDE=1` 下
+  从中间劈开（满长横线 Ambiguous，重半线 Neutral），进错表的字形会在 `TING_AMBIG_WIDE=1` 下
   多占一格、把它所在那一行顶出被测量的宽度，而那是一行 reflow 不知道的高度。（ARCH-tui.md）
 - **chrome 收在两端，中间全是内容。** 一帧是三段：上带（标题与状态、横幅、进度条）、行、
   下带（详情、键位块）。下带有两个高度可变的成员，所以测量必须是一条链而不是一个环 ——
@@ -560,7 +560,7 @@ ARCH-engine.md「搜索子系统」（一个引擎自己的时长规矩住在那
    │        IS_HANDLE：
    │           DETACH      → detach_play      （后台）
    │           OUTPUT=json → play_url_json    （结构化）
-   │           detached 子进程（YT_DETACHED）→ detached_child_loop（队列循环，不返回）
+   │           detached 子进程（_TING_DETACHED）→ detached_child_loop（队列循环，不返回）
    │           否则        → play_url_directly（散文）
    │        否则 → die "'<x>' 不是一个视频 id 或 URL —— 用
    │                    '<engine>-search -- <x>' 去搜它"
@@ -669,7 +669,7 @@ ARCH-cli-contract.md「数据契约」）。`bili-resolve` 根本没有 `--trans
              └── 发出 {status:"started", id, pid, sock, log, title:null} 然后**退出**
                         │
                         ▼
-   进程 2 ：t-play（YT_DETACHED=1、YT_PLAYER_ID=<id>、YT_IPC_SOCK=<sock>）
+   进程 2 ：t-play（_TING_DETACHED=1、_TING_PLAYER_ID=<id>、_TING_IPC_SOCK=<sock>）
             → 进 detached_child_loop（一个播放器消费一条队列 —— 单句柄就是
             长度 1 的队列，ARCH-player.md「队列」）：每一首走上面的 B，自己回填自己的
             记录（patch_player_meta —— 不是一个后台兄弟进程，ARCH-player.md「进程组模型」），
@@ -891,7 +891,7 @@ ARCH-cli-contract.md「命令规格」）与 `-j`（结构化结果），
 | 停止之后留下还在响的孤儿 mpv | 对**进程组**下手，不走 PID 树（pgid 在改挂父进程时不变） | ARCH-player.md「进程组模型」 |
 | 一条 pid 写坏的记录把 `--stop` 变成自杀：`pgrep -g 0` 与 `kill -TERM 0` 指的都是**调用者自己**的进程组 | 发信号前先过 `is_live_pid`：正整数才发，0／负数／非数字一个信号都不发 | ARCH-player.md「进程组模型」 |
 | 一个被捕获的 `-d` stdout 阻塞在某个后台作业上 | detach 路径上没有后台作业；未来任何 `… &` 必须自己关掉 fd | ARCH-player.md「进程组模型」 |
-| 长命 detached 播放器的 mpv 状态行把磁盘写满 | `YT_DETACHED` → 子进程里把日志钉在有界大小 | ARCH-player.md「进程组模型」 |
+| 长命 detached 播放器的 mpv 状态行把磁盘写满 | `_TING_DETACHED` → 子进程里把日志钉在有界大小 | ARCH-player.md「进程组模型」 |
 | 别的进程连上某个播放器的 IPC socket | `STATE_DIR/players` 0700；Linux 回退到 `/tmp` 时钉住权限 | ARCH-player.md「运行时 IPC」 |
 | 并发的元数据回填与 `--set-volume` 互相覆盖同一份记录 | 按 id 的 `mkdir` 锁串行化两次 temp+mv，回填另加 pid 守卫 | ARCH-player.md「运行时 IPC」 |
 | 客户端在 `--status` 背后经 socket 改了音量，记录从此说谎 | `--status` 从 socket **活读**，记录值只作兜底 | ARCH-player.md「运行时 IPC」 |
