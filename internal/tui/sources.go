@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -812,11 +811,10 @@ func (m *Model) undoShowPlaylist(w *verb.Written) {
 
 // ── URL targets ─────────────────────────────────────────────────────────────────────────
 
-var bareURL = regexp.MustCompile(`^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+/\S*$`)
-
 // urlTarget is a pasted or typed text's URL, if it is one: the first http(s):// run (quotes
-// and brackets off), or a single token shaped like host/path. Which site it names is not
-// this file's knowledge; ting-play routes a URL to its engine.
+// and brackets off), or a single token starting www. Nothing else: a query like lofi.mix/2024
+// is shaped like host/path and is a search. Which site a URL names is not this file's
+// knowledge; ting-play routes a URL to its engine.
 func urlTarget(s string) string {
 	s = strings.Trim(strings.TrimSpace(s), `"'`)
 	for _, scheme := range []string{"https://", "http://"} {
@@ -828,7 +826,7 @@ func urlTarget(s string) string {
 			return u
 		}
 	}
-	if bareURL.MatchString(s) || strings.HasPrefix(s, "www.") && !strings.ContainsAny(s, " \t") {
+	if strings.HasPrefix(s, "www.") && !strings.ContainsAny(s, " \t") {
 		return s
 	}
 	return ""

@@ -134,13 +134,11 @@ TING_ROW_INDEX=off                  # on|off: print each row's ordinal in front 
                                     # live and writes it back here
 TING_THEME=minimal                  # palette family; --theme overrides, t cycles live
 TING_BG=auto                        # auto | light | dark
-TING_SYNC=auto                      # synchronised redraw: 0 | 1 | auto (off under tmux)
 TING_IMAGE=auto                     # auto | on | off: the focused row's cover art, drawn
                                     # with the terminal's own graphics protocol. auto asks
                                     # the terminal whether it speaks it and stays off under
                                     # tmux (a multiplexer has to pass the escape through and
-                                    # commonly does not) — the same default TING_SYNC takes,
-                                    # for the same reason. on forces it for a user who has
+                                    # commonly does not). on forces it for a user who has
                                     # configured passthrough themselves; off sends no byte.
                                     # A row whose engine gave no cover simply has none —
                                     # the layout does not change either way

@@ -84,7 +84,7 @@ func run(m *Model, cmd tea.Cmd) {
 		for _, c := range msg {
 			run(m, c)
 		}
-	case searchDoneMsg, authMsg, playDoneMsg, verbDoneMsg, noticeMsg, volDoneMsg:
+	case searchDoneMsg, authMsg, playDoneMsg, verbDoneMsg, noticeMsg, volDoneMsg, urlMsg:
 		_, next := m.Update(msg)
 		run(m, next)
 	}
@@ -309,6 +309,56 @@ func TestCoverFitsTheBox(t *testing.T) {
 		}
 		if img.cols < 1 || img.cols > coverCols {
 			t.Errorf("%s: the cover takes %d columns, the box is %d", e.Name, img.cols, coverCols)
+		}
+	}
+}
+
+// A miss is asked again only when it was the network's: nothing listening is, a thumbnail the
+// CDN says does not exist is not.
+func TestCoverMissRetriesOnlyTheNetwork(t *testing.T) {
+	if _, retry := loadCover(context.Background(), "http://127.0.0.1:1/cover.jpg", 16, 36); !retry {
+		t.Error("a refused connection is final; it should be asked again")
+	}
+	if testing.Short() {
+		t.Skip("a real 404: network")
+	}
+	if img, retry := loadCover(context.Background(), "https://i.ytimg.com/vi/zzzzzzzzzzz/hq720.jpg", 16, 36); img != nil || retry {
+		t.Errorf("a 404 gave img=%v retry=%v; it should be final", img != nil, retry)
+	}
+}
+
+// A URL's one row has no query behind it: o, e and more have nothing to re-fetch, and e only
+// picks the engine the next search uses — none of them sends the URL to a search.
+func TestURLRowIsNotASearch(t *testing.T) {
+	u := "https://www.youtube.com/watch?v=jNQXAC9IVRw"
+	m := model(t, Options{Query: u, Search: verb.SearchOpts{N: 10}, Batch: 10})
+	start(t, m)
+	eng := m.opt.Engine
+	for _, k := range []string{"o", "e", "down"} {
+		key(m, k)
+		if m.busy != "" || m.noticeL != "" || len(m.rows) != 1 || m.query != u {
+			t.Fatalf("%s after a URL: busy %q, notice %q %q, %d rows, query %q", k, m.busy, m.noticeL, m.noticeT, len(m.rows), m.query)
+		}
+	}
+	if m.opt.Search.Sort != "relevance" {
+		t.Errorf("o moved the sort to %q with nothing to sort", m.opt.Search.Sort)
+	}
+	if len(m.opt.Engines) > 1 && m.opt.Engine == eng {
+		t.Error("e did not pick the next engine")
+	}
+}
+
+func TestURLTargetIsSchemeOrWWW(t *testing.T) {
+	for in, want := range map[string]string{
+		"https://youtu.be/jNQXAC9IVRw":        "https://youtu.be/jNQXAC9IVRw",
+		"look: (https://b23.tv/abc) thanks":   "https://b23.tv/abc",
+		"www.youtube.com/watch?v=jNQXAC9IVRw": "www.youtube.com/watch?v=jNQXAC9IVRw",
+		"lofi.mix/2024":                       "",
+		"youtu.be/jNQXAC9IVRw":                "",
+		"www. is a word in this query":        "",
+	} {
+		if got := urlTarget(in); got != want {
+			t.Errorf("urlTarget(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

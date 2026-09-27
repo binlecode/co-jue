@@ -270,9 +270,6 @@ func main() {
 	if !ok || batch < 1 {
 		die(1, "TING_FETCH_BATCH must be a positive integer")
 	}
-	if sy := cfg.Value("TING_SYNC"); sy != "" && !oneOf(sy, "0", "1", "auto") {
-		die(1, "TING_SYNC must be 0, 1 or auto (got '%s')", sy)
-	}
 	ambig := cfg.Value("TING_AMBIG_WIDE") == "1"
 	lang, ok := tui.DetectLang(cfg.Value("TING_LANG"), os.Getenv)
 	if !ok {

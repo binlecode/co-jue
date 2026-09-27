@@ -62,7 +62,7 @@ func (m *Model) statusItems() []string {
 		if len(m.all) > 0 {
 			eng = engines(m.all)
 		}
-		it = []string{m.pillText(eng), strconv.Itoa(len(m.rows)) + " " + m.s.UResults, sort}
+		it = []string{eng, strconv.Itoa(len(m.rows)) + " " + m.s.UResults, sort}
 		switch m.auth {
 		case "":
 		case "anon":
@@ -82,7 +82,7 @@ func (m *Model) statusItems() []string {
 		case srcParts:
 			unit = m.s.PartsKey
 		}
-		it = []string{m.pillText(engines(m.all)), strconv.Itoa(len(m.rows)) + " " + unit}
+		it = []string{engines(m.all), strconv.Itoa(len(m.rows)) + " " + unit}
 		if m.src == srcParts && m.totalFmt != "" {
 			it = append(it, m.s.Total+" "+m.totalFmt)
 		}
@@ -121,30 +121,13 @@ func (m *Model) statusItems() []string {
 	return it
 }
 
+// statusLine renders the status items, dim, the engine first like any other.
+func (m *Model) statusLine(items []string) string {
+	return m.p.Dim + strings.Join(items, " "+m.g.Sep+" ") + m.p.Reset
+}
+
 // queue is the running player's queue (pos, len), from whichever said it last: an event or
 // the envelope of the verb that changed it.
-// pillText is the engine field as measured: a name on a ground carries a cell of padding
-// on each side.
-func (m *Model) pillText(name string) string {
-	if o, _ := m.p.pill(name); o != "" {
-		return " " + name + " "
-	}
-	return name
-}
-
-// statusLine renders the status items, the first (the engine) on its pill.
-func (m *Model) statusLine(items []string) string {
-	sep := " " + m.g.Sep + " "
-	out := make([]string, len(items))
-	copy(out, items)
-	if len(out) > 0 {
-		if o, c := m.p.pill(strings.TrimSpace(out[0])); o != "" {
-			out[0] = o + out[0] + c + m.p.Dim
-		}
-	}
-	return m.p.Dim + strings.Join(out, sep) + m.p.Reset
-}
-
 func (m *Model) queue() *[2]int {
 	if m.playerID == "" {
 		return nil
@@ -916,5 +899,5 @@ func (m *Model) coverLoading() bool {
 		return false
 	}
 	u := m.rows[m.cursor].Thumb
-	return u != "" && m.cover.done[u] == nil && !m.cover.failed[u]
+	return u != "" && m.cover.done[u] == nil && !m.cover.missed(u)
 }

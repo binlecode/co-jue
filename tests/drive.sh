@@ -128,7 +128,7 @@ trap 'exit 130' INT TERM
 # default. Verified by driving TING_STATE_DIR: the pane reported an empty store while the same
 # variable listed four playlists outside tmux.
 #
-# TING_SYNC=0 (tmux and DCS frame sync do not mix), TMPDIR and TING_CONFIG are placed AFTER
+# TMPDIR and TING_CONFIG are placed AFTER
 # the forwarded block so the driver's own choice wins over an inherited one — TMPDIR because
 # the isolation above is not negotiable, and it is not a TING_* name so it is never forwarded
 # anyway; TING_CONFIG because a forwarded one would put the pane's writes back on the real file,
@@ -149,7 +149,7 @@ while IFS= read -r line; do
 done < <(env)
 
 tmux new-session -d -s "$S" -x "$COLS" -y "$ROWS" \
-    "cd '$PWD' && TING_HISTORY=0$env_prefix TMPDIR='$TMPDIR' TING_CONFIG='$DRIVE_CFG' TING_SYNC=0 shell/.ting-go '$QUERY'"
+    "cd '$PWD' && TING_HISTORY=0$env_prefix TMPDIR='$TMPDIR' TING_CONFIG='$DRIVE_CFG' shell/.ting-go '$QUERY'"
 
 # Wait on the ready MARKER, never on a sleep: a captured spinner frame is a picture of the
 # loading state, not of the layout. A cold yt-dlp search takes ~10s.

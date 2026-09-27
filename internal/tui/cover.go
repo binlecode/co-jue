@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"image"
 	_ "image/jpeg"
@@ -33,6 +34,7 @@ const (
 	coverMinRows  = 4
 	coverID       = 99
 	coverMaxBytes = 8 << 20
+	coverRetry    = 30 * time.Second
 )
 
 // Cover is what the terminal can draw: on, and its cell size in pixels (asked, not assumed:
@@ -129,24 +131,36 @@ type coverImg struct {
 }
 
 type coverMsg struct {
-	url string
-	img *coverImg
+	url   string
+	img   *coverImg
+	retry bool // the miss was the network's, not the cover's
 }
 
 // coverState is the session's covers: one fetch in flight at most (held j flies past nine
-// rows nobody looks at), the ones decoded, and the ones not gettable — tried once, never again.
+// rows nobody looks at), the ones decoded, and the ones missed. A cover the server refused or
+// that does not decode is never asked again; one whose fetch stalled or errored is asked
+// again when its row is focused coverRetry later — one engine's CDN stalls now and then.
 type coverState struct {
 	on       bool
 	cw, ch   int
 	done     map[string]*coverImg
-	failed   map[string]bool
+	failed   map[string]time.Time // when it may be asked again; zero is never
 	inFlight string
 }
 
 func (c *coverState) fetch(ctx context.Context, url string) tea.Cmd {
 	cw, ch := c.cw, c.ch
 	c.inFlight = url
-	return func() tea.Msg { return coverMsg{url: url, img: loadCover(ctx, url, cw, ch)} }
+	return func() tea.Msg {
+		img, retry := loadCover(ctx, url, cw, ch)
+		return coverMsg{url: url, img: img, retry: retry}
+	}
+}
+
+// missed is whether url has no cover for now.
+func (c *coverState) missed(url string) bool {
+	t, ok := c.failed[url]
+	return ok && (t.IsZero() || time.Now().Before(t))
 }
 
 // coverClient offers only the classic key exchanges. Go's default adds the post-quantum
@@ -159,15 +173,25 @@ var coverClient = &http.Client{Transport: &http.Transport{
 }}
 
 // loadCover is one cover or none: a row whose thumbnail does not arrive or does not decode
-// simply has no cover, and is not asked again.
-func loadCover(ctx context.Context, url string, cw, ch int) *coverImg {
+// simply has no cover. retry is whether the miss may pass: a transport error, a timeout, a
+// 5xx or a 429 — not a 4xx, and not bytes that do not decode.
+func loadCover(ctx context.Context, url string, cw, ch int) (img *coverImg, retry bool) {
 	b, err := fetchCover(ctx, url)
 	if err != nil {
-		return nil
+		var st statusError
+		if errors.As(err, &st) {
+			return nil, st >= 500 || st == http.StatusTooManyRequests
+		}
+		return nil, true
 	}
-	img, _ := fitCover(b, cw, ch)
-	return img
+	img, _ = fitCover(b, cw, ch)
+	return img, false
 }
+
+// statusError is a reply that was not 200.
+type statusError int
+
+func (e statusError) Error() string { return http.StatusText(int(e)) }
 
 func fetchCover(ctx context.Context, url string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -182,7 +206,7 @@ func fetchCover(ctx context.Context, url string) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("%s: %s", url, resp.Status)
+		return nil, statusError(resp.StatusCode)
 	}
 	return io.ReadAll(io.LimitReader(resp.Body, coverMaxBytes))
 }

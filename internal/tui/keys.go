@@ -109,7 +109,7 @@ func (m *Model) updateList(k tea.KeyMsg) tea.Cmd {
 	case "t", "T":
 		// No-op with colours off: --color never and NO_COLOR are not repainted mid-session.
 		if m.opt.Colors {
-			m.opt.Theme = next(themeCycle, m.opt.Theme)
+			m.opt.Theme = next(ThemeCycle, m.opt.Theme)
 			m.p = paletteFor(true, m.opt.Theme, m.opt.BG, m.opt.TrueColor)
 			m.mark("TING_THEME")
 		}
@@ -211,7 +211,7 @@ func (m *Model) move(key string) tea.Cmd {
 // more fetches one batch more of the same query; the cursor steps onto the new rows only if
 // the fetch actually brought some.
 func (m *Model) more() tea.Cmd {
-	if m.pending != nil || m.query == "" {
+	if m.pending != nil || !m.searched() {
 		return nil
 	}
 	o := m.opt.Search
@@ -260,8 +260,12 @@ func (m *Model) jumpTo(num string) {
 	m.cursor = n - 1
 }
 
+// searched is whether the list is a search's, so a re-fetch has a query to send: a URL
+// opened in its place keeps the URL as its header, and no engine searches for that.
+func (m *Model) searched() bool { return m.query != "" && urlTarget(m.query) == "" }
+
 func (m *Model) cycleSort() tea.Cmd {
-	if m.pending != nil || m.query == "" {
+	if m.pending != nil || !m.searched() {
 		return nil
 	}
 	o := m.opt.Search
@@ -275,7 +279,7 @@ func (m *Model) cycleEngine() tea.Cmd {
 		return nil
 	}
 	e := (m.opt.Engine + 1) % len(m.opt.Engines)
-	if m.query == "" {
+	if !m.searched() {
 		m.opt.Engine, m.auth = e, ""
 		return m.authCmd()
 	}

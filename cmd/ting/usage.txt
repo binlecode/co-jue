@@ -56,8 +56,9 @@ Keys (List View):
            engine reads it against the mode, so `high` is 1080p for video and a
            bitrate for audio). low is not on the cycle: set it with --quality
   l        switch chrome language (en <-> zh)
-  t        cycle palette family live (minimal → catppuccin → tokyonight → nord →
-           gruvbox → onedark → mono); no-op when colors are off
+  t        cycle palette family live (minimal → catppuccin → tokyonight → gruvbox →
+           rosepine → nord → kanagawa → everforest → onedark → monokai →
+           solarized → dracula → mono); no-op when colors are off
   n        new search (fetch a different query without interrupting music)
   o        rotate sort field / order (relevance → view_count → duration), re-fetch
   e        switch source, re-fetch the same query (only when >1 engine is installed)
@@ -132,9 +133,6 @@ Environment:
   TING_BG=auto|light|dark  Background mode. auto: $COLORFGBG, then an OSC 11 terminal
                    query, then dark. For minimal/mono, light swaps cyan for blue; for
                    community themes it picks the theme's own light variant.
-  TING_SYNC=0|1|auto  Accepted, and has no effect in this build: its renderer writes each
-                   frame's changed lines in one write, which is what the shell build's
-                   synchronized redraws (DCS 1q/2q) were for.
   TING_IMAGE=auto|on|off  Cover art for the focused row, over the terminal's graphics
                     protocol. auto probes the terminal and is off under tmux; off sends
                     no byte at all.

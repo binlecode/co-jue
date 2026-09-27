@@ -345,7 +345,7 @@ undo_pane() {
     TS="ctest-undo-$$"
     tmux kill-session -t "$TS" 2>/dev/null
     tmux new-session -d -s "$TS" -x 100 -y 30 \
-        "cd '$PWD' && env TING_SYNC=0 TING_HISTORY=0 TMPDIR='$TMPDIR' TING_STATE_DIR='$UNDO_STATE' TING_CONFIG='$UNDO_CFG' TING_LANG=en '$TING_TUI' --volume 0 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
+        "cd '$PWD' && env TING_HISTORY=0 TMPDIR='$TMPDIR' TING_STATE_DIR='$UNDO_STATE' TING_CONFIG='$UNDO_CFG' TING_LANG=en '$TING_TUI' --volume 0 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
     undo_up=$(poll_until 40 pane_has "query='")
     report "the undo pane paints a list" 1 "$undo_up"
     if [ "$undo_up" = 1 ]; then
@@ -574,7 +574,7 @@ undo_pane() {
         # frame and after z, the two places it appears.
         tmux kill-session -t "$TS" 2>/dev/null
         tmux new-session -d -s "$TS" -x 100 -y 30 \
-            "cd '$PWD' && env TING_SYNC=0 TING_HISTORY=0 TMPDIR='$TMPDIR' TING_STATE_DIR='$UNDO_STATE' TING_CONFIG='$UNDO_CFG' TING_LANG=zh '$TING_TUI' 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
+            "cd '$PWD' && env TING_HISTORY=0 TMPDIR='$TMPDIR' TING_STATE_DIR='$UNDO_STATE' TING_CONFIG='$UNDO_CFG' TING_LANG=zh '$TING_TUI' 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
         if [ "$(poll_until 40 pane_has "query='")" = 1 ]; then
             tmux send-keys -t "$TS" b
             poll_until 10 pane_has '[0-9]\. undo-list' >/dev/null
@@ -3341,7 +3341,7 @@ else
     # cannot reach it, and a server started from a shell that exported TING_CONFIG or
     # TING_STATE_DIR would have walked this pane's R and D y onto the user's own playlists. The
     # The pane's own command line is the only place its redirections can come from.
-    TUI_CMD="cd '$PWD' && env -u NO_COLOR TING_SYNC=0 TING_IMAGE=on TMPDIR='$TMPDIR' TING_STATE_DIR='$TUI_STATE' TING_CONFIG='$TUI_CFG' TING_SORT_FIELD=relevance TING_LANG=en '$TING_TUI' 'lofi hip hop'"
+    TUI_CMD="cd '$PWD' && env -u NO_COLOR TING_IMAGE=on TMPDIR='$TMPDIR' TING_STATE_DIR='$TUI_STATE' TING_CONFIG='$TUI_CFG' TING_SORT_FIELD=relevance TING_LANG=en '$TING_TUI' 'lofi hip hop'"
     TUI_CMD="$TUI_CMD"'; printf "RC=%s\n" $?'
     TUI_CMD="$TUI_CMD"'; stty -a </dev/tty | tr " " "\n" | grep -E "^-?(echo|icanon)$" | tr "\n" " " | sed "s/^/FLAGS= /"; echo; sleep 20'
     tmux new-session -d -s "$TS" -x 100 -y 30 "$TUI_CMD"
@@ -3578,7 +3578,7 @@ else
     report "hidden gives page mode back the rows full took" 1 \
         "$([ "$hid_rows" -gt "$full_rows" ] && echo 1 || echo 0)"
     # Re-read for half a second, not once: display_menu fixes the counter with a second pass
-    # inside the same call, and with TING_SYNC=0 under tmux the first pass is visible to a
+    # inside the same call, and under tmux the first pass is visible to a
     # capture that lands between the two. The bug this guards stayed wrong until the idle
     # tick, a second after the key — far outside this window.
     counter_true() {
@@ -4096,7 +4096,7 @@ else
         cp -R shell config VERSION "$RL_BASE/inst/"
         tmux kill-session -t "$TS" 2>/dev/null
         tmux new-session -d -s "$TS" -x 100 -y 30 \
-            "env PATH='$1' TING_SYNC=0 TING_HISTORY=0 TMPDIR='$TMPDIR' TING_STATE_DIR='$RL_BASE/state' TING_CONFIG='$RL_BASE/cfg' TING_LANG=en '$RL_BASE/inst/shell/.ting-go' --volume 0 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
+            "env PATH='$1' TING_HISTORY=0 TMPDIR='$TMPDIR' TING_STATE_DIR='$RL_BASE/state' TING_CONFIG='$RL_BASE/cfg' TING_LANG=en '$RL_BASE/inst/shell/.ting-go' --volume 0 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
         poll_until 40 pane_has "query='" >/dev/null
         tmux send-keys -t "$TS" Enter
         [ "$(poll_until 40 pane_has 'Playing: ')" = 1 ] || return 1
@@ -4156,7 +4156,7 @@ else
     adopt_boot() {
         tmux kill-session -t "$ADOPT_TS" 2>/dev/null
         tmux new-session -d -s "$ADOPT_TS" -x 100 -y 30 \
-            "cd '$PWD' && env TING_SYNC=0 TING_HISTORY=0 TMPDIR='$TMPDIR' TING_STATE_DIR='$ADOPT_STATE' TING_CONFIG='$ADOPT_CFG' TING_LANG=en '$TING_TUI' 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
+            "cd '$PWD' && env TING_HISTORY=0 TMPDIR='$TMPDIR' TING_STATE_DIR='$ADOPT_STATE' TING_CONFIG='$ADOPT_CFG' TING_LANG=en '$TING_TUI' 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
         # The header's own count word, the same first-frame marker the section above waits on:
         # the spinner line that precedes it says `searching "…"` and never `results`.
         poll_until 40 pane_has 'results'
@@ -4344,7 +4344,7 @@ else
         TS="ctest-parts-$$"          # the helpers above read $TS; the first session is gone
         tmux kill-session -t "$TS" 2>/dev/null
         tmux new-session -d -s "$TS" -x 100 -y 30 \
-            "cd '$PWD' && env TING_SYNC=0 TMPDIR='$TMPDIR' TING_STATE_DIR='$PTS_STATE' TING_CONFIG='$PTS_CFG' TING_LANG=en '$TING_TUI' --engine $PARTS_ENG -n 10 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
+            "cd '$PWD' && env TMPDIR='$TMPDIR' TING_STATE_DIR='$PTS_STATE' TING_CONFIG='$PTS_CFG' TING_LANG=en '$TING_TUI' --engine $PARTS_ENG -n 10 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
         up=$(poll_until 30 pane_has "query='")
         if [ "$up" != 1 ]; then
             report "the parts pane came up" 1 "$up"

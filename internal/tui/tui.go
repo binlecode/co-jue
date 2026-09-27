@@ -195,7 +195,7 @@ func New(ctx context.Context, suite *verb.Suite, opt Options) *Model {
 	m.chapFollow = -1
 	m.dirty, m.said = map[string]bool{}, map[string]bool{}
 	m.cover = coverState{on: opt.Cover.On, cw: opt.Cover.CW, ch: opt.Cover.CH,
-		done: map[string]*coverImg{}, failed: map[string]bool{}}
+		done: map[string]*coverImg{}, failed: map[string]time.Time{}}
 	if m.opt.Pinned == nil {
 		m.opt.Pinned = func(string) bool { return false }
 	}
@@ -481,7 +481,7 @@ func (m *Model) Flush() error {
 }
 
 // coverCmd starts the focused row's cover when the frame would draw one and it is neither
-// here, nor failed, nor already on its way — off the key loop, which is correctness: a
+// here, nor missed, nor already on its way — off the key loop, which is correctness: a
 // five-second download in line is a keyboard that does not answer for five seconds.
 func (m *Model) coverCmd() tea.Cmd {
 	c := &m.cover
@@ -492,7 +492,7 @@ func (m *Model) coverCmd() tea.Cmd {
 		return nil
 	}
 	u := m.rows[m.cursor].Thumb
-	if u == "" || c.done[u] != nil || c.failed[u] {
+	if u == "" || c.done[u] != nil || c.missed(u) {
 		return nil
 	}
 	return tea.Batch(c.fetch(m.ctx, u), m.ensureTick())
@@ -511,8 +511,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cover.inFlight = ""
 		if msg.img != nil {
 			m.cover.done[msg.url] = msg.img
+		} else if msg.retry {
+			m.cover.failed[msg.url] = time.Now().Add(coverRetry)
 		} else {
-			m.cover.failed[msg.url] = true
+			m.cover.failed[msg.url] = time.Time{}
 		}
 		return m, nil
 

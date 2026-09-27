@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"hash/fnv"
 	"os"
 	"strconv"
 	"strings"
@@ -14,8 +13,8 @@ import (
 var ThemeNames = []string{"minimal", "mono", "catppuccin", "tokyonight", "nord", "gruvbox",
 	"onedark", "dracula", "rosepine", "everforest", "kanagawa", "solarized", "monokai"}
 
-// themeCycle is the order t walks: the two plain ones at its ends.
-var themeCycle = []string{"minimal", "catppuccin", "tokyonight", "gruvbox", "rosepine", "nord",
+// ThemeCycle is the order t walks: the two plain ones at its ends. The help states it too.
+var ThemeCycle = []string{"minimal", "catppuccin", "tokyonight", "gruvbox", "rosepine", "nord",
 	"kanagawa", "everforest", "onedark", "monokai", "solarized", "dracula", "mono"}
 
 type rgb struct{ r, g, b int }
@@ -194,20 +193,4 @@ func tone(c, ground rgb) rgb {
 		}
 	}
 	return c
-}
-
-// pillGrounds are the grounds an engine's name is set on, white on each.
-var pillGrounds = []int{41, 42, 44, 45, 46}
-
-// pill is an engine name set on a ground of its own, so a glance tells two sources apart.
-// Which ground is a hash of the name — an opaque string to this file, as every engine name
-// is — so a plugin engine gets a stable one too, and no site is named here. A mixed list's
-// joined names ("bili+yt") take none: no single ground is true of it.
-func (p palette) pill(name string) (open, close string) {
-	if !p.on || p.mono || strings.Contains(name, "+") || name == "?" {
-		return "", ""
-	}
-	h := fnv.New32a()
-	h.Write([]byte(name))
-	return fmt.Sprintf("\x1b[0m\x1b[%d;97m", pillGrounds[h.Sum32()%uint32(len(pillGrounds))]), "\x1b[0m"
 }
