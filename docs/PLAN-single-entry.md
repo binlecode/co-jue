@@ -132,7 +132,7 @@ yt 这一对 392 行（占 `yt-search` 代码的 63%），bili、ne 各约 214 �
 | `YT_ICON` | 删，固定 ♫ | 每次启动掷一次硬币，文档截帧还得专门钉住它 |
 | `YT_BRAND` | 删 | 纯装饰开关 |
 | `YT_TUI_ASCII` | 删 | `YT_ASCII` 的旧别名 |
-| `UT_ACCENT`、`UT_ACCENT_LIGHT` | 待定 | 已有 13 套主题，`custom` 调色板是否还值两个键 |
+| `UT_ACCENT`、`UT_ACCENT_LIGHT` | 删，连同 `custom` 主题 | 已有 13 套主题，`custom` 只服务连一个颜色都要自己定的人 |
 
 其余保留、只改名：`HISTORY`、`DEFAULT_ENGINE`、`SEARCH_RESULTS`、`SORT_FIELD`、`PLAY_MODE`、`VOLUME`、`PLAY_QUALITY`、
 `VIZ_STYLE`、`VIZ_COLOR`、`ASCII_VO`、`MPV_INPUT_CONF`、`PAGE_ROWS`、`FETCH_BATCH`、`LOOP_MODE`、`RESOURCE`、`KEYS`、
@@ -195,7 +195,7 @@ yt 这一对 392 行（占 `yt-search` 代码的 63%），bili、ne 各约 214 �
 3. **过渡别名**：旧的六个命令名不留，第 3 步末尾直接删。
 4. **`--parts` 并入 `--items`**：并。
 5. **`-m`/`-M`/`-s` 改长名**：改为 `--min-duration` / `--max-duration` / `--sort`；`t-engine-*` 从第一天就只认长名。
-6. **配置删并清单（§4 表）**：照表执行；`UT_ACCENT`、`UT_ACCENT_LIGHT` 的去留在第 5 步动配置时再定。
+6. **配置删并清单（§4 表）**：照表执行；`UT_ACCENT`、`UT_ACCENT_LIGHT` 连同 `custom` 主题一起删（第 5 步定）。
 7. **版本号**：`0.18.0`。
 
 **实施中定下的两条**（第 1 步）：
@@ -235,3 +235,17 @@ yt 这一对 392 行（占 `yt-search` 代码的 63%），bili、ne 各约 214 �
   （三家都有 `--items`）。于是 `c` 在 yt / ne 上也出现，按下时显示引擎自己的拒绝（「not a container」），
   不再是静默无反应。若要恢复「只在 B 站出现」，需要一个新的能力词，属于契约改动，待定。
 - **分 P 视图的总时长**：新信封不再带 `total_duration_fmt`，`ting` 在拿到全部分 P（无 `has_more`）且每个都有时长时自己加总。
+
+**实施中定下的几条**（第 5 步，2026-09-26）：
+
+- **先删并，改前缀另议**：§4 表里的删并已做完，出厂键 51 → 36。
+- **`custom` 主题随两个 accent 键一起删**：`t` 键曾把 `YT_THEME=custom` 写回用户配置，所以 `custom`
+  读成 `minimal`，保留一个版本。
+  前缀统一（`TING_` 全量改名）暂停，等重新评估后再定。
+- **并出来的键先用今天的套件前缀**：`UT_COOKIE_BROWSER`（不是 `TING_COOKIE_BROWSER`）、`UT_SEARCH_RESULTS`。
+  若之后做前缀统一，它们与其余键一起改名。
+- **旧名兜底只给被并掉的四个**（`UT_START_RESULTS`、三个 `*_COOKIE_BROWSER`）：载入块读到旧名就当新名收，
+  `ting` 写回时就地改名。被删的键不兜底 —— 留在用户文件里只是一行不再被读的字。
+- **轮换顺序、`DEAD_KEEP` 8、资源采样步长 3、bili 重试间隔 1 秒、搜索上限 200** 都成了代码常量；
+  步长在 `ting` 与 `t-play` 各有一份（两个平级入口不共享库），注释互指。
+- **搜索上限不再有检查**：它原来靠把键设成 3 来测，常量 200 要真打出 200 行以上才能观察，那是十次 bili 请求。

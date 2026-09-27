@@ -107,7 +107,7 @@ STATE_DIR="$TMPDIR/ting-$(id -u)"
 # ---- the config file, pointed somewhere disposable ----------------------------------
 # The same argument as TMPDIR above, one layer out. Every command in the suite now reads
 # ${XDG_CONFIG_HOME:-~/.config}/ting/config, so without this line a developer whose real
-# config sets UT_MAX_SEARCH_RESULTS or UT_SORT_FIELD would see this file go red on their
+# config sets UT_SEARCH_RESULTS or UT_SORT_FIELD would see this file go red on their
 # machine and green on everyone else's — the worst failure a suite can have, because the
 # red is not in the subject. It points at a real, EMPTY file rather than a missing path so
 # the loader's read path is the one exercised for the rest of the run; the checks that
@@ -1349,12 +1349,12 @@ report "t-play --quality keeps the engine gate" 1 \
 # user actually wrote. Stated over every scalar door rather
 # than the tier that
 # happened to be written first: each one is its own `case`, not one loop through one
-# validator the way the four *_CYCLE keys are, so a check driving only the quality tier is
+# validator, so a check driving only the quality tier is
 # green on a door that was never closed — which is the shape UT_KEYS arrived in.
 # And the claim is the MESSAGE, not the exit code: every one of these exits 1 and so does the
 # TTY gate a few lines further down the same file, so an exit code alone cannot separate
 # "refused the value" from "refused the pipe" and the check could not fail.
-for spec in UT_PLAY_QUALITY=bogus UT_KEYS=bogus YT_BG=sideways UT_RESOURCE=maybe UT_RESOURCE_TICKS=fast UT_IMAGE=bogus; do
+for spec in UT_PLAY_QUALITY=bogus UT_KEYS=bogus YT_BG=sideways UT_RESOURCE=maybe UT_IMAGE=bogus; do
     KNOB_OUT=$(env "$spec" shell/ting </dev/null 2>&1 || true)
     case "$KNOB_OUT" in
     *"${spec%%=*}"*) KNOB_HIT=yes ;;
@@ -1416,16 +1416,6 @@ report "UT_VIZ_COLOR: 0xRRGGBB survives the config file" "quoted" \
     "$(viz_cfg_says 'UT_VIZ_COLOR=0xff0000zz!')"
 report "…and a #-spelled value never arrives"           "gone" \
     "$(viz_cfg_says 'UT_VIZ_COLOR=#0xff0000zz!')"
-
-# UT_DEAD_KEEP is the player's history-pruning count; must fail fast on non-numeric or negative.
-dk_out=$(env UT_DEAD_KEEP=bogus shell/t-play --status 2>&1 || true)
-case "$dk_out" in
-*UT_DEAD_KEEP*) dk_hit=yes ;;
-*) dk_hit=no ;;
-esac
-report "UT_DEAD_KEEP: a bogus value dies naming the key" "yes" "$dk_hit"
-report "UT_DEAD_KEEP: a negative value exits 1" "1" \
-    "$(rc env UT_DEAD_KEEP=-1 shell/t-play --status)"
 
 # ── ARCH-player.md「终端可视化」's five worked calls, each run once. The PICTURE those
 # lines are about needs a real resolve and a real tty, so it stays 实测 in that doc — a
@@ -1578,8 +1568,6 @@ ting_gate() { # <env assignments and argv…> — which gate answered
     case "$(env "$@" </dev/null 2>&1 || true)" in
     *"requires a terminal"*) echo tty ;;
     *"must be one of"*) echo mode ;;
-    *"unknown value"* | *"must name at least one value"*) echo cycle ;;
-    *"UT_ACCENT"*) echo accent ;;
     *"unknown flag"*) echo unknown-flag ;;
     *) echo other ;;
     esac
@@ -2284,90 +2272,33 @@ printf 'UT_VERSION=fake\n' > "$CFG"
 report "UT_VERSION in config is refused" "$UT_VER" \
     "$(UT_CONFIG="$CFG" shell/ting --version | awk '{print $NF}')"
 
-# A TYPO MUST BE LOUD. An emptied cycle would otherwise abort on the first keypress (an empty
-# array expansion under set -u aborts on bash 3.2) and an unknown member would put a mode the
-# engines reject under the v key — both a long way from the line the user actually wrote.
-# Stated over EVERY cycle key rather than the one that happened to be written first: the four
-# are built by one loop of the same three lines and validated by one function, so a check
-# driving only the theme cycle is green on a fourth cycle that forgot to call it — which is
-# exactly the shape UT_QUALITY_CYCLE arrived in.
-# The first member of each is VALID and only the second is bogus: an emptied cycle dies at
-# the line above this one, so a pair like `UT_MODE_CYCLE=bogus` would go green whether the
-# member check ran or not. (Written as a literal list rather than a case inside $( ): on
-# bash 3.2 a case pattern's `)` closes the command substitution.)
-for spec in UT_MODE_CYCLE=audio,bogus UT_SORT_CYCLE=relevance,bogus \
-    UT_THEME_CYCLE=nord,bogus UT_THEME_CYCLE=custom,bogus UT_QUALITY_CYCLE=auto,bogus \
-    UT_LOOP_CYCLE=off,bogus; do
-    printf '%s\n' "$spec" > "$CFG"
-    # WHICH gate, not exit 1: the TTY refusal right after this one exits 1 too, so a bare exit
-    # code was green with the member check deleted.
-    report "${spec%%=*}: an unknown member is refused" cycle "$(ting_gate UT_CONFIG="$CFG" shell/ting q)"
+# MERGED KEYS: the old name still reads, one version, into the key that replaced it. Each old
+# cookie name reaches EVERY engine, which is what the merge is — one browser, one key.
+for old in YT_COOKIE_BROWSER BILI_COOKIE_BROWSER NE_COOKIE_BROWSER; do
+    printf '%s=none\n' "$old" > "$CFG"
+    for n in $ENGINES; do
+        report "$old in a file reaches $n" none \
+            "$(UT_CONFIG="$CFG" $(verb_cmd "$n") --auth -j 2>/dev/null | jq -r '.cookie_browser')"
+    done
 done
-printf 'UT_MAX_SEARCH_RESULTS=-5\n' > "$CFG"
-# Over EVERY discovered engine, not just bili: the ceiling is cross-engine, so a check
-# driving one of them would be green while the other spent an unbounded fetch.
-for n in $ENGINES; do
-    report "$n --search rejects a negative ceiling" "1" \
-        "$(UT_CONFIG="$CFG" rc $(search_cmd "$n") -j -- q)"
-done
-
-# A restricted cycle must still START. The -f and -s defaults are validated against their
-# cycles, so a literal "audio" default would make `UT_MODE_CYCLE=video` a config that cannot
-# run — the user narrows the cycle and gets told their flag is wrong. Reaching the TTY refusal
-# is the pass: it is the gate immediately after the one under test.
-printf 'UT_MODE_CYCLE=video\nUT_SORT_CYCLE=duration\n' > "$CFG"
-report "a narrowed cycle reaches the TTY gate, not a flag error" tty "$(ting_gate UT_CONFIG="$CFG" shell/ting q)"
-
-# ── THE CUSTOM PALETTE'S ACCENT (UT_ACCENT / UT_ACCENT_LIGHT) ───────────────────────────
-# Asserted on WHICH GATE ANSWERED, never on a bare exit 1: `custom` is a legal theme name, so
-# a build with no accent gate at all reaches the TTY refusal and exits 1 too. A check reading
-# only the code could not fail. ting_gate's `accent` arm is what separates the two.
-#
-# Every one of these runs offline — the flag/config gates all answer before the TTY refusal,
-# which is the order the pair of checks above this one pins.
-for _spec in zzz 40 99 0xd65d0 0xd65d0e/40 0xD65D0E/9; do
-    printf 'YT_THEME=custom\nUT_ACCENT=%s\n' "$_spec" > "$CFG"
-    report "UT_ACCENT=$_spec dies at the accent gate" accent \
-        "$(ting_gate UT_CONFIG="$CFG" shell/ting q)"
-done
-# The three legal spellings pass the door. 0x, not #RRGGBB: a # cannot survive this config
-# format's comment strip at all (ARCH-tui.md「为什么是 0x 而不是 #RRGGBB」), so the syntax
-# a user would reach for first is the one that must not silently read back as empty.
-for _spec in 0xd65d0e 33 97 0xd65d0e/33 0xD65D0E/97; do
-    printf 'YT_THEME=custom\nUT_ACCENT=%s\n' "$_spec" > "$CFG"
-    report "UT_ACCENT=$_spec is accepted" tty "$(ting_gate UT_CONFIG="$CFG" shell/ting q)"
-done
-# THE WRITE-BACK TRAP. The t key writes YT_THEME=custom into the user's own config, so a
-# config can name custom long after the UT_ACCENT that justified it was cleared. Refusing to
-# start there would lock the user out over a key they never typed — it must degrade, silently,
-# to minimal. The pair matters: a build that dies on an unset accent still passes the row
-# above it, because that row always sets one.
-printf 'YT_THEME=custom\n' > "$CFG"
-report "custom with no accent still starts" tty "$(ting_gate UT_CONFIG="$CFG" shell/ting q)"
-printf 'YT_THEME=custom\nUT_ACCENT=\n' > "$CFG"
-report "…and an explicitly empty one too" tty "$(ting_gate UT_CONFIG="$CFG" shell/ting q)"
-# The light rung carries the same ruler and names ITSELF in the message — a shared validator
-# that reported the wrong key would send the user editing the wrong line.
-printf 'UT_ACCENT_LIGHT=nope\n' > "$CFG"
+report "…and from the environment" none \
+    "$(env YT_COOKIE_BROWSER=none $(verb_cmd bili) --auth -j 2>/dev/null | jq -r '.cookie_browser')"
+report "…and the new name wins over it" chrome \
+    "$(env YT_COOKIE_BROWSER=none UT_COOKIE_BROWSER=chrome $(verb_cmd bili) --auth -j 2>/dev/null | jq -r '.cookie_browser')"
+# 0 is the discriminating value: the shipped 20 starts, so only a loader that folded the old
+# name in reaches the -n gate.
+printf 'UT_START_RESULTS=0\n' > "$CFG"
 CFG_OUT=$(UT_CONFIG="$CFG" shell/ting q </dev/null 2>&1 || true)
 case "$CFG_OUT" in
-*"UT_ACCENT_LIGHT must be"*) CFG_HIT=yes ;;
+*"-n must be a positive integer (UT_SEARCH_RESULTS)"*) CFG_HIT=yes ;;
 *) CFG_HIT=no ;;
 esac
-report "UT_ACCENT_LIGHT is refused under its own name" "yes" "$CFG_HIT"
-# Validated whether or not custom is the CURRENT theme: the t key can arrive at custom
-# mid-session, and a gate that only fired on the startup theme would let a malformed spec
-# through to the printf that builds an SGR — half an escape sequence, in the user's terminal.
-printf 'YT_THEME=minimal\nUT_ACCENT=zzz\n' > "$CFG"
-report "a bad accent is caught under a non-custom theme" accent \
-    "$(ting_gate UT_CONFIG="$CFG" shell/ting q)"
-# A cycle narrowed to custom alone must still start, like every other narrowed cycle above.
-printf 'UT_THEME_CYCLE=custom\nUT_ACCENT=0xd65d0e/33\n' > "$CFG"
-report "a cycle of just custom reaches the TTY gate" tty "$(ting_gate UT_CONFIG="$CFG" shell/ting q)"
-report "--theme custom is accepted" tty "$(ting_gate shell/ting --theme custom q)"
-# ARCH-tui.md「调用面」's custom line, run verbatim rather than printed.
-report "…with an accent on it, as the doc prints it" tty \
-    "$(ting_gate UT_ACCENT=0xd65d0e/33 shell/ting --theme custom "lofi hip hop")"
+report "UT_START_RESULTS in a file reads as UT_SEARCH_RESULTS" yes "$CFG_HIT"
+
+# `custom` WAS A THEME, and the t key wrote it into user configs. Such a file must still start:
+# it reads as minimal for one version. Without that, the theme gate answers `mode`, not `tty`.
+printf 'YT_THEME=custom\n' > "$CFG"
+report "a config still naming custom starts" tty "$(ting_gate UT_CONFIG="$CFG" shell/ting q)"
 # --theme takes ONE name. The membership test is an exact compare over the name list, not a
 # substring of it: "gruvbox onedark" IS a substring of that list and a substring gate would
 # pass it, then fall off the end of set_theme's case with no accent set at all.
@@ -2383,8 +2314,8 @@ THEME_HELP=$(shell/ting -h 2>&1 || true)
 THEME_USAGE_FLAG=$(printf '%s\n' "$THEME_HELP" | tr '\n' ' ' |
     sed -e 's/.*Palette: //' -e 's/\. Every theme.*//' -e 's/(default)//' |
     tr '|' '\n' | tr -d ' ' | grep -v '^$' | sort | tr '\n' ' ')
-# Joined into one line BEFORE the cut, the way the flag's list above already is: fourteen
-# names is 128 columns on one help line, so the env list wraps like the flag's does, and a
+# Joined into one line BEFORE the cut, the way the flag's list above already is: thirteen
+# names is over 100 columns on one help line, so the env list wraps like the flag's does, and a
 # per-line regex would have read only the first half and called the other half a drift.
 THEME_USAGE_ENV=$(printf '%s\n' "$THEME_HELP" | tr '\n' ' ' |
     sed -e 's/.*YT_THEME=//' -e 's/ *Palette family.*//' |
@@ -2393,9 +2324,9 @@ report "usage()'s --theme list == the gate's" "$THEME_GATE_SET" "$THEME_USAGE_FL
 report "usage()'s YT_THEME list == the gate's" "$THEME_GATE_SET" "$THEME_USAGE_ENV"
 # Not vacuous: the gate set must really hold names, or all three could agree on nothing.
 # Written OUTSIDE the command substitution — on bash 3.2 a case pattern's `)` closes the
-# `$( )`, the same trap the cycle loop above already carries a note about.
+# `$( )`.
 THEME_SET_OK=no
-if [[ "$THEME_GATE_SET" == *minimal* && "$THEME_GATE_SET" == *custom* ]]; then THEME_SET_OK=yes; fi
+if [[ "$THEME_GATE_SET" == *minimal* && "$THEME_GATE_SET" == *monokai* ]]; then THEME_SET_OK=yes; fi
 report "…and that set really holds names" "yes" "$THEME_SET_OK"
 
 # THE BROKEN CHECKOUT. Defaults now live in <checkout>/config and nowhere else, so a copy of
@@ -2515,11 +2446,11 @@ mkdir -p "$CK_BASE/missing/$CK_CHROME" "$CK_BASE/denied/$CK_CHROME/Default" "$CK
 printf x >"$CK_BASE/denied/$CK_CHROME/Default/Cookies"; chmod 000 "$CK_BASE/denied/$CK_CHROME/Default/Cookies"
 printf x >"$CK_BASE/readable/$CK_CHROME/Default/Cookies"
 YT_WATCH="https://www.youtube.com/watch?v=$MEDIA_ID"
-# `ck <home> <cmd…>`: the envelope's reason on stdout, the engine's stderr into CK_ERR. All
-# three cookie knobs are set, so each engine reads chrome from the scratch HOME whichever it is.
+# `ck <home> <cmd…>`: the envelope's reason on stdout, the engine's stderr into CK_ERR. The
+# cookie knob is set, so each engine reads chrome from the scratch HOME whichever it is.
 CK_ERR="$UT_TEST_TMP/cookie.err"
 ck() { local h=$1; shift
-       HOME="$CK_BASE/$h" YT_COOKIE_BROWSER=chrome BILI_COOKIE_BROWSER=chrome NE_COOKIE_BROWSER=chrome \
+       HOME="$CK_BASE/$h" UT_COOKIE_BROWSER=chrome \
            http_proxy=$NOPROXY https_proxy=$NOPROXY "$@" 2>"$CK_ERR" | jq -r '.reason // "none"' 2>/dev/null; }
 ck_said() { grep -c "$1" "$CK_ERR" 2>/dev/null | awk '{print ($1 > 0) ? 1 : 0}'; }
 report "search retries without an unreadable store" network "$(ck missing shell/t-play --engine yt --search -j -n 3 -- lofi)"
@@ -2532,8 +2463,8 @@ report "--transcript retries on a cookie file it may not open" network \
     "$(ck denied shell/t-play --engine yt --transcript -j -- "$YT_WATCH")"
 report "…and names the error and the file" 1 "$(ck_said 'no chrome cookies: Permission denied reading ')"
 # The probe, the diagnosis and the wrapper are COPIED into every engine that reads cookies
-# (site knowledge stays per engine), so each copy is driven, not only yt's: its own --info,
-# its own knob, its own prefix on the sentence.
+# (site knowledge stays per engine), so each copy is driven, not only yt's: its own --info
+# and its own prefix on the sentence.
 for n in bili ne; do
     case $n in
     bili) CK_URL="https://www.bilibili.com/video/BV1mL411E7Fb" ;;
@@ -2545,7 +2476,7 @@ done
 # --auth: the decision was always `cookie` whenever the folder existed; the new field is
 # whether the store can be read, in both directions so an always-false field fails too —
 # over every engine that has --auth.
-ck_auth() { HOME="$CK_BASE/$1" YT_COOKIE_BROWSER=chrome BILI_COOKIE_BROWSER=chrome NE_COOKIE_BROWSER=chrome \
+ck_auth() { HOME="$CK_BASE/$1" UT_COOKIE_BROWSER=chrome \
                 $(verb_cmd "$2") --auth -j 2>/dev/null | jq -r '.cookie_readable'; }
 for n in $ENGINES; do
     report "$n --auth: a missing store is not readable" false "$(ck_auth missing "$n")"
@@ -2559,7 +2490,7 @@ if tmux_ok; then
     CK_STATE=$(mktemp -d "${TMPDIR:-/tmp}/ting-cookie.XXXXXX")
     tmux kill-session -t "$CK_TS" 2>/dev/null
     tmux new-session -d -s "$CK_TS" -x 200 -y 20 \
-        "HOME='$CK_BASE/missing' YT_COOKIE_BROWSER=chrome http_proxy='$NOPROXY' https_proxy='$NOPROXY' UT_STATE_DIR='$CK_STATE' TING_STATE_DIR='$CK_STATE' TMPDIR='$TMPDIR' UT_CONFIG='$UT_CONFIG' TING_CONFIG='$UT_CONFIG' YT_LANG=en UT_HISTORY=0 '$PWD/shell/ting' lofi; echo __GONE__; sleep 5" 2>/dev/null
+        "HOME='$CK_BASE/missing' UT_COOKIE_BROWSER=chrome http_proxy='$NOPROXY' https_proxy='$NOPROXY' UT_STATE_DIR='$CK_STATE' TING_STATE_DIR='$CK_STATE' TMPDIR='$TMPDIR' UT_CONFIG='$UT_CONFIG' TING_CONFIG='$UT_CONFIG' YT_LANG=en UT_HISTORY=0 '$PWD/shell/ting' lofi; echo __GONE__; sleep 5" 2>/dev/null
     said=0
     i=0
     while [ $i -lt 200 ]; do
@@ -2602,7 +2533,7 @@ if tmux_ok; then
     CQ_STATE=$(mktemp -d "${TMPDIR:-/tmp}/ting-cookieq.XXXXXX")
     tmux kill-session -t "$CQ_TS" 2>/dev/null
     tmux new-session -d -s "$CQ_TS" -x 200 -y 24 \
-        "HOME='$CK_BASE/missing' YT_COOKIE_BROWSER=chrome UT_STATE_DIR='$CQ_STATE' TING_STATE_DIR='$CQ_STATE' TMPDIR='$TMPDIR' UT_CONFIG='$UT_CONFIG' TING_CONFIG='$UT_CONFIG' YT_LANG=en UT_HISTORY=0 '$PWD/shell/ting' lofi; echo __GONE__; sleep 30" 2>/dev/null && CQ_UP=1
+        "HOME='$CK_BASE/missing' UT_COOKIE_BROWSER=chrome UT_STATE_DIR='$CQ_STATE' TING_STATE_DIR='$CQ_STATE' TMPDIR='$TMPDIR' UT_CONFIG='$UT_CONFIG' TING_CONFIG='$UT_CONFIG' YT_LANG=en UT_HISTORY=0 '$PWD/shell/ting' lofi; echo __GONE__; sleep 30" 2>/dev/null && CQ_UP=1
 fi
 
 # ---- fetch once, assert many, and fetch them ALL AT ONCE ------------------------------
@@ -2662,7 +2593,6 @@ spawn() {
 out() { cat "$LIVE/$1.out" 2>/dev/null; }
 src() { cat "$LIVE/$1.rc" 2>/dev/null; }
 
-printf 'UT_MAX_SEARCH_RESULTS=3\n' > "$UT_TEST_TMP/cfg-cap"
 printf 'UT_SEARCH_RESULTS=4\n'     > "$UT_TEST_TMP/cfg-dflt"
 # The searches go first and are waited on BY PID, because one thing downstream needs an
 # answer out of them (the offset block's handle) and everything else does not. Waiting on the
@@ -2675,7 +2605,6 @@ for n in $ENGINES; do
 done
 for n in $ENGINES; do
     spawn "searchJ-$n"   shell/t-engine-$n --search --raw -n 5  -- lofi
-    spawn "cap-$n"       env UT_CONFIG="$UT_TEST_TMP/cfg-cap"  $(search_cmd "$n") -j -n 20 -- lofi
     spawn "dflt-$n"      env UT_CONFIG="$UT_TEST_TMP/cfg-dflt" $(search_cmd "$n") -j -- lofi
 done
 spawn yt-resolve   shell/t-engine-yt --stream -j -- "$MEDIA_ID"
@@ -2756,20 +2685,12 @@ else
 fi
 
 echo "── the config file, on a real fetch ───────────────────────────────"
-# THE TWO CLAIMS THAT ONLY A REAL FETCH CAN SETTLE. Everything about the config file in the
-# offline half is about parsing and refusal; these two are about the values actually reaching
+# THE CLAIM THAT ONLY A REAL FETCH CAN SETTLE. Everything about the config file in the
+# offline half is about parsing and refusal; this one is about the value actually reaching
 # the code that spends requests, and the observable is the row count in a real envelope.
-#
-# Both are stated over EVERY discovered engine, because the whole point of these two keys is
-# that they are cross-engine: a check driving one of them would be green while the other
-# ignored the ceiling entirely.
+# Stated over EVERY discovered engine, because the key is cross-engine: a check driving one
+# of them would be green while another kept its own default.
 for n in $ENGINES; do
-    # The ceiling. -n asks for 20 and the file caps at 3, so an engine that honours it
-    # returns at most 3 — and one that does not returns up to 20. That gap IS the check:
-    # before this key, bili-search capped at ten pages and yt-search was bounded only by what
-    # the site stopped sending, so "unclamped" is a real implementation, not a strawman.
-    report "$n --search honours the row ceiling" "true" \
-        "$(out "cap-$n" | jq -r '(.results | length) <= 3' 2>/dev/null)"
     # The shared default really is shared. No -n at all, so the count comes from
     # UT_SEARCH_RESULTS — the check that would have caught the drift the centralisation was
     # for: an engine still carrying its own inlined 25 answers with more than 4 here.
@@ -2786,8 +2707,8 @@ YT_S=$(out search-yt)
 YT_SJ=$(out searchJ-yt)
 # `<=10`, not `==10`: `-n` says how many to FETCH and never how many come back — -m/-M have
 # always shortened it, and since the container gate the row count can drop by one on a query
-# whose page holds a channel (ARCH-engine.md「kind 与 access」). The ceiling-is-honoured
-# claim is the cap-/dflt- pair above, which is where it belongs; asserting an exact count here
+# whose page holds a channel (ARCH-engine.md「kind 与 access」). The -n-default claim is
+# the dflt- check above, which is where it belongs; asserting an exact count here
 # only ever held because `lofi`'s top ten happen to be all videos, and would have gone red on
 # a YouTube ranking change rather than on a bug of ours.
 report "search -j envelope" 0 \
@@ -3080,12 +3001,12 @@ for n in $ENGINES; do
     report "$n --search --raw rows are calls" 0 \
         "$(jqv "$ROW_IS_A_CALL" "$(out "searchJ-$n")")"
 done
-# The same predicate over EVERY OTHER live search this file already paid for — the ceiling
-# and default envelopes, and the three 周杰伦 ones. Not one extra request, and it is what
+# The same predicate over EVERY OTHER live search this file already paid for — the default
+# envelopes, and the three 周杰伦 ones. Not one extra request, and it is what
 # stops the invariant going vacuous: a container row appears in a MINORITY of queries, so
 # asserting it on one query per engine is asserting it on a sample that usually has nothing
 # to catch. `lofi` at -n 10 has never carried one; 周杰伦 does today.
-for e in yt-zh bili-zh ne-vip ne-novip $(for n in $ENGINES; do echo "cap-$n dflt-$n"; done); do
+for e in yt-zh bili-zh ne-vip ne-novip $(for n in $ENGINES; do echo "dflt-$n"; done); do
     [ -s "$LIVE/$e.out" ] || continue
     report "$e rows are calls" 0 "$(jqv "$ROW_IS_A_CALL" "$(out "$e")")"
 done
@@ -3445,9 +3366,11 @@ else
     # A config file of the pane's own. No staged behavior keys: UT_ROW_INDEX and UT_LIST_MODE
     # start unset and are driven by real keystrokes.
     # It is a SYMLINK to the real file to verify the preference write-back preserves symlinks.
+    # Its third line is the result count under its OLD name, at the shipped value so nothing
+    # on screen changes: the write-back must rename that line in place, not append a second.
     TUI_CFG="$UT_TEST_TMP/tui-config"
     TUI_CFG_REAL="$UT_TEST_TMP/tui-config.real"
-    printf '%s\n' '# a config a human wrote' 'UT_PLAY_MODE=audio    # keep me' >"$TUI_CFG_REAL"
+    printf '%s\n' '# a config a human wrote' 'UT_PLAY_MODE=audio    # keep me' 'UT_START_RESULTS=20' >"$TUI_CFG_REAL"
     ln -s "$TUI_CFG_REAL" "$TUI_CFG"
     # UT_SORT_FIELD in the pane's ENVIRONMENT is the discriminating input for the refusal:
     # the environment beats the file at every startup, so a ting that wrote this key would
@@ -3697,8 +3620,10 @@ else
     tmux send-keys -t "$TS" Left Left Left Left Left Left
     results_not20() { local n; n=$(pane_results); [ -n "$n" ] && [ "$n" != 20 ]; }
     report "and stops at a screenful" 0 "$(poll_until 1 results_not20)"
-    appended=$(poll_until 6 cfg_has '^UT_START_RESULTS=20$')
+    appended=$(poll_until 6 cfg_has '^UT_SEARCH_RESULTS=20$')
     report "the count lands in its own key" 1 "$appended"
+    report "…renamed in place from its old name" UT_SEARCH_RESULTS=20 "$(sed -n 3p "$TUI_CFG")"
+    report "…which is gone" 0 "$(grep -c '^UT_START_RESULTS' "$TUI_CFG")"
     report "and not in the step key" 0 "$(grep -c '^UT_FETCH_BATCH' "$TUI_CFG")"
 
     # ---- the page counter across a tier change, and keys that arrive as one burst --------
@@ -3830,7 +3755,7 @@ else
     #     default is pure width — the rule min=/max= already follow), so the line is grepped
     #     BEFORE the press too. An implementation that printed every tier passes the after
     #     check and fails the before one.
-    # medium, not high: the shipped UT_QUALITY_CYCLE is `auto medium high`, so one press from
+    # medium, not high: the f key's cycle is `auto medium high`, so one press from
     # the default lands on the second member — an off-by-one that started the rotation at the
     # head would write auto and go red here.
     # The pattern is `quality <tier>`, not bare `quality`: the hint block prints `f quality`

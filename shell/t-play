@@ -51,7 +51,7 @@ fi
 # RESOLVED location — the same mechanism, and the same reason, as the VERSION read above.
 # That file is where every default value in the suite is declared, ONCE, for all ten entry
 # points. Before it existed each default was inlined per script, which meant a cross-engine
-# value like UT_MAX_SEARCH_RESULTS was written twice and could drift apart with nothing to
+# value like UT_SEARCH_RESULTS was written twice and could drift apart with nothing to
 # catch it. It is therefore NOT optional: a checkout without it is broken, and says so with
 # exit 2 rather than letting set -u abort somewhere further in. --version and --help still
 # answer, because those two must work on a broken checkout to be worth having.
@@ -80,8 +80,7 @@ fi
 #
 # Four defaults stay inline and are named in `config`'s own header: UT_STATE_DIR and
 # UT_ENGINE_DIR (both chain through an XDG variable, which a flat file cannot express),
-# YT_LANG (unset IS the locale probe) and YT_ASCII (it falls back through the legacy alias
-# YT_TUI_ASCII).
+# YT_LANG and YT_ASCII (unset IS the locale probe for both).
 #
 # The key list is ARCH-cli-contract.md「配置面」. This block is duplicated VERBATIM in all ten
 # entry points: ten independent executables share no library, and a byte-for-byte copy is
@@ -96,9 +95,13 @@ if [[ -z "$TING_CONFIG" ]]; then
     fi
 fi
 UT_CONFIG="$TING_CONFIG"
-for _v in STATE_DIR ENGINE_DIR HISTORY THEME ACCENT VOLUME LANG IMAGE KEYS RESOURCE RESOURCE_TICKS BRAND ASCII SYNC PLAY_QUALITY VIZ_STYLE VIZ_COLOR DEAD_KEEP DEFAULT_ENGINE MODE_CYCLE SORT_CYCLE THEME_CYCLE QUALITY_CYCLE LOOP_CYCLE; do
+for _v in STATE_DIR ENGINE_DIR HISTORY THEME VOLUME LANG IMAGE KEYS RESOURCE ASCII SYNC PLAY_QUALITY VIZ_STYLE VIZ_COLOR DEFAULT_ENGINE; do
     eval "[[ -n \"\${TING_$_v+x}\" ]] && UT_$_v=\"\$TING_$_v\" || true"
     eval "[[ -n \"\${UT_$_v+x}\" && -z \"\${TING_$_v+x}\" ]] && TING_$_v=\"\$UT_$_v\" || true"
+done
+# Merged keys: the old name still reads, one version, into the key that replaced it.
+for _v in UT_START_RESULTS:UT_SEARCH_RESULTS YT_COOKIE_BROWSER:UT_COOKIE_BROWSER BILI_COOKIE_BROWSER:UT_COOKIE_BROWSER NE_COOKIE_BROWSER:UT_COOKIE_BROWSER; do
+    eval "[[ -n \"\${${_v%%:*}+x}\" && -z \"\${${_v#*:}+x}\" ]] && ${_v#*:}=\"\$${_v%%:*}\" || true"
 done
 UT_DEFAULTS="$SCRIPT_DIR/../config"
 ut_read_config() {
@@ -116,6 +119,10 @@ ut_read_config() {
         [[ "$key" =~ ^(TING|UT|YT|BILI|NE)_[A-Z0-9_]+$ ]] || continue
         case "$key" in
         TING_CONFIG | TING_DEFAULTS | TING_ENGINE_DIR | TING_VERSION | UT_CONFIG | UT_DEFAULTS | UT_ENGINE_DIR | UT_VERSION | YT_IPC_SOCK | YT_DETACHED | YT_PLAYER_ID | YT_DETACHED_LOG) continue ;;
+        esac
+        case "$key" in
+        UT_START_RESULTS) key=UT_SEARCH_RESULTS ;;
+        YT_COOKIE_BROWSER | BILI_COOKIE_BROWSER | NE_COOKIE_BROWSER) key=UT_COOKIE_BROWSER ;;
         esac
         if [[ ${#val} -ge 2 ]] && { [[ "$val" == \"*\" ]] || [[ "$val" == \'*\' ]]; }; then
             val="${val#?}"
@@ -359,7 +366,7 @@ Output contracts (one line of JSON each; the why behind each shape: ARCH-cli-con
                    end (the player is gone; last known state + exit_code, reason from
                    its tombstone, both null when it finished or was stopped)
             cpu (percent) and mem (MB) are summed over the player's process group and
-            sampled every UT_RESOURCE_TICKS heartbeats; null with UT_RESOURCE=0
+            sampled every 3rd heartbeat; null with UT_RESOURCE=0
   --set-vol {status:"ok", id, volume} | {status:"not_playing"} | {status:"ambiguous", …}
             | {status:"error", reason:"ipc_failed"}
   --pause   {status:"ok", id, paused:true|false}   (same not_playing/ambiguous/error shapes)
@@ -2616,7 +2623,7 @@ record_player_death() {
 # `find -mmin` is stock on macOS and Linux alike; the count cap reuses jq's sort so "oldest"
 # means the same thing here as it does in the output. Cross-engine — the player is
 # source-agnostic, so nothing about this number belongs to a site.
-DEAD_KEEP=$UT_DEAD_KEEP
+DEAD_KEEP=8
 prune_dead_players() {
     local dead="$PLAYERS_DIR/dead" files=() extra x
     [[ -d "$dead" ]] || return 0
@@ -3099,9 +3106,10 @@ watch_bail() {
 
 # CPU percent and resident MB over the player's PROCESS GROUP — the one fact about a player
 # a caller could only get by knowing that the recorded pid leads a group (`set -m` at launch).
-# Sampled on the snapshot and every UT_RESOURCE_TICKS-th heartbeat after it, the stride ting
-# has always used; between samples the last reading rides along. Why ps -A | awk and not
+# Sampled on the snapshot and every RES_STRIDE-th heartbeat after it, the stride ting
+# samples at too; between samples the last reading rides along. Why ps -A | awk and not
 # `ps -g`: one portable spelling (ARCH-player.md).
+RES_STRIDE=3
 watch_sample_res() {
     local pid=$1 out=""
     [[ "${UT_RESOURCE:-1}" != 0 ]] || return 0
@@ -3163,8 +3171,7 @@ watch_print() {
 # One connection, start to EOF. Returns 0 if it got as far as a snapshot (so the caller
 # reconnects at once, for the next track), 1 if mpv refused or was not there.
 watch_connect() {
-    local id=$1 pid=$2 sock=$3 line ev got=0 ticks=${UT_RESOURCE_TICKS:-3} p
-    [[ "$ticks" =~ ^[1-9][0-9]*$ ]] || ticks=3
+    local id=$1 pid=$2 sock=$3 line ev got=0 ticks=$RES_STRIDE p
     WATCH_FIFO="$STATE_DIR/watch-$$.out"
     rm -f "$WATCH_FIFO" "$STATE_DIR/watch-$$.in" "$STATE_DIR/watch-$$.tick" 2>/dev/null
     mkfifo "$STATE_DIR/watch-$$.in" "$WATCH_FIFO" 2>/dev/null || return 1
@@ -4050,9 +4057,6 @@ QUERY="$*"
 if ! validate_enum "$COLOR_MODE" auto always never; then
     die "--color must be one of: auto, always, never"
 fi
-if ! is_non_negative_int "$UT_DEAD_KEEP"; then
-    die "UT_DEAD_KEEP must be a non-negative integer"
-fi
 if [[ -n "$VOLUME" ]]; then
     if ! is_non_negative_int "$VOLUME"; then
         die "--volume must be a non-negative integer"
@@ -4126,7 +4130,7 @@ fi
 #
 # Refused HERE, before a player or even an id exists, because the path is known from the
 # environment alone: the id is always mktemp's six characters. Exit 1 like every other
-# environment value this file validates (UT_DEAD_KEEP, UT_VIZ_STYLE) — the call cannot
+# environment value this file validates (UT_VIZ_STYLE) — the call cannot
 # succeed as configured, and the message says which variable to change. Counted in BYTES
 # (LC_ALL=C), because that is what the kernel counts; a CJK directory name is three per glyph.
 # Checked ahead of the -f ascii|viz refusal below only so the suite can pin the boundary

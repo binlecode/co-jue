@@ -37,21 +37,15 @@
 #   this file is indistinguishable from a user setting it, so it defeats the very detection
 #   that is its default. Two are excluded for that reason:
 #     YT_LANG   unset = zh under a zh* locale, English otherwise
-#     YT_ASCII  unset = on under a non-UTF-8 locale, and it falls back through the legacy
-#               alias YT_TUI_ASCII, which a value here would make unreachable
+#     YT_ASCII  unset = on under a non-UTF-8 locale
 #   Set either in your own config or the environment when you want to pin it.
 #
-#   NOT HERE, deliberately: UT_STATE_DIR and UT_START_RESULTS. Both defaults are a chain
-#   through ANOTHER variable, which a flat KEY=value file cannot express:
+#   NOT HERE, deliberately: UT_STATE_DIR. Its default is a chain through ANOTHER variable,
+#   which a flat KEY=value file cannot express:
 #     UT_STATE_DIR      ${XDG_STATE_HOME:-$HOME/.local/state}/ting — flattening it to a
 #                       literal path would silently drop the XDG support ARCH-cli-contract.md「配置面」 promises. It
 #                       stays inline in t-playlist and t-history.
-#     UT_START_RESULTS  unset = follow UT_FETCH_BATCH below. How many rows a query STARTS
-#                       from, as opposed to the step each edge moves by. It stays inline in
-#                       ting, and it is one of the two of these four keys that ting WRITES
-#                       into your own file (YT_LANG, via the l key, is the other) —
-#                       pressing → or ← is what first puts it there.
-#   Set either in your own config or the environment to override.
+#   Set it in your own config or the environment to override.
 #
 #   NOT HERE AND NOT IN YOUR CONFIG EITHER: UT_ENGINE_DIR — the environment is the only place
 #   it can be set. Two reasons, and the second is the binding one:
@@ -69,13 +63,11 @@
 # ── scope: suite ────────────────────────────────────────────────────────────────────────
 UT_HISTORY=1                        # 0 = a detached player writes no listening row
 UT_DEFAULT_ENGINE=yt                # which engine --engine defaults to
-
-# Ceiling on rows one query may return, counted in ROWS because that is what the envelope
-# contains. Each engine spends it its own way: bili's search converts it to a page plan against
-# a server that pages at 20 (200 = the ten pages it always spent, and requests are the scarce
-# resource there); yt's clamps its ytsearchN. 0 = no ceiling.
-UT_MAX_SEARCH_RESULTS=200
-UT_SEARCH_RESULTS=20                # the -n default for <engine>-search; one bili page
+UT_SEARCH_RESULTS=20                # the -n default for t-play --search, and the rows
+                                    # ting's first fetch asks for; one bili page. ting's
+                                    # → and ← move it and write it back here
+UT_COOKIE_BROWSER=chrome            # browser profile every engine reads cookies from;
+                                    # "none" = anonymous. bili and ne send none on search
 UT_SORT_FIELD=relevance             # the -s default: relevance | view_count | duration
 UT_PLAY_MODE=audio                  # the -f default. -f itself accepts audio | video |
                                     # fast | ascii | viz, but a detached player — so every
@@ -89,7 +81,6 @@ UT_PLAY_QUALITY=auto                # the --quality default: auto | low | medium
                                     # ting's f key rotates it live and writes it back here
 
 # ── scope: player (t-play) ─────────────────────────────────────────────────────────────
-UT_DEAD_KEEP=8                      # dead player records retained (also bounded to 1 hour)
 YT_ASCII_VO=tct                     # mpv --vo for ASCII video
 UT_VIZ_STYLE=bars                   # what -f viz draws: bars = log-scaled spectrum bars,
                                     # one per terminal column | wave = the waveform. Both
@@ -99,23 +90,16 @@ UT_VIZ_STYLE=bars                   # what -f viz draws: bars = log-scaled spect
 UT_VIZ_COLOR=cyan                   # -f viz color: an ffmpeg color name (cyan, magenta,
                                     # green, …) or 0xRRGGBB. NOT #RRGGBB — in THIS file a
                                     # `#` starts a comment, so #ff0000 reads back empty and
-                                    # you silently get cyan. Same spelling UT_ACCENT takes,
-                                    # for the same measured reason: ARCH-tui.md「值的拼法是
-                                    # 0xRRGGBB 而不是 #RRGGBB」. Only the --viz-color FLAG
+                                    # you silently get cyan. Measured: ARCH-tui.md「值的拼法
+                                    # 是 0xRRGGBB 而不是 #RRGGBB」. Only the --viz-color FLAG
                                     # takes #RRGGBB — a flag never passes through this file.
 YT_MPV_INPUT_CONF=                  # path to an mpv input.conf for detached players
 
 # ── scope: terminal UI (ting) ──────────────────────────────────────────────────────────
 UT_PAGE_ROWS=10                     # rows per screen page; reflowed down to fit the window
 UT_FETCH_BATCH=20                   # the STEP each page edge moves by: → past the last page
-                                    # adds this many rows, ← on page 1 drops this many. Also
-                                    # the fallback for UT_START_RESULTS (the first fetch).
+                                    # adds this many rows, ← on page 1 drops this many.
                                     # A STEP, not a total — UT_SEARCH_RESULTS is the total
-UT_MODE_CYCLE=audio video fast      # order the v key steps through
-UT_SORT_CYCLE=relevance view_count duration          # order the o key steps through
-UT_QUALITY_CYCLE=auto medium high   # order the f key steps through. Not the full tier set:
-                                    # low is a deliberate choice, not a step you want to land
-                                    # on while rotating past it — add it here if you want it
 UT_LOOP_MODE=off                    # off|seq|one: what happens when a track ends. off = the
                                     # track you picked plays and playback stops; seq = the
                                     # rows from the cursor down play in order (ting hands
@@ -126,23 +110,10 @@ UT_LOOP_MODE=off                    # off|seq|one: what happens when a track end
                                     # how ting SHAPES a launch, not a state a player can be
                                     # in — a queue of ten looks the same to the player
                                     # whether it came from seq or from ten presses of +
-UT_LOOP_CYCLE=off seq one           # the order the r key steps through
-                                    # Ordered so consecutive steps LAND SOMEWHERE ELSE: the
-                                    # four blues (tokyonight, nord, onedark, plus minimal's
-                                    # own cyan) are spread apart rather than run together,
-                                    # which is what made the old order read as one theme
-                                    # pressed seven times. custom is not here — it is a
-                                    # legal name, but cycling onto it lands on whatever
-                                    # UT_ACCENT says, and for most configs that is minimal
-                                    # again, a step that changes nothing.
-UT_THEME_CYCLE=minimal catppuccin tokyonight gruvbox rosepine nord kanagawa everforest onedark monokai solarized dracula mono   # the t key
 UT_RESOURCE=1                       # 0 = no cpu/ram readout for the playing player. The
                                     # readout is the player's own PROCESS GROUP (wrapper +
                                     # mpv), not the whole machine, and draws only while
                                     # something plays
-UT_RESOURCE_TICKS=3                 # seconds between resource samples: the reader (one
-                                    # ps -A pass, ~24ms) rides every Nth tick of the TUI's
-                                    # shared 1 s clock
 UT_KEYS=core                        # how much of the keymap the hint block prints:
                                     # core = this view's own job, one line; full = every
                                     # key it has; hidden = drops the block entirely.
@@ -163,12 +134,6 @@ UT_ROW_INDEX=off                    # on|off: print each row's ordinal in front 
                                     # the number instead of counting. The # key toggles it
                                     # live and writes it back here
 YT_THEME=minimal                    # palette family; --theme overrides, t cycles live
-UT_ACCENT=                          # the `custom` palette's accent. 0xRRGGBB (24-bit,
-                                    # needs COLORTERM=truecolor) | an SGR code 30-37 or
-                                    # 90-97 | 0xRRGGBB/<code> for both rungs. `#RRGGBB`
-                                    # cannot be written here at all — this file's comment
-                                    # strip eats it. Empty = custom degrades to minimal
-UT_ACCENT_LIGHT=                    # …the light-background rung. Empty = use UT_ACCENT
 YT_BG=auto                          # auto | light | dark
 YT_SYNC=auto                        # synchronised redraw: 0 | 1 | auto (off under tmux)
 UT_IMAGE=auto                       # auto | on | off: the focused row's cover art, drawn
@@ -180,33 +145,23 @@ UT_IMAGE=auto                       # auto | on | off: the focused row's cover a
                                     # configured passthrough themselves; off sends no byte.
                                     # A row whose engine gave no cover simply has none —
                                     # the layout does not change either way
-YT_ICON=                            # note | phones — the header's two-cell icon slot:
-                                     # note = ♫, phones = 🎧. Unset = one coin flip per
-                                     # startup; pin it whenever a frame must repeat exactly
-                                     # (a captured doc frame). YT_ASCII=1 overrides it.
-YT_BRAND=0                          # 1 = math-sans-bold header wordmark; English only
-                                     # (the zh header is the seal 【 听 】 either way)
 YT_AMBIG_WIDE=0                     # 1 = measure East-Asian Ambiguous glyphs as two cells
 
 # ── scope: engine yt ────────────────────────────────────────────────────────────────────
-YT_COOKIE_BROWSER=chrome            # browser profile cookies come from; "none" = anonymous
 YT_AUDIO_FORMAT=ba/b
 YT_VIDEO_FORMAT=bv*+ba/b
 YT_VIDEO_FORMAT_FAST=b[height<=720][ext=mp4]/b[height<=720]/b[ext=mp4]/b
 YT_SUB_LANG_CHAIN=en,zh-Hans,zh,ja  # --transcript language priority; yt only (bili has none)
 
 # ── scope: engine bili ──────────────────────────────────────────────────────────────────
-BILI_COOKIE_BROWSER=chrome          # read by t-engine-bili's resolving verbs — its search sends no cookie
 BILI_AUDIO_FORMAT=ba/b
 BILI_VIDEO_FORMAT=bv*+ba/b
 BILI_VIDEO_FORMAT_FAST=b[height<=720]/bv*[height<=720]+ba/b
 # A browser User-Agent; must not contain curl or python — the site refuses those.
 BILI_UA=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36
 BILI_BUVID=                         # a device id; t-engine-bili's search only, generated per process when unset
-BILI_RETRY_PAUSE=1                  # seconds before the one retry of a 412 burst
 
 # ── scope: engine ne ────────────────────────────────────────────────────────────────────
-NE_COOKIE_BROWSER=chrome            # read by t-engine-ne's resolving verbs — its search sends no cookie
 NE_AUDIO_FORMAT=ba/b                # this site serves audio only; every -f mode lands here
 # A browser User-Agent for the weapi search request.
 NE_UA=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36

@@ -58,7 +58,7 @@ yt-dlp/mpv 在任何语言里都是子进程，生命周期的回归无法二分
 |---|---|---|
 | `fetch_play_times` 每拍在 `--status` 公布的 `sock` 上直读 14 个 mpv 属性 | 每拍 fork 一条 `t-play` 太贵 | `t-play --watch`（§4.1） |
 | `mpv_get_prop core-idle` 判断起播就绪 | 同上 | `--watch` 的状态事件 |
-| `fetch_play_res` 对播放器的**进程组**跑 `ps` 读 CPU/内存——依赖 `t-play` 内部的 `set -m`（pgid == 记录里的 pid） | 没有动词答这个 | `--watch` 的心跳按 `UT_RESOURCE_TICKS` 取样带出 `cpu`/`mem`；进程组知识留在 `t-play` |
+| `fetch_play_res` 对播放器的**进程组**跑 `ps` 读 CPU/内存——依赖 `t-play` 内部的 `set -m`（pgid == 记录里的 pid） | 没有动词答这个 | `--watch` 的心跳每 3 拍取样带出 `cpu`/`mem`；进程组知识留在 `t-play` |
 | `-`/`=` 音量走 `send_mpv_ipc`，先 `get_property volume` 再 set | 按住连发：socket 10 ms/次，`--set-volume` 60 ms/次 | Go 端合并连按（只保留最新目标值、同一时刻最多一个在途调用），走 `--set-volume`；当前音量来自 `--watch` |
 | 封面：TUI 自己起一个 `mpv --vo=image` 做转码 | bash 解不了图 | Go 解码搜索信封里的 `thumbnail`，自己发 Kitty 协议；mpv 从 TUI 里消失（细节见 §5「封面」） |
 | `--parts` / `--info` 支不支持，靠调一次、嗅 stderr 的用法错 | 没有发现动词 | 先是 `<engine>-resolve --capabilities -j`（§4.2）；之后归 `t-play --engines -j` 的 `flags[]`（PLAN-single-entry.md §2） |

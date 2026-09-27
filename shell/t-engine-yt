@@ -59,9 +59,13 @@ if [[ -z "$TING_CONFIG" ]]; then
     fi
 fi
 UT_CONFIG="$TING_CONFIG"
-for _v in STATE_DIR ENGINE_DIR HISTORY THEME ACCENT VOLUME LANG IMAGE KEYS RESOURCE RESOURCE_TICKS BRAND ASCII SYNC PLAY_QUALITY VIZ_STYLE VIZ_COLOR DEAD_KEEP DEFAULT_ENGINE MODE_CYCLE SORT_CYCLE THEME_CYCLE QUALITY_CYCLE LOOP_CYCLE; do
+for _v in STATE_DIR ENGINE_DIR HISTORY THEME VOLUME LANG IMAGE KEYS RESOURCE ASCII SYNC PLAY_QUALITY VIZ_STYLE VIZ_COLOR DEFAULT_ENGINE; do
     eval "[[ -n \"\${TING_$_v+x}\" ]] && UT_$_v=\"\$TING_$_v\" || true"
     eval "[[ -n \"\${UT_$_v+x}\" && -z \"\${TING_$_v+x}\" ]] && TING_$_v=\"\$UT_$_v\" || true"
+done
+# Merged keys: the old name still reads, one version, into the key that replaced it.
+for _v in UT_START_RESULTS:UT_SEARCH_RESULTS YT_COOKIE_BROWSER:UT_COOKIE_BROWSER BILI_COOKIE_BROWSER:UT_COOKIE_BROWSER NE_COOKIE_BROWSER:UT_COOKIE_BROWSER; do
+    eval "[[ -n \"\${${_v%%:*}+x}\" && -z \"\${${_v#*:}+x}\" ]] && ${_v#*:}=\"\$${_v%%:*}\" || true"
 done
 UT_DEFAULTS="$SCRIPT_DIR/../config"
 ut_read_config() {
@@ -79,6 +83,10 @@ ut_read_config() {
         [[ "$key" =~ ^(TING|UT|YT|BILI|NE)_[A-Z0-9_]+$ ]] || continue
         case "$key" in
         TING_CONFIG | TING_DEFAULTS | TING_ENGINE_DIR | TING_VERSION | UT_CONFIG | UT_DEFAULTS | UT_ENGINE_DIR | UT_VERSION | YT_IPC_SOCK | YT_DETACHED | YT_PLAYER_ID | YT_DETACHED_LOG) continue ;;
+        esac
+        case "$key" in
+        UT_START_RESULTS) key=UT_SEARCH_RESULTS ;;
+        YT_COOKIE_BROWSER | BILI_COOKIE_BROWSER | NE_COOKIE_BROWSER) key=UT_COOKIE_BROWSER ;;
         esac
         if [[ ${#val} -ge 2 ]] && { [[ "$val" == \"*\" ]] || [[ "$val" == \'*\' ]]; }; then
             val="${val#?}"
@@ -126,11 +134,11 @@ PROG="t-engine-yt"
 # restricted videos — invisible to an anonymous client — are searchable and resolve. Verify
 # the browser profile exists on this platform; if not, run anonymously rather than break, so
 # a machine without the configured browser degrades gracefully to no-login.
-# Set YT_COOKIE_BROWSER=none to force anonymous-only (skips the keychain read and the probe).
+# Set UT_COOKIE_BROWSER=none to force anonymous-only (skips the keychain read and the probe).
 COOKIE_ARGS=()
-if [[ -n "${YT_COOKIE_BROWSER:-}" && "$YT_COOKIE_BROWSER" != "none" ]]; then
+if [[ -n "${UT_COOKIE_BROWSER:-}" && "$UT_COOKIE_BROWSER" != "none" ]]; then
     browser_exists=0
-    case "$YT_COOKIE_BROWSER" in
+    case "$UT_COOKIE_BROWSER" in
     chrome|chromium|brave)
         if [[ "$(uname -s)" == "Darwin" ]]; then
             if [[ -d "$HOME/Library/Application Support/Google/Chrome" || -d "$HOME/Library/Application Support/BraveSoftware" || -d "$HOME/Library/Application Support/Chromium" ]]; then
@@ -181,7 +189,7 @@ if [[ -n "${YT_COOKIE_BROWSER:-}" && "$YT_COOKIE_BROWSER" != "none" ]]; then
     esac
 
     if ((browser_exists)); then
-        COOKIE_ARGS=(--cookies-from-browser "$YT_COOKIE_BROWSER")
+        COOKIE_ARGS=(--cookies-from-browser "$UT_COOKIE_BROWSER")
     fi
 fi
 
@@ -234,11 +242,11 @@ SUB_LANG=""
 # spelling would be a knob half the suite must ignore. ARCH-cli-contract.md「配置面」.
 SUB_LANG_CHAIN="$YT_SUB_LANG_CHAIN"
 
-# Glyph fallback shares ONE switch with ting (YT_ASCII, legacy alias YT_TUI_ASCII): a
+# Glyph fallback shares ONE switch with ting (YT_ASCII): a
 # terminal whose font can't draw ♫ can't draw it in either surface, and a non-UTF-8 locale
 # (bare cron/launchd) would emit mojibake. Empty = drop the glyph, as ting does.
 MUSIC_CHAR="♫"
-case "${YT_ASCII:-${YT_TUI_ASCII:-}}" in
+case "${YT_ASCII:-}" in
 1 | true | yes | on) MUSIC_CHAR="" ;;
 "")
     case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
@@ -493,7 +501,7 @@ terminal_app() {
 # ONE line on stderr that says what was lost, why, and the fix. stderr and not the envelope:
 # it is prose for a person, and the -j envelope keeps its shape (ARCH-cli-contract.md).
 cookie_diagnosis() {
-    local b=${YT_COOKIE_BROWSER:-} first="" app prog="$PROG" knob="YT_COOKIE_BROWSER"
+    local b=${UT_COOKIE_BROWSER:-} first="" app prog="$PROG" knob="UT_COOKIE_BROWSER"
     cookie_probe "$b"
     first=$(printf '%s\n' "$1" | grep -m1 'ERROR' | sed 's/^ERROR: //') || first=""
     case "$COOKIE_STATE" in
@@ -1176,7 +1184,7 @@ stream_run() {
         stream_fail "$rc_c"
     fi
 
-    # Anonymous-only (YT_COOKIE_BROWSER=none, or no profile on this machine): nothing to
+    # Anonymous-only (UT_COOKIE_BROWSER=none, or no profile on this machine): nothing to
     # weigh, so no probe either.
     raw_a=$(dump_once "${ANON_ARGS[@]}") || rc_a=$?
     if ((rc_a == 0)) && [[ -n "$raw_a" ]]; then
@@ -1584,7 +1592,7 @@ auth_run() {
         # A profile folder that exists is not a store this process may read (cookie_probe),
         # and a status line that said "signed in" over a blocked read was the whole bug.
         # null = no probe for this browser, so no claim either way.
-        cookie_probe "$YT_COOKIE_BROWSER"
+        cookie_probe "$UT_COOKIE_BROWSER"
         case "$COOKIE_STATE" in
         readable) readable=true ;;
         unknown) readable=null ;;
@@ -1593,15 +1601,15 @@ auth_run() {
     fi
     if [[ "$OUTPUT_MODE" == "json" ]]; then
         jq -nc --arg engine "$ENGINE_NAME" --arg auth "$auth" \
-            --arg browser "$YT_COOKIE_BROWSER" --argjson found "$found" --argjson readable "$readable" \
+            --arg browser "$UT_COOKIE_BROWSER" --argjson found "$found" --argjson readable "$readable" \
             '{status: "ok", engine: $engine, auth: $auth,
               cookie_browser: $browser, profile_found: $found, cookie_readable: $readable}'
         return 0
     fi
     if [[ "$auth" == "cookie" && "$readable" == "false" ]]; then
-        printf 'cookie (%s, unreadable: %s)\n' "$YT_COOKIE_BROWSER" "$COOKIE_STATE"
+        printf 'cookie (%s, unreadable: %s)\n' "$UT_COOKIE_BROWSER" "$COOKIE_STATE"
     elif [[ "$auth" == "cookie" ]]; then
-        printf 'cookie (%s)\n' "$YT_COOKIE_BROWSER"
+        printf 'cookie (%s)\n' "$UT_COOKIE_BROWSER"
     else
         printf 'anonymous\n'
     fi
@@ -1651,7 +1659,7 @@ Exactly one verb per call. A modifier belongs to one verb and is refused next to
 Exit codes: 0 ok · 1 usage/validation · 2+ a missing dependency, or a propagated
             yt-dlp failure (see .reason)
 
-Environment: YT_COOKIE_BROWSER (default chrome; "none" = anonymous), YT_AUDIO_FORMAT,
+Environment: UT_COOKIE_BROWSER (default chrome; "none" = anonymous), YT_AUDIO_FORMAT,
   YT_VIDEO_FORMAT, YT_VIDEO_FORMAT_FAST, YT_SUB_LANG_CHAIN — defaults in <checkout>/config,
   see ARCH-cli-contract.md「配置面」.
 EOF
@@ -1852,13 +1860,10 @@ fi
 case "$ACTION" in
 search)
     is_non_negative_int "$NUM_RESULTS" || die "-n must be a non-negative integer"
-    is_non_negative_int "$UT_MAX_SEARCH_RESULTS" ||
-        die "UT_MAX_SEARCH_RESULTS must be a non-negative integer (0 = no ceiling)"
-    # One place decides how many rows a query may cost. Silent by design: a caller asking for
-    # more than the ceiling gets the ceiling.
-    if ((UT_MAX_SEARCH_RESULTS > 0 && NUM_RESULTS > UT_MAX_SEARCH_RESULTS)); then
-        NUM_RESULTS=$UT_MAX_SEARCH_RESULTS
-    fi
+    # One place decides how many rows a query may cost, and the ceiling is this site's, not a
+    # preference: yt clamps its ytsearchN to it. Silent by design: a caller asking
+    # for more than the ceiling gets the ceiling.
+    if ((NUM_RESULTS > 200)); then NUM_RESULTS=200; fi
     is_non_negative_int "$MIN_DURATION" || die "--min-duration must be a non-negative integer"
     is_non_negative_int "$MAX_DURATION" || die "--max-duration must be a non-negative integer"
     if ((MAX_DURATION > 0 && MAX_DURATION <= MIN_DURATION)); then

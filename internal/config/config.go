@@ -29,9 +29,17 @@ var refused = map[string]bool{
 
 // envRenamed is the `for _v in …` list duplicated in every shell entry point: the knobs whose
 // TING_ environment spelling is honoured. A file honours TING_ for every key.
-var envRenamed = strings.Fields("STATE_DIR ENGINE_DIR HISTORY THEME ACCENT VOLUME LANG IMAGE KEYS " +
-	"RESOURCE RESOURCE_TICKS BRAND ASCII SYNC PLAY_QUALITY VIZ_STYLE VIZ_COLOR DEAD_KEEP " +
-	"DEFAULT_ENGINE MODE_CYCLE SORT_CYCLE THEME_CYCLE QUALITY_CYCLE LOOP_CYCLE")
+var envRenamed = strings.Fields("STATE_DIR ENGINE_DIR HISTORY THEME VOLUME LANG IMAGE KEYS " +
+	"RESOURCE ASCII SYNC PLAY_QUALITY VIZ_STYLE VIZ_COLOR DEFAULT_ENGINE")
+
+// merged maps a key that was folded into another onto the key that replaced it: the old
+// name still reads, one version, in the environment and in a file.
+var merged = map[string]string{
+	"UT_START_RESULTS":    "UT_SEARCH_RESULTS",
+	"YT_COOKIE_BROWSER":   "UT_COOKIE_BROWSER",
+	"BILI_COOKIE_BROWSER": "UT_COOKIE_BROWSER",
+	"NE_COOKIE_BROWSER":   "UT_COOKIE_BROWSER",
+}
 
 // Config holds the resolved value of every key any layer set. TING_X and UT_X are one key,
 // stored under its UT_ spelling.
@@ -42,8 +50,12 @@ type Config struct {
 	UserPath string
 }
 
-// canon folds the new-name spelling onto the old one, so both look up the same slot.
+// canon folds the new-name spelling onto the old one, and a merged key onto the key that
+// replaced it, so every spelling looks up the same slot.
 func canon(key string) string {
+	if k, ok := merged[key]; ok {
+		return k
+	}
 	if strings.HasPrefix(key, "TING_") {
 		return "UT_" + strings.TrimPrefix(key, "TING_")
 	}
@@ -110,7 +122,14 @@ func Load(environ []string, shipped string) (*Config, error) {
 	// renamed knobs have a TING_ spelling in the environment — the list every entry point
 	// carries verbatim — and there the new name wins over the old one.
 	for k, v := range env {
-		if keyRe.MatchString(k) && !strings.HasPrefix(k, "TING_") {
+		if keyRe.MatchString(k) && !strings.HasPrefix(k, "TING_") && merged[k] == "" {
+			c.vals[k], c.pinned[k] = v, true
+		}
+	}
+	// In the shell's order, so when two old names disagree the same one wins.
+	for _, old := range []string{"UT_START_RESULTS", "YT_COOKIE_BROWSER", "BILI_COOKIE_BROWSER", "NE_COOKIE_BROWSER"} {
+		k := merged[old]
+		if v, ok := env[old]; ok && !c.pinned[k] {
 			c.vals[k], c.pinned[k] = v, true
 		}
 	}

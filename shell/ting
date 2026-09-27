@@ -53,12 +53,14 @@ fi
 # and a file recording a value the program has already decided to throw away is a lie that
 # surfaces months later. Ahead of the block below rather than inside it, because that block is
 # duplicated verbatim in all ten entry points and this is ting's alone.
-PREF_KEYS="UT_DEFAULT_ENGINE YT_THEME UT_PLAY_MODE UT_PLAY_QUALITY UT_SORT_FIELD YT_LANG UT_START_RESULTS UT_KEYS UT_ROW_INDEX UT_LIST_MODE UT_LOOP_MODE"
+PREF_KEYS="UT_DEFAULT_ENGINE YT_THEME UT_PLAY_MODE UT_PLAY_QUALITY UT_SORT_FIELD YT_LANG UT_SEARCH_RESULTS UT_KEYS UT_ROW_INDEX UT_LIST_MODE UT_LOOP_MODE"
 PREF_PINNED=""
 for _pk in $PREF_KEYS; do
     if eval "[[ -n \"\${$_pk+x}\" ]]"; then PREF_PINNED="$PREF_PINNED $_pk"; fi
 done
 unset _pk
+# The merged key's old name pins it too: the block below reads it into UT_SEARCH_RESULTS.
+if [[ -n "${UT_START_RESULTS+x}" ]]; then PREF_PINNED="$PREF_PINNED UT_SEARCH_RESULTS"; fi
 
 # CONFIGURATION — the chain is flag > environment > the user's config > the shipped defaults
 # in `<checkout>/config`, which is where every default value in the suite is declared once.
@@ -73,9 +75,13 @@ if [[ -z "$TING_CONFIG" ]]; then
     fi
 fi
 UT_CONFIG="$TING_CONFIG"
-for _v in STATE_DIR ENGINE_DIR HISTORY THEME ACCENT VOLUME LANG IMAGE KEYS RESOURCE RESOURCE_TICKS BRAND ASCII SYNC PLAY_QUALITY VIZ_STYLE VIZ_COLOR DEAD_KEEP DEFAULT_ENGINE MODE_CYCLE SORT_CYCLE THEME_CYCLE QUALITY_CYCLE LOOP_CYCLE; do
+for _v in STATE_DIR ENGINE_DIR HISTORY THEME VOLUME LANG IMAGE KEYS RESOURCE ASCII SYNC PLAY_QUALITY VIZ_STYLE VIZ_COLOR DEFAULT_ENGINE; do
     eval "[[ -n \"\${TING_$_v+x}\" ]] && UT_$_v=\"\$TING_$_v\" || true"
     eval "[[ -n \"\${UT_$_v+x}\" && -z \"\${TING_$_v+x}\" ]] && TING_$_v=\"\$UT_$_v\" || true"
+done
+# Merged keys: the old name still reads, one version, into the key that replaced it.
+for _v in UT_START_RESULTS:UT_SEARCH_RESULTS YT_COOKIE_BROWSER:UT_COOKIE_BROWSER BILI_COOKIE_BROWSER:UT_COOKIE_BROWSER NE_COOKIE_BROWSER:UT_COOKIE_BROWSER; do
+    eval "[[ -n \"\${${_v%%:*}+x}\" && -z \"\${${_v#*:}+x}\" ]] && ${_v#*:}=\"\$${_v%%:*}\" || true"
 done
 UT_DEFAULTS="$SCRIPT_DIR/../config"
 ut_read_config() {
@@ -93,6 +99,10 @@ ut_read_config() {
         [[ "$key" =~ ^(TING|UT|YT|BILI|NE)_[A-Z0-9_]+$ ]] || continue
         case "$key" in
         TING_CONFIG | TING_DEFAULTS | TING_ENGINE_DIR | TING_VERSION | UT_CONFIG | UT_DEFAULTS | UT_ENGINE_DIR | UT_VERSION | YT_IPC_SOCK | YT_DETACHED | YT_PLAYER_ID | YT_DETACHED_LOG) continue ;;
+        esac
+        case "$key" in
+        UT_START_RESULTS) key=UT_SEARCH_RESULTS ;;
+        YT_COOKIE_BROWSER | BILI_COOKIE_BROWSER | NE_COOKIE_BROWSER) key=UT_COOKIE_BROWSER ;;
         esac
         if [[ ${#val} -ge 2 ]] && { [[ "$val" == \"*\" ]] || [[ "$val" == \'*\' ]]; }; then
             val="${val#?}"
@@ -164,7 +174,7 @@ pref_value() {
     UT_PLAY_QUALITY)   printf '%s' "$PLAY_QUALITY" ;;
     UT_SORT_FIELD)     printf '%s' "$SORT_FIELD" ;;
     YT_LANG)           printf '%s' "$UI_LANG" ;;
-    UT_START_RESULTS)  printf '%s' "$RESULT_N" ;;
+    UT_SEARCH_RESULTS) printf '%s' "$RESULT_N" ;;
     UT_KEYS)           printf '%s' "$KEYS_TIER" ;;
     UT_ROW_INDEX)      if ((ROW_INDEX)); then printf 'on'; else printf 'off'; fi ;;
     UT_LIST_MODE)      printf '%s' "$LIST_MODE" ;;
@@ -242,6 +252,12 @@ write_prefs() {
                 key="$lhs"
                 while [[ "$key" == [[:space:]]* ]]; do key="${key#[[:space:]]}"; done
                 while [[ "$key" == *[[:space:]] ]]; do key="${key%[[:space:]]}"; done
+                # A merged key's old name is the same key: its line is rewritten under the new
+                # name, in place, which is the whole migration.
+                if [[ "$key" == UT_START_RESULTS ]]; then
+                    lhs="${lhs%%UT_START_RESULTS*}UT_SEARCH_RESULTS${lhs#*UT_START_RESULTS}"
+                    key=UT_SEARCH_RESULTS
+                fi
                 # A commented-out line keeps its `#`, so its key never matches and it is
                 # carried through untouched — which is the right answer: the user disabled it.
                 if pref_listed "$key" "$keys" && ! pref_listed "$key" "$seen"; then
@@ -277,9 +293,7 @@ write_prefs() {
         out="$out# Hand-edit it freely: comments and layout are preserved, only values move."$'\n'
         out="$out# Precedence: flag > environment > THIS FILE > the shipped <checkout>/config."$'\n'
     fi
-    # A key the file does not carry yet is appended. This is the only line the write ADDS,
-    # and it is how UT_START_RESULTS — which is deliberately absent from the shipped config,
-    # its unset state meaning "follow UT_FETCH_BATCH" — first appears anywhere.
+    # A key the file does not carry yet is appended. This is the only line the write ADDS.
     for k in $keys; do
         if ! pref_listed "$k" "$seen"; then
             val=$(pref_value "$k")
@@ -542,11 +556,10 @@ Menu options:
   --color MODE  Color: auto | always | never (default: auto)
   --theme NAME  Palette: minimal (default) | mono | catppuccin | tokyonight | nord
                 | gruvbox | onedark | dracula | rosepine | everforest | kanagawa
-                | solarized | monokai | custom. Every theme = a signature accent
+                | solarized | monokai. Every theme = a signature accent
                 plus its own play/pause status hues; mono = gray hierarchy only,
                 no hue. Community themes emit 24-bit color when
-                COLORTERM=truecolor, else ANSI-16 fallbacks. custom takes its
-                accent from UT_ACCENT (below) and is minimal when that is unset.
+                COLORTERM=truecolor, else ANSI-16 fallbacks.
                 Light/dark picks the theme's own light variant (see YT_BG below).
   -h        This help
   -V        Print the suite version
@@ -573,7 +586,7 @@ Keys (List View):
   v        cycle playback mode: audio → video → fast (applies to next play)
   f        cycle quality tier: auto → medium → high (applies to next play; the
            engine reads it against the mode, so `high` is 1080p for video and a
-           bitrate for audio). UT_QUALITY_CYCLE sets the order and its members
+           bitrate for audio). low is not on the cycle: set it with --quality
   l        switch chrome language (en <-> zh)
   t        cycle palette family live (minimal → catppuccin → tokyonight → nord →
            gruvbox → onedark → mono); no-op when colors are off
@@ -606,7 +619,7 @@ Keys (List View):
            picked and stops; seq plays the rows from the cursor DOWN, in order, by handing
            the player a queue — so they keep playing after this UI exits; one repeats the
            track. off/one take effect on a player that is already running; seq shapes the
-           next Enter, and says so. UT_LOOP_CYCLE sets the order and its members
+           next Enter, and says so
   +        append the focused row to the running player's queue (nothing playing: says so)
   >        skip to the next queued track
   /        live filter — type to narrow instantly; ↑/↓ select, Enter play, Esc clear
@@ -637,18 +650,12 @@ Environment:
                    Default: ${XDG_DATA_HOME:-~/.local/share}/ting/engines
   YT_ASCII=1       Use ASCII glyphs (♫ ● ○ ❯ · ▶ ❚❚ • … → — arrows → ASCII) for
                    terminals whose font can't draw them. Auto-on for non-UTF-8 locales.
-                   Shared with the rest of the suite. Legacy alias: YT_TUI_ASCII.
+                   Shared with the rest of the suite.
   YT_LANG=en|zh    Language of the menu chrome. Default: zh under a zh* locale,
                    English otherwise (help text and errors are always English).
   YT_THEME=minimal|mono|catppuccin|tokyonight|nord|gruvbox|onedark|dracula
-          |rosepine|everforest|kanagawa|solarized|monokai|custom
+          |rosepine|everforest|kanagawa|solarized|monokai
                    Palette family (same as --theme; default: minimal).
-  UT_ACCENT        The custom palette's accent, one of: 0xRRGGBB (24-bit, needs
-                   COLORTERM=truecolor), an SGR foreground code 30-37 or 90-97, or
-                   0xRRGGBB/<code> giving both rungs. Unset -> custom is minimal.
-                   Not #RRGGBB: a # starts a comment in the config file. Set-once
-                   tuning, so there is no flag and the t key never writes it back.
-  UT_ACCENT_LIGHT  The same, for a light background. Unset -> UT_ACCENT is used.
   YT_BG=auto|light|dark  Background mode. auto: $COLORFGBG, then an OSC 11 terminal
                    query, then dark. For minimal/mono, light swaps cyan for blue; for
                    community themes it picks the theme's own light variant.
@@ -656,14 +663,6 @@ Environment:
   UT_IMAGE=auto|on|off  Cover art for the focused row, over the terminal's graphics
                     protocol. auto probes the terminal and is off under tmux; off sends
                     no byte at all.
-  YT_ICON=note|phones  Which glyph fills the header's two-cell icon slot: ♫ (padded to
-                   two) or 🎧. Unset, it is a coin flip per startup — pin it when a
-                   frame has to come out the same twice. ASCII mode (YT_ASCII=1) drops
-                   the slot entirely and this knob with it.
-  YT_BRAND=1       Header wordmark in mathematical sans-serif bold ("𝗧 𝗜 𝗡 𝗚").
-                   OPT-IN: your terminal font must cover the U+1D5D4 block, else tofu.
-                   ASCII mode (YT_ASCII=1) always wins. English only: under YT_LANG=zh
-                   the header is the seal 【 听 】, which this knob does not change.
   NO_COLOR=1       Disables color in --color auto mode (an explicit --color wins).
   YT_AMBIG_WIDE=1  Measure East-Asian-Ambiguous glyphs (· — • … arrows ─ ━ ○ ● ▶) as
                    TWO cells. Only needed if your terminal is set to treat ambiguous
@@ -727,15 +726,13 @@ SEARCH_ARGS=()
 # engine returns once, this one is the STEP each press moves by, so widening one must not
 # widen the other. ARCH-cli-contract.md「配置面」.
 #
-# WHERE THE FIRST FETCH STARTS is a different question from how big a step is, which is why
-# UT_START_RESULTS exists and why its unset state means "follow the step". It is the one key
-# ting writes back that is NOT in the shipped `config`: a default whose meaning is "the
-# value of another key" is a chain a flat KEY=value file cannot express (the same judgement
-# that keeps UT_STATE_DIR out of it). ARCH-cli-contract.md「配置面」.
-RESULT_N=${UT_START_RESULTS:-$UT_FETCH_BATCH}  # -n overrides; → grows it, ← shrinks it
-# The order the v key steps through. Space- or comma-separated; a user who never wants video
-# drops it here rather than pressing past it every session.
-IFS=' ,' read -r -a MODE_CYCLE <<<"$UT_MODE_CYCLE"
+# WHERE THE FIRST FETCH STARTS is the -n default every search takes, UT_SEARCH_RESULTS — one
+# answer to "how many rows does a query return", whether an agent or this UI asks it.
+RESULT_N=$UT_SEARCH_RESULTS  # -n overrides; → grows it, ← shrinks it
+# THE FIVE KEY ROTATIONS are product design, not settings: each order below is chosen, and a
+# knob per order tuned something nobody tuned. The v key: the three modes a detached player
+# can take.
+MODE_CYCLE=(audio video fast)
 # The -f default, one value shared with t-play and both resolve halves.
 PLAY_MODE="$UT_PLAY_MODE" # -f flag overrides. Runtime-mutable: v key rotates it (cycle_mode).
 # The --quality default, forwarded to t-play on every launch and rotated live by the f key
@@ -798,16 +795,13 @@ IMAGE_MODE="${UT_IMAGE:-auto}"   # auto | on | off — the focused row's cover a
 # batch above and t-engine-bili's PAGE_SIZE (the remote API's own page, which is not a knob at
 # all). It is only a request: display_list_menu reflows it down against terminal height.
 PAGE_OPT=$UT_PAGE_ROWS
-# The order the o key steps through. Space- or comma-separated, like UT_MODE_CYCLE.
-IFS=' ,' read -r -a SORT_CYCLE <<<"$UT_SORT_CYCLE"
-# The order the f key steps through. The shipped value is a SUBSET of the tier set (auto
-# medium high) — a rotation is a thing you land on by accident, and `low` is a choice you
-# make on purpose. The validator below still accepts the full set, so a user who wants it
-# says so once here, exactly as with the mode cycle.
-IFS=' ,' read -r -a QUALITY_CYCLE <<<"$UT_QUALITY_CYCLE"
-# The order the r key steps through, like the three cycles above it. A user who never wants
-# the queue behaviour drops `seq` here rather than pressing past it every session.
-IFS=' ,' read -r -a LOOP_CYCLE <<<"$UT_LOOP_CYCLE"
+# The o key.
+SORT_CYCLE=(relevance view_count duration)
+# The f key: a SUBSET of the tier set. A rotation is a thing you land on by accident, and
+# `low` is a choice you make on purpose, with --quality or UT_PLAY_QUALITY.
+QUALITY_CYCLE=(auto medium high)
+# The r key.
+LOOP_CYCLE=(off seq one)
 # The -s default, one value shared with both search halves.
 SORT_FIELD="$UT_SORT_FIELD"   # -s flag overrides. Runtime-mutable: o rotates it (cycle_sort).
 # WHICH THEME NAMES ARE LEGAL — one place. This used to be spelled five times (the cycle
@@ -816,13 +810,12 @@ SORT_FIELD="$UT_SORT_FIELD"   # -s flag overrides. Runtime-mutable: o rotates it
 # GATES read this constant; the comma form the message wants is derived rather than rewritten.
 # usage()'s two prose lists stay literal — they are English sentences, not data — and are
 # held to this constant by a check in tests/contract.sh instead of by memory.
-THEME_NAMES="minimal mono catppuccin tokyonight nord gruvbox onedark dracula rosepine everforest kanagawa solarized monokai custom"
+THEME_NAMES="minimal mono catppuccin tokyonight nord gruvbox onedark dracula rosepine everforest kanagawa solarized monokai"
 THEME_NAMES_CSV=""
 for _tn in $THEME_NAMES; do THEME_NAMES_CSV="${THEME_NAMES_CSV:+$THEME_NAMES_CSV, }$_tn"; done
 unset _tn
-# Membership by exact compare, not by `case " $THEME_NAMES " in *" $THEME "*` the way
-# validate_cycle does it: that idiom is safe only when the candidate cannot contain a space,
-# which is true of a cycle member (the array was split on space) and false of --theme's argv.
+# Membership by exact compare, not by `case " $THEME_NAMES " in *" $THEME "*`: that idiom is
+# safe only when the candidate cannot contain a space, which is false of --theme's argv.
 # `--theme "gruvbox onedark"` IS a substring of the name list and would pass a substring gate,
 # then fall off the end of set_theme's case with no accent set at all.
 theme_known() {
@@ -832,22 +825,10 @@ theme_known() {
     done
     return 1
 }
-# The custom theme's accent, checked at the door for the same reason every scalar knob is:
-# a malformed value must never reach set_theme's printf. Takes the KEY NAME as well as the
-# value because two keys share this one ruler — a shared validator that reported the wrong
-# key would send the user editing the wrong line. An EMPTY value is legal and is NOT an
-# error: it is the degrade path, and set_theme's custom arm says why it has to be.
-accent_gate() {
-    if [[ -z "$2" ]]; then return 0; fi
-    if [[ "$2" =~ ^0x[0-9a-fA-F]{6}(/(3[0-7]|9[0-7]))?$ ]] || [[ "$2" =~ ^(3[0-7]|9[0-7])$ ]]; then
-        return 0
-    fi
-    die "$1 must be 0xRRGGBB, an SGR code 30-37/90-97, or 0xRRGGBB/<code> (got '$2')"
-}
-# The order the t key steps through, defined here rather than beside cycle_theme so all three
-# cycles are built before the one block that validates them. Space- or comma-separated: a
-# user who wants two themes on the t key instead of seven says so once.
-IFS=' ,' read -r -a THEME_CYCLE <<<"$UT_THEME_CYCLE"
+# The t key. Ordered so consecutive steps LAND SOMEWHERE ELSE: the four blues (tokyonight,
+# nord, onedark, plus minimal's own cyan) are spread apart rather than run together, which is
+# what made the old order read as one theme pressed seven times.
+THEME_CYCLE=(minimal catppuccin tokyonight gruvbox rosepine nord kanagawa everforest onedark monokai solarized dracula mono)
 MIN_DISP="0"
 MAX_DISP="0"
 query=()
@@ -877,7 +858,7 @@ while (($#)); do
         MAX_DISP="$2"; SEARCH_ARGS+=(--max-duration "$2"); shift 2 ;;
     -f)
         [[ $# -ge 2 ]] || die "$1 requires a value"
-        PLAY_MODE="$2"; shift 2 ;;   # validated against MODE_CYCLE below
+        PLAY_MODE="$2"; shift 2 ;;   # validated against the closed set below
     -p)
         [[ $# -ge 2 ]] || die "$1 requires a value"
         PAGE_OPT="$2"; shift 2 ;;
@@ -903,29 +884,8 @@ while (($#)); do
 done
 
 is_uint "$PAGE_OPT" && ((PAGE_OPT > 0)) || die "-p must be a positive integer (UT_PAGE_ROWS)"
-is_uint "$RESULT_N" && ((RESULT_N > 0)) || die "-n must be a positive integer (UT_START_RESULTS / UT_FETCH_BATCH)"
+is_uint "$RESULT_N" && ((RESULT_N > 0)) || die "-n must be a positive integer (UT_SEARCH_RESULTS)"
 
-# A CONFIG FILE FAILS LOUDLY OR IT FAILS SILENTLY, and silently is worse: a cycle emptied by
-# a typo would abort on the first keypress (an empty array expansion under set -u aborts on
-# bash 3.2), and an unknown member would put a mode the engines reject under the v key. Both
-# are cheap to catch here, once, naming the key the user actually wrote.
-validate_cycle() {
-    local key="$1" allowed="$2" m
-    shift 2
-    (($# > 0)) || die "$key must name at least one value (allowed: $allowed)"
-    for m in "$@"; do
-        case " $allowed " in
-        *" $m "*) : ;;
-        *) die "$key: unknown value '$m' (allowed: $allowed)" ;;
-        esac
-    done
-}
-validate_cycle UT_MODE_CYCLE "audio video fast" ${MODE_CYCLE[@]+"${MODE_CYCLE[@]}"}
-validate_cycle UT_SORT_CYCLE "relevance view_count duration" ${SORT_CYCLE[@]+"${SORT_CYCLE[@]}"}
-validate_cycle UT_QUALITY_CYCLE "auto low medium high" ${QUALITY_CYCLE[@]+"${QUALITY_CYCLE[@]}"}
-validate_cycle UT_LOOP_CYCLE "off seq one" ${LOOP_CYCLE[@]+"${LOOP_CYCLE[@]}"}
-validate_cycle UT_THEME_CYCLE "$THEME_NAMES" \
-    ${THEME_CYCLE[@]+"${THEME_CYCLE[@]}"}
 # Duration bounds and volume are forwarded (-m/-M as t-play --search's --min/--max-duration,
 # --volume to t-play),
 # so the core would reject them anyway — but only at the first fetch or the first Enter, where
@@ -934,11 +894,8 @@ validate_cycle UT_THEME_CYCLE "$THEME_NAMES" \
 is_uint "$MIN_DISP" || die "-m must be a non-negative integer"
 is_uint "$MAX_DISP" || die "-M must be a non-negative integer"
 ((MAX_DISP == 0 || MAX_DISP > MIN_DISP)) || die "-M must be greater than -m when both are set"
-# Validated against the CLOSED SET, not against SORT_CYCLE. The cycle is the order the o key
-# rotates through — a user narrowing it to one field is saying "stop showing me the others on
-# o", not "reject -s duration". Using the cycle as the validity domain was safe only while it
-# was a constant equal to the full set; the moment it became configurable it started rejecting
-# values the engines accept, and forced this file's -s default to differ from the engines'.
+# Validated against the CLOSED SET, not against SORT_CYCLE: the cycle is the order the o key
+# rotates through, not the set of fields the engines accept.
 case "$SORT_FIELD" in relevance | view_count | duration) ;; *) die "-s must be one of: relevance, view_count, duration" ;; esac
 # A mistyped engine is caught HERE, against what is actually installed, rather than at the
 # first fetch as "search failed". The message lists what there is, because the answer to
@@ -951,14 +908,11 @@ refresh_engine_caps
 # The closed set, for the same reason as -s above.
 case "$PLAY_MODE" in audio | video | fast) ;; *) die "-f must be one of: audio, video, fast (ascii/viz need a terminal, which detached playback has none of)" ;; esac
 case "$COLOR_MODE" in auto | always | never) ;; *) die "--color must be one of: auto, always, never" ;; esac
+# `custom` was a theme until 0.18.0, and the t key wrote it back to user configs, so a file
+# can still name it. It reads as minimal for one version rather than locking the user out
+# over a word ting itself wrote.
+[[ "$THEME" == custom ]] && THEME=minimal
 theme_known "$THEME" || die "--theme must be one of: $THEME_NAMES_CSV"
-# Both accent keys ride the same door, each under its OWN name. Checked whenever the key is
-# non-empty rather than only when THEME is already custom — the t key can arrive at custom
-# mid-session (cycle_theme re-runs set_theme), and a gate that only fired on the startup theme
-# would let a malformed spec through to the printf that builds an SGR, putting half an escape
-# sequence in the user's terminal.
-accent_gate UT_ACCENT "${UT_ACCENT:-}"
-accent_gate UT_ACCENT_LIGHT "${UT_ACCENT_LIGHT:-}"
 case "$BG_MODE" in auto | light | dark) ;; *) die "YT_BG must be one of: auto, light, dark" ;; esac
 if [[ -n "$PLAY_VOLUME" ]]; then
     is_uint "$PLAY_VOLUME" && ((PLAY_VOLUME <= 100)) || die "--volume must be an integer 0-100"
@@ -984,7 +938,7 @@ case "$KEYS_TIER" in
 core | full | hidden) ;;
 *) die "UT_KEYS must be one of: core, full, hidden" ;;
 esac
-# The resource readout's two knobs ride the same door. Config-only, no flag: whether the
+# The resource readout's knob rides the same door. Config-only, no flag: whether the
 # chrome shows the player's cpu/ram is set-once tuning, not a per-request choice.
 case "$UT_RESOURCE" in 0 | 1) ;; *) die "UT_RESOURCE must be 0 or 1" ;; esac
 # The cover art's one knob, and it is a KNOB rather than a key: whether this terminal draws
@@ -993,7 +947,6 @@ case "$UT_RESOURCE" in 0 | 1) ;; *) die "UT_RESOURCE must be 0 or 1" ;; esac
 # in a config file is answered by name instead of surfacing as a screen that quietly never
 # draws — the failure mode a capability knob defaulting to `auto` is most likely to hide in.
 case "$IMAGE_MODE" in auto | on | off) ;; *) die "UT_IMAGE must be one of: auto, on, off (got '$IMAGE_MODE')" ;; esac
-is_uint "$UT_RESOURCE_TICKS" && ((UT_RESOURCE_TICKS > 0)) || die "UT_RESOURCE_TICKS must be a positive integer"
 
 # A unix-socket netcat as well as jq: every transport key (pause, seek, volume) and every
 # time readout goes through the player's socket, so a machine without one loses half the
@@ -1074,9 +1027,7 @@ init_colorterm() {
     truecolor | 24bit) COLORTERM_TC=1 ;;
     esac
 }
-# minimal's own accent, factored out because THREE arms want it: minimal itself, and both
-# of custom's degrade paths (no spec at all, and a 24-bit spec on a terminal that cannot
-# render one). It is the suite's floor — an ANSI-16 index whose actual color the user's
+# minimal's own accent. It is the suite's floor — an ANSI-16 index whose actual color the user's
 # terminal owns, which is the property minimal exists for (ARCHITECTURE.md).
 accent_minimal() {
     if [[ "$BG" == light ]]; then
@@ -1088,8 +1039,7 @@ accent_minimal() {
 # The playing row's ground, DERIVED from the accent rather than declared beside it. The
 # palette has exactly one colour in it, and that is the whole design (ARCHITECTURE.md「人机面」);
 # a ground written as its own constant would mean a second colour per theme per background —
-# fourteen values to keep in step with seven, and nothing at all for `custom`, whose accent
-# only exists in the user's config. Mixing is the only form that answers all three.
+# fourteen values to keep in step with seven. Mixing answers every theme at once.
 #
 # WHY REVERSE VIDEO WASN'T ENOUGH. It is the highest-contrast mark a terminal can make, which
 # is exactly the complaint: an inverted row is a slab, it flips the text to the background
@@ -1116,7 +1066,7 @@ accent_minimal() {
 #
 # Two constants and not one because the eye is not symmetric about them: dark text on a pale
 # ground shows a tint at a lower mix than pale text on a dark one, so the light rung is
-# gentler. Both are percentages, so `custom` and any theme added later get a ground for free —
+# gentler. Both are percentages, so any theme added later gets a ground for free —
 # which is the point, given the palette holds exactly one colour per theme by design.
 ROW_HL_MIX_DARK=30
 ROW_HL_MIX_LIGHT=18
@@ -1234,37 +1184,6 @@ keycap_ground() {
     fi
 }
 
-# One accent spec → C_CYAN/C_MARK. Value syntax is config's UT_ACCENT; the spec reaching here
-# has already passed accent_gate, so this parses rather than validates. Split with ANCHORED
-# strips (${v%%…} / ${v#…}) — ${v//…/} is quadratic on bash 3.2 and the portability contract
-# names it outright.
-#
-# WHY THE FALLBACK RUNG IS THE USER'S TO GIVE and not computed: what 30-37/90-97 render as is
-# defined by the user's terminal, not by us, so "nearest ANSI-16" is arithmetic on pixels we
-# cannot see. A 24-bit-only spec on a non-truecolor terminal therefore degrades to minimal
-# rather than guessing — the honest answer, and the one the user can override by writing the
-# rung they want.
-accent_from_spec() {
-    local spec="$1" hex="" idx="" r g b
-    if [[ "$spec" == */* ]]; then
-        hex="${spec%%/*}"; idx="${spec##*/}"
-    elif [[ "$spec" == 0x* ]]; then
-        hex="$spec"
-    else
-        idx="$spec"
-    fi
-    if [[ -n "$hex" ]] && ((COLORTERM_TC)); then
-        r=$((16#${hex:2:2})); g=$((16#${hex:4:2})); b=$((16#${hex:6:2}))
-        printf -v C_CYAN '\033[38;2;%d;%d;%dm' "$r" "$g" "$b"
-        printf -v C_MARK '\033[1;38;2;%d;%d;%dm' "$r" "$g" "$b"
-        row_hl_from_accent "$r" "$g" "$b"
-    elif [[ -n "$idx" ]]; then
-        C_CYAN=$'\033['"$idx"m
-        C_MARK=$'\033[1;'"$idx"m
-    else
-        accent_minimal
-    fi
-}
 set_theme() {
     # Back to the floor before anything is resolved. The t key re-enters this function on a
     # live screen, and a theme with no tint of its own (minimal and mono by design, and every
@@ -1293,30 +1212,6 @@ set_theme() {
         # the steady one is bold, the held one is dim. A hue here would be the one thing the
         # name rules out.
         C_CYAN=''; C_MARK=$'\033[1m'; C_PLAY=$'\033[1m'; C_PAUSE=$'\033[2m'
-        ;;
-    # The eighth name, in every way the peer of the other seven — no override layer above the
-    # current theme, because that would make the t key a silent no-op: seven names cycling
-    # past a screen that never changes color, while cycle_theme still writes the name back as
-    # a preference. A name costs one arm here and nothing anywhere else.
-    #
-    # An EMPTY UT_ACCENT degrades to minimal instead of dying, and this is load-bearing: the t
-    # key writes YT_THEME=custom back to the user's config, so a config naming custom can
-    # outlive the UT_ACCENT that justified it. Refusing to start would lock the user out over
-    # a key they never typed. The screen going minimal IS the feedback — a notice would cost
-    # two i18n strings to say what the user can already see.
-    custom)
-        local spec="${UT_ACCENT:-}"
-        [[ "$BG" == light && -n "${UT_ACCENT_LIGHT:-}" ]] && spec="${UT_ACCENT_LIGHT:-}"
-        if [[ -n "$spec" ]]; then
-            accent_from_spec "$spec"
-        else
-            accent_minimal
-        fi
-        # custom owns exactly one colour — its accent — and inventing a green to go with an
-        # arbitrary user hue would be guessing at a palette that does not exist. The indices
-        # are the honest answer for the same reason minimal takes them: on the one palette
-        # the user defines, what green IS stays the terminal's to say.
-        C_PLAY=$'\033[32m'; C_PAUSE=$'\033[33m'
         ;;
     catppuccin | tokyonight | nord | gruvbox | onedark | dracula | rosepine | everforest | kanagawa | solarized | monokai)
         case "$THEME:$BG" in
@@ -1410,8 +1305,7 @@ set_theme() {
             printf -v C_PAUSE '\033[38;2;%d;%d;%dm' "$TONE_R" "$TONE_G" "$TONE_B"
         else
             # No tone_for_bg on this rung, and it is not an omission: what 31-36 render as is
-            # the user's terminal to decide, so there is no colour here to re-light — the
-            # same reason accent_from_spec refuses to compute a "nearest ANSI-16".
+            # the user's terminal to decide, so there is no colour here to re-light.
             C_CYAN=$'\033['"$a16"m
             C_MARK=$'\033[1;'"$a16"m
             C_PLAY=$'\033['"$p16"m
@@ -2263,9 +2157,9 @@ GL_CPU="▣"; GL_RAM="▤"
 # unambiguously one cell wide, and they carry no color of their own.
 GL_SPIN=("▘" "▝" "▗" "▖")
 init_glyphs() {
-    # One switch for the whole suite: YT_ASCII, with YT_TUI_ASCII kept as a legacy alias
-    # (the core reads the same pair — a font that can't draw ♫ can't draw it anywhere).
-    case "${YT_ASCII:-${YT_TUI_ASCII:-}}" in
+    # One switch for the whole suite: YT_ASCII (the engines read the same one — a font that
+    # can't draw ♫ can't draw it anywhere).
+    case "${YT_ASCII:-}" in
     1 | true | yes | on) ASCII_GLYPHS=1 ;;
     *)
         case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
@@ -2286,20 +2180,9 @@ init_glyphs() {
         GL_CPU="cpu"; GL_RAM="ram"
         GL_SPIN=("|" "/" "-" "\\")
     fi
-    # The header icon is a two-cell SLOT, not a character, and which glyph fills it is a
-    # coin flip per startup. ♫ U+266B is one cell (tabled in CW_NARROW) so it carries a
-    # pad; 🎧 U+1F3A7 is East-Asian Wide, which char_w's default two already gets right.
-    # Both therefore measure two, the wordmark starts at the same column either way, and
-    # no caller — the header's own elision included — can tell which one it got.
-    # YT_ICON pins the pick: a captured doc frame has to come out the same twice, and a
-    # coin flip does not. The headphone is the ONE emoji in the suite; see the width
-    # layer's note above init_cell_tables for why it stays out of every table.
-    ((ASCII_GLYPHS)) || case "${YT_ICON:-}" in
-    note) GL_NOTE="♫ " ;;
-    phones) GL_NOTE="🎧" ;;
-    "") ((RANDOM % 2)) && GL_NOTE="♫ " || GL_NOTE="🎧" ;;
-    *) die "YT_ICON must be note or phones (got '$YT_ICON')" ;;
-    esac
+    # The header icon is a two-cell SLOT: ♫ U+266B is one cell (tabled in CW_NARROW), so it
+    # carries a pad, and the wordmark starts at the same column in every frame.
+    ((ASCII_GLYPHS)) || GL_NOTE="♫ "
     set_brand
 }
 
@@ -2328,20 +2211,6 @@ init_glyphs() {
 # is closed before the closing bracket so the ESCAPES never reach disp_w (it measures
 # GL_BRAND, which has none).
 #
-# Brand wordmark (YT_BRAND=1): the header renders "𝗧 𝗜 𝗡 𝗚" in mathematical sans-serif
-# bold (U+1D5D4 block). OPT-IN on purpose: terminal fonts vary, and a font without that
-# block shows tofu — your call, your eyes. Width is whatever the font gives; char_w's
-# conservative 2-cell overcount keeps the query elision safe in either case (over-count
-# packs early, never overflows). ASCII mode always wins — a font that cannot draw ♫ cannot
-# draw these either.
-#
-# YT_BRAND has NO zh side, and that is the seal's doing rather than an omission. It used to
-# be letter-spacing (你 听), because Unicode has no bold CJK to reach for — the
-# math-alphanumeric planes cover Latin, Greek and digits only, and the enclosed-CJK blocks
-# (U+3200–U+32FF) are a fixed ~100-ideograph list that contains neither character. That
-# constraint has not changed; what changed is that the seal already IS the emphasis, so a
-# second, spaced spelling of the same name would be two wordmarks for one project.
-#
 # ASCII mode does NOT force the Latin name: YT_ASCII covers the glyph table, never the
 # language — set_ui_lang's labels stay Chinese under it, and so does this.
 set_brand() {
@@ -2353,9 +2222,6 @@ set_brand() {
         fi
     else
         GL_BRAND="ting"
-        case "${YT_BRAND:-}" in
-        1 | true | yes | on) ((ASCII_GLYPHS)) || GL_BRAND="𝗧 𝗜 𝗡 𝗚" ;;
-        esac
     fi
 }
 init_glyphs
@@ -2778,11 +2644,8 @@ layout_cols() {
 #
 # The chrome's own glyphs are one such table, and they are safe to table because the suite's
 # glyph inventory is deliberately all text-presentation — "non-graphical". There is no emoji
-# in t-play / t-engine-*, and exactly one in ting: the 🎧 face of the header icon
-# (init_glyphs). It is deliberately in NO table — U+1F3A7 is East-Asian Wide, so the default two
-# is already its true width, and it is a lone codepoint that carries no selector. Nothing that IS
-# tabled can therefore pick up a U+FE0F and silently become a 2-cell emoji behind the table's
-# back. All 17 measured at ONE cell (tmux over Ghostty, `tmux display-message -p '#{cursor_x}'`):
+# anywhere in the suite, so nothing that IS tabled can pick up a U+FE0F and silently become a
+# 2-cell emoji behind the table's back. All 17 measured at ONE cell (tmux over Ghostty, `tmux display-message -p '#{cursor_x}'`):
 #   Neutral EAW    ↵ ♫ ❚ ❯                      one cell in EVERY terminal
 #   Ambiguous EAW  · — • … ← ↑ → ↓ ─ ━ ○ ● ▶    one cell unless a terminal is explicitly
 #                                               configured ambiguous-wide
@@ -3132,7 +2995,7 @@ PT_DUR_SEC=""
 # mpv, and any fallback mpv in one number. One `ps -A | awk` pass because it is the reading
 # with ONE portable spelling: `ps -g` selects by pgid on macOS but by session/group name
 # under procps, and rss is KB on both. Measured at 24ms — cheap, but not once-a-second
-# cheap, so it rides every UT_RESOURCE_TICKS-th call of the shared clock (fetch_play_times,
+# cheap, so it rides every RES_STRIDE-th call of the shared clock (fetch_play_times,
 # the one beat) and the banner reads the cached pair. %cpu is
 # ps's own semantics on each platform (a decaying/lifetime average, not an instant) — the
 # approximation is the price of the one-command reader. Empty means no reading: disabled,
@@ -3140,13 +3003,14 @@ PT_DUR_SEC=""
 RES_CPU=""
 RES_MEM=""
 RES_TICK=0
+RES_STRIDE=3   # the same stride t-play samples its heartbeat's resource fields at
 fetch_play_res() {
     [[ "$UT_RESOURCE" != 0 ]] || return 0
     [[ -n "$CURRENT_PLAY_PID" ]] || { RES_CPU=""; RES_MEM=""; return 0; }
     RES_TICK=$((RES_TICK + 1))
     # -1 so the FIRST call samples: clear_play_state zeroes the counter, and a readout that
     # waited a full stride after Enter would sit empty exactly when the user looks for it.
-    if (((RES_TICK - 1) % UT_RESOURCE_TICKS != 0)); then return 0; fi
+    if (((RES_TICK - 1) % RES_STRIDE != 0)); then return 0; fi
     local out=""
     out=$(ps -A -o pgid=,%cpu=,rss= 2>/dev/null |
         awk -v g="$CURRENT_PLAY_PID" '
@@ -7888,7 +7752,7 @@ more_results() {
     selected=$sel
     # Both edges record the same key: what is stored is the count a query STARTS from, so the
     # next session opens on the size this one settled at.
-    mark_pref UT_START_RESULTS
+    mark_pref UT_SEARCH_RESULTS
 }
 
 # ── FEWER action (key: ← on page 1) ─────────────────────────────────────────────────────
@@ -7920,7 +7784,7 @@ fewer_results() {
     # guard rescues the pipeline's status, not its output.
     ALL_ROWS=$(printf '%s\n' "$ALL_ROWS" | head -n "$target") || true
     load_rows "$ALL_ROWS"
-    mark_pref UT_START_RESULTS
+    mark_pref UT_SEARCH_RESULTS
     # No action echo, unlike the other edge: that one prints because it is about to block on a
     # fetch, and this one is already done by the time the frame repaints. The status row's
     # results= IS the feedback.

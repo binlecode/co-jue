@@ -64,7 +64,7 @@
 - 新增引擎级配置：
   - `SC_COOKIE_BROWSER=chrome`：供 `--auth` 与 resolve 的 cookie 决定使用；`none` 强制匿名。
   - `SC_AUDIO_FORMAT=ba/b`：SoundCloud 只提供音频，五种规范 `-f` 模式都落到此格式。
-- 搜索条数、上限与排序继续读套件级 `UT_SEARCH_RESULTS`、`UT_MAX_SEARCH_RESULTS`、`UT_SORT_FIELD`；不得新增 `SC_SEARCH_LIMIT` 形成第二份默认值。
+- 搜索条数、上限与排序继续读套件级 `UT_SEARCH_RESULTS`、`UT_SORT_FIELD`（上限是引擎自己的常量）；不得新增 `SC_SEARCH_LIMIT` 形成第二份默认值。
 - `--quality` 必须接受 `auto|low|medium|high`。实施前以匿名格式表和可获得的 OAuth 格式表实测 (mode, tier) 到 `--format-sort` 的映射；`auto` 不发 sort，`-S` 继续压过 tier。
 
 ### 3.2 `sc-search`

@@ -250,7 +250,6 @@ ting 内置了 14 款主流终端流行配色，敲击 **`t`** 键即可实时�
 - `solarized`（经典护眼调）
 - `monokai`（明快经典）
 - `mono`（纯黑白极简层次）
-- `custom`（自定义颜色，见第 5 节）
 
 按 **`l`**（小写 L）键可以在中文界面和英文界面之间一键切换。
 
@@ -428,14 +427,8 @@ UT_VIZ_COLOR=magenta
 
 在 `~/.config/ting/config` 中追加：
 ```ini
-# 让 B 站解析时自动借用 Chrome 的登录状态（也可以填 safari, edge, firefox 等）
-BILI_COOKIE_BROWSER=chrome
-
-# 让 YouTube 解析时自动借用 Chrome 的登录状态
-YT_COOKIE_BROWSER=chrome
-
-# 让网易云解析时自动借用 Chrome 的登录状态
-NE_COOKIE_BROWSER=chrome
+# 三个音源解析时都借用 Chrome 的登录状态（出厂默认就是 chrome；也可以填 safari, edge, firefox 等）
+UT_COOKIE_BROWSER=chrome
 ```
 *(如果不希望读取浏览器凭据，可设为 `none`)*。
 
@@ -453,7 +446,7 @@ NE_COOKIE_BROWSER=chrome
 
 ### Q2: 为什么有些歌曲播放不了？
 **解答**：
-1. **网易云 VIP 限制**：网易云音乐的大量歌曲受版权保护，游客账号仅提供 30 秒试听。建议在配置文件中配置 `NE_COOKIE_BROWSER=chrome` 关联已登录账号；
+1. **网易云 VIP 限制**：网易云音乐的大量歌曲受版权保护，游客账号仅提供 30 秒试听。建议在配置文件中配置 `UT_COOKIE_BROWSER=chrome` 关联已登录账号；
 2. **地区或网络受限**：YouTube 音源需要稳定的国际互联网连接。如果连接受限，建议在界面中按 `e` 切换到 B 站或网易云音源。
 
 ---

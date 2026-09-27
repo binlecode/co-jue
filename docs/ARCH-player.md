@@ -180,7 +180,7 @@ resolve` —— 也就是每个 flag 都被收下了、这个组合合法、调�
 返回任何凭据类的头（`Cookie`、`Authorization`）。这是一条**对引擎的契约**，在这里说一次，
 在 ARCH-cli-contract.md「数据契约」说一次。**cookie 完全不是 mpv 的事**：mpv 自己抽取时 cookie
 要经 `--ytdl-raw-options` 传进去，而这里 cookie 的决定完全归发起 yt-dlp 调用的那个引擎
-（ARCH-engine.md「先探后播」）—— 播放器没有 cookie 代码、不读 `YT_COOKIE_BROWSER`、
+（ARCH-engine.md「先探后播」）—— 播放器没有 cookie 代码、不读 `UT_COOKIE_BROWSER`、
 也没有任何一条能把它泄出去的路径。
 
 ### 终端噪声压制与视口保护
@@ -495,7 +495,7 @@ N 条互相独立的控制通道。于是多播放器完全是**这一层**的�
 实测 mpv 0.41 / macOS，102 字节建得出 socket，103 字节只记一行 "Could not create IPC socket"，
 然后**照样播**——没有 IPC 的播放器，每个 socket 动词都退 4，`--watch` 永远等不到能连的 socket，
 而启动信封却说 `started`。路径只由 `$TMPDIR` 决定（id 恒为 mktemp 的六个字符），所以在铸 id、
-建目录之前就能判定；按**字节**算（内核数的是字节），错误信息点名 `TMPDIR`。与 `UT_DEAD_KEEP`
+建目录之前就能判定；按**字节**算（内核数的是字节），错误信息点名 `TMPDIR`。与 `UT_VIZ_STYLE`
 这类环境值同一种门，退 1。Linux 的 106 是同一条规矩套在它的 108 上，已实测（mpv 0.40 / Linux 7.0，
 Debian trixie 容器，2026-09-26）：106 字节建得出 socket，107 建不出。
 暴露它的是 Go 的测试：每个测试的临时目录把这条路径推到 111 字节。

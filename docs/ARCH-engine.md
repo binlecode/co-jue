@@ -292,7 +292,7 @@ yt-dlp、只在解析那一半、只经由 `--cookies-from-browser`。正是它�
 耗尽的翻页也会省略 `result`，而那不是一次拒绝。它落在 `network` 那一类，因为它就是 412 那同一
 个突发限流器换了身成功的衣服，因而同样**可重试**。
 
-**重试是分类过的，不是一刀切。** **只有** `network` 那一类值得在 `RETRY_PAUSE` 之后再试一次；
+**重试是分类过的，不是一刀切。** **只有** `network` 那一类值得在停一秒之后再试一次；
 一个 `forbidden` 或 `unavailable` 的回答一秒之后还会说同样的话，而再问一次是对着一个**会计数**
 的主机多发一次请求。**翻页在两个条件之一成立时停**：只有当调用方**还想要**更多行**且**站点
 **还在给**时才请求下一页（`MAX_PAGES` 给其余部分封顶），于是一条短尾巴不必付 `MAX_PAGES` 次
@@ -435,7 +435,7 @@ agent 面的答案，再加一个 TUI 标记是重复而不是补充。
 出去。`bili-resolve` 没有探测 —— 该站没有 PO token 的对应物 —— 这正是"第二个引擎可以干脆没有
 某样东西"的范本。
 
-**登录默认是开的（`YT_COOKIE_BROWSER=chrome`）** —— 这是每个**引擎**自己去读的设置 —— 所以
+**登录默认是开的（`UT_COOKIE_BROWSER=chrome`）** —— 这是只有**引擎**才读的设置 —— 所以
 需要登录 / 会员 / 年龄限制的视频（匿名客户端根本看不见）能放。代价是：带上 cookie 之后，yt-dlp
 会切到 YouTube 的已认证客户端集，而那一组的 googlevideo 媒体 URL 可能需要一个 **GVS
 Proof-of-Origin（PO）token**，由 Google 的 BotGuard 证明机制签发（见 yt-dlp 的 PO Token Guide；
@@ -461,14 +461,14 @@ ranged 请求**（`curl -I -r 0-`）：206/200 ⇒ 有权；403 ⇒ 缺 PO token
          两边都取不到，但带 cookie 那次解析成功 ► emit_stream(raw_c, 0)
                                                  # 保留 cookie，让 mpv 去吐真错误与真退出码
          都不成 ────────────────────────────► resolve_fail(rc)
-      无 cookie（YT_COOKIE_BROWSER=none，或本机没有该 profile）：
+      无 cookie（UT_COOKIE_BROWSER=none，或本机没有该 profile）：
          无从权衡，所以也不探 —— dump_once(匿名) → emit_stream(raw_a, 0) 或 resolve_fail
 ```
 
 裁决以 `retried` 出现在**解析**信封里，`t-play` 把它**转述**进播放信封，而不是自己去观察。
 代价：每次播放多一次解析 + 一个 1 字节 GET（cookie-403 的视频是两次）。`curl` 是软依赖 ——
 没有它就跳过探测、走回老的"播-失败-重播"（错误糊屏的回归也只在那条路上出现）。
-`YT_COOKIE_BROWSER=none` 强制只走匿名（不读钥匙串、不探测）；配了浏览器但本机没有 profile 时
+`UT_COOKIE_BROWSER=none` 强制只走匿名（不读钥匙串、不探测）；配了浏览器但本机没有 profile 时
 自动降级为匿名，而不是报错。
 
 **profile 在、却读不出来，是第三种情况，而且只有运行时才知道。** 存在性检查只看目录；

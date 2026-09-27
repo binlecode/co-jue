@@ -95,10 +95,8 @@ ROW = re.compile(r"^(▎ |▶ |> |  )( *\d+\. )?(?=\S)")
 RAIL = re.compile(r"(LIVE|--:--|\d+:\d\d(?::\d\d)?)( [█│#|])?$")
 CSI = re.compile(r"\x1b\[([0-9;]*)([@-~])")
 # Every spelling of the wordmark. en is `ting`; zh is the seal 【 听 】, which ASCII mode
-# narrows to `[ 听 ]` — both carry 听, so the bare glyph covers the pair. YT_BRAND=1 swaps the
-# en side for maths-bold 𝗧 𝗜 𝗡 𝗚, whose first letter is the anchor; there is no zh maths-bold
-# form to match, because YT_BRAND has no zh side (docs/ARCH-tui.md).
-BRAND = re.compile(r"ting|听|\U0001d5e7")
+# narrows to `[ 听 ]` — both carry 听, so the bare glyph covers the pair.
+BRAND = re.compile(r"ting|听")
 
 
 def reverse_span(line, ambig_wide=False):
@@ -172,9 +170,8 @@ def main(argv):
     body = "\n".join(lines)
 
     if view == "list":
-        # The wordmark is language-dependent (YT_LANG=zh draws the seal 【 听 】) and
-        # YT_BRAND=1 draws the en side in mathematical sans-serif bold, so this asks for ANY
-        # of the spellings rather than the English one — a frame captured on a zh config is
+        # The wordmark is language-dependent (YT_LANG=zh draws the seal 【 听 】), so this
+        # asks for either spelling rather than the English one — a frame captured on a zh config is
         # not a scrolled header.
         if not lines or not BRAND.search(lines[0]):
             fails.append("header not on line 1 (scrolled off?): %r" % (lines[0][:60] if lines else ""))

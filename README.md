@@ -137,9 +137,9 @@ To change settings for yourself, don't edit that file. Write only the keys you w
 mkdir -p ~/.config/ting
 cat >> ~/.config/ting/config <<'EOF'
 UT_DEFAULT_ENGINE=bili        # search Bilibili unless --engine says otherwise
-UT_MAX_SEARCH_RESULTS=400     # let one query fetch more rows
+UT_SEARCH_RESULTS=40          # fetch 40 rows per query instead of 20
 YT_THEME=nord
-UT_THEME_CYCLE=nord minimal   # and only offer those two on the t key
+UT_COOKIE_BROWSER=safari      # read site logins from Safari instead of Chrome
 EOF
 ```
 
