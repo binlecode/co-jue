@@ -347,7 +347,7 @@ func (m *Model) openParts() tea.Cmd {
 		m.backToSearch()
 		return nil
 	}
-	if len(m.rows) == 0 || !m.engineHas(m.rows[m.cursor].Engine, "--items") || !m.searchOnly() || m.pending != nil {
+	if len(m.rows) == 0 || !m.engineHas(m.rows[m.cursor].Engine, "--items") || !m.searchOnly() || m.hold() {
 		return nil
 	}
 	r := m.rows[m.cursor]
@@ -407,7 +407,7 @@ func (m *Model) openChapters() tea.Cmd {
 		m.backToSearch()
 		return nil
 	}
-	if len(m.rows) == 0 || !m.engineHas(m.rows[m.cursor].Engine, "--info") || !m.searchOnly() || m.pending != nil {
+	if len(m.rows) == 0 || !m.engineHas(m.rows[m.cursor].Engine, "--info") || !m.searchOnly() || m.hold() {
 		return nil
 	}
 	r := m.rows[m.cursor]
@@ -844,7 +844,7 @@ type urlMsg struct {
 // first (a container answers fast; a track is refused with 1), and a single-part answer or
 // that refusal falls to --info, whose one row replaces the results.
 func (m *Model) loadURL(u string) tea.Cmd {
-	if m.pending != nil {
+	if m.hold() {
 		return nil
 	}
 	s := m.suite
@@ -892,10 +892,21 @@ func (m *Model) urlDone(msg urlMsg) {
 	}
 }
 
+// hold is the one-fetch rule for a key that would start another: while one is in flight the
+// key is turned away, and the busy line says so — a paste or an i dropped without a word
+// reads as a key that does nothing.
+func (m *Model) hold() bool {
+	if m.pending == nil {
+		return false
+	}
+	m.held = true
+	return true
+}
+
 // engineCall runs one network verb with the busy line up, and brings its message back.
 // It holds the one fetch slot, so no second fetch starts under it.
 func (m *Model) engineCall(what string, f func(context.Context) tea.Msg) tea.Cmd {
-	m.busy = what + m.g.Ell
+	m.busy, m.held = what+m.g.Ell, false
 	m.pending = &fetchReq{gen: -1}
 	ctx := m.ctx
 	return func() tea.Msg { return f(ctx) }

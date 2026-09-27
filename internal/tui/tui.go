@@ -128,6 +128,7 @@ type Model struct {
 
 	searchGen int
 	busy      string // the fetch in flight, as a line the frame carries until it lands
+	held      bool   // a key was turned away by that fetch: the busy line says so
 	pending   *fetchReq
 	noticeL   string
 	noticeT   string
@@ -286,7 +287,7 @@ func (m *Model) fetch(kind fetchKind, query string, engine int, o verb.SearchOpt
 	m.searchGen++
 	req := fetchReq{gen: m.searchGen, kind: kind, query: query, engine: engine, opts: o}
 	m.pending = &req
-	m.busy = busy
+	m.busy, m.held = busy, false
 	eng, s, ctx := m.opt.Engines[engine].Name, m.suite, m.ctx
 	return func() tea.Msg {
 		res, err := s.Search(ctx, eng, query, o)

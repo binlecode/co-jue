@@ -562,7 +562,11 @@ func (m *Model) View() string {
 		t := m.w.trunc(nt, f.rightEdge-m.w.of(nl+" ")-m.w.of(nu), g.Ell)
 		line(p.Bold + nl + p.Reset + " " + p.Dim + t + p.Reset + nu)
 	case m.busy != "":
-		line(p.Dim + g.Spin[m.spin%len(g.Spin)] + " " + m.w.trunc(m.busy, f.rightEdge-2, g.Ell) + p.Reset)
+		b := m.busy
+		if m.held {
+			b += " " + g.Sep + " " + m.s.BusyHeld
+		}
+		line(p.Dim + g.Spin[m.spin%len(g.Spin)] + " " + m.w.trunc(b, f.rightEdge-2, g.Ell) + p.Reset)
 	}
 
 	if m.playerID != "" {

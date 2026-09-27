@@ -84,7 +84,7 @@ func run(m *Model, cmd tea.Cmd) {
 		for _, c := range msg {
 			run(m, c)
 		}
-	case searchDoneMsg, authMsg, playDoneMsg, verbDoneMsg, noticeMsg, volDoneMsg, urlMsg:
+	case searchDoneMsg, authMsg, playDoneMsg, verbDoneMsg, noticeMsg, volDoneMsg, urlMsg, infoMsg, partsMsg:
 		_, next := m.Update(msg)
 		run(m, next)
 	}
@@ -342,8 +342,16 @@ func TestURLRowIsNotASearch(t *testing.T) {
 	eng := m.opt.Engine
 	for _, k := range []string{"o", "e", "down"} {
 		key(m, k)
-		if m.busy != "" || m.noticeL != "" || len(m.rows) != 1 || m.query != u {
+		if m.busy != "" || len(m.rows) != 1 || m.query != u {
 			t.Fatalf("%s after a URL: busy %q, notice %q %q, %d rows, query %q", k, m.busy, m.noticeL, m.noticeT, len(m.rows), m.query)
+		}
+		if k == "e" && len(m.opt.Engines) > 1 {
+			// The status line keeps the row's engine, so only the notice can show the switch.
+			if m.noticeL != m.s.EngineAct+":" || !strings.Contains(m.noticeT, m.opt.Engines[m.opt.Engine].Name) {
+				t.Errorf("e after a URL says %q %q; it should name the next search's engine", m.noticeL, m.noticeT)
+			}
+		} else if m.noticeL != "" {
+			t.Errorf("%s after a URL left a notice: %q %q", k, m.noticeL, m.noticeT)
 		}
 	}
 	if m.opt.Search.Sort != "relevance" {
@@ -351,6 +359,43 @@ func TestURLRowIsNotASearch(t *testing.T) {
 	}
 	if len(m.opt.Engines) > 1 && m.opt.Engine == eng {
 		t.Error("e did not pick the next engine")
+	}
+}
+
+// A key that would start a second fetch while one is in flight is turned away, and the busy
+// line says so; a search typed at the prompt keeps its prompt and its text. When the fetch
+// lands the line is gone, and the same key works.
+func TestKeyBehindAFetchIsTold(t *testing.T) {
+	m := model(t, Options{Query: "lofi hip hop", Search: verb.SearchOpts{N: 10}, Batch: 10})
+	start(t, m)
+	_, inflight := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	if m.pending == nil {
+		t.Fatal("o started no fetch")
+	}
+	for _, k := range []string{"i", "c"} {
+		key(m, k)
+		if !m.held || !strings.Contains(m.View(), m.s.BusyHeld) {
+			t.Fatalf("%s behind a fetch: held %v, and the frame does not say so", k, m.held)
+		}
+		m.held = false
+	}
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("https://youtu.be/jNQXAC9IVRw"), Paste: true})
+	if cmd != nil || !m.held {
+		t.Fatalf("a paste behind a fetch: cmd %v, held %v", cmd != nil, m.held)
+	}
+	key(m, "n")
+	typeLine(m, "jazz")
+	if !m.prompting || m.input.Value() != "jazz" {
+		t.Fatalf("a search behind a fetch closed the prompt (prompting %v, text %q)", m.prompting, m.input.Value())
+	}
+	key(m, "esc")
+	run(m, inflight)
+	if m.pending != nil || strings.Contains(m.View(), m.s.BusyHeld) {
+		t.Fatal("the fetch landed and the busy line still stands")
+	}
+	key(m, "i")
+	if m.info == nil && m.noticeL == "" {
+		t.Error("i after the fetch landed still did nothing")
 	}
 }
 

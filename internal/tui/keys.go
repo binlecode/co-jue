@@ -211,7 +211,7 @@ func (m *Model) move(key string) tea.Cmd {
 // more fetches one batch more of the same query; the cursor steps onto the new rows only if
 // the fetch actually brought some.
 func (m *Model) more() tea.Cmd {
-	if m.pending != nil || !m.searched() {
+	if !m.searched() || m.hold() {
 		return nil
 	}
 	o := m.opt.Search
@@ -223,7 +223,7 @@ func (m *Model) more() tea.Cmd {
 // fewer drops one batch from the tail, locally: the rows are already here. The floor is
 // max(batch, one screen), and what is stored is how many were asked for, not how many came.
 func (m *Model) fewer() {
-	if m.pending != nil {
+	if m.hold() {
 		return
 	}
 	floor := m.opt.Batch
@@ -265,7 +265,7 @@ func (m *Model) jumpTo(num string) {
 func (m *Model) searched() bool { return m.query != "" && urlTarget(m.query) == "" }
 
 func (m *Model) cycleSort() tea.Cmd {
-	if m.pending != nil || !m.searched() {
+	if !m.searched() || m.hold() {
 		return nil
 	}
 	o := m.opt.Search
@@ -275,12 +275,17 @@ func (m *Model) cycleSort() tea.Cmd {
 }
 
 func (m *Model) cycleEngine() tea.Cmd {
-	if m.pending != nil || len(m.opt.Engines) < 2 {
+	if len(m.opt.Engines) < 2 || m.hold() {
 		return nil
 	}
 	e := (m.opt.Engine + 1) % len(m.opt.Engines)
 	if !m.searched() {
 		m.opt.Engine, m.auth = e, ""
+		// A URL's row keeps its own engine on the status line, so the switch would not
+		// show at all: say where it went.
+		if m.query != "" {
+			m.notice(m.s.EngineAct+":", m.opt.Engines[e].Name+" "+m.g.Dash+" "+m.s.NextSearch)
+		}
 		return m.authCmd()
 	}
 	return m.fetch(fetchEngine, m.query, e, m.opt.Search,
@@ -499,13 +504,15 @@ func (m *Model) updatePrompt(k tea.KeyMsg) tea.Cmd {
 			return m.cancelPrompt()
 		}
 		kind, pick := m.askKind, m.pick
+		// A search behind a fetch in flight keeps the prompt and its text: closing it would
+		// throw away what was typed for a key that did nothing.
+		if kind == askSearch && m.hold() {
+			return nil
+		}
 		m.prompting, m.pick = false, nil
 		m.input.Blur()
 		switch kind {
 		case askSearch:
-			if m.pending != nil {
-				return nil
-			}
 			if u := urlTarget(v); u != "" {
 				if m.all == nil {
 					m.query = u

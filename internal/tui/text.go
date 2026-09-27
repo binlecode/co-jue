@@ -28,6 +28,7 @@ type strs struct {
 	ChapKey, ChapNone, QKey, QLabel, QPlayNow, QRmKey, QMvKey, QClearKey, QOne, QElsewhere    string
 	QPlayingRow, QRemoved, QCleared, QStale                                                   string
 	PrefAct, PrefPinned, PrefFailed                                                           string
+	BusyHeld, NextSearch                                                                      string
 }
 
 var strsEN = strs{
@@ -68,6 +69,7 @@ var strsEN = strs{
 	QOne: "the queue holds only the track that is playing", QElsewhere: "go back to the results first, then open the queue",
 	QPlayingRow: "this one is playing — s stops it, > skips it", QRemoved: "Removed from the queue",
 	QCleared: "Cleared the queue", QStale: "the queue moved — reopening it",
+	BusyHeld: "busy — press it again when this finishes", NextSearch: "for the next search",
 	PrefAct: "Config", PrefPinned: "is fixed by the environment — not written to your config",
 	PrefFailed: "could not be written — this session's preferences were not saved",
 }
@@ -110,6 +112,7 @@ var strsZH = strs{
 	QOne: "队列里只有正在播放的这一首", QElsewhere: "先回结果列表再看队列",
 	QPlayingRow: "正在播的这首不能移出，用 s 停、用 > 跳过", QRemoved: "已移出队列",
 	QCleared: "已清空待播", QStale: "队列已经变了，重新读一次",
+	BusyHeld: "进行中 —— 完成后再按一次", NextSearch: "用于下一次搜索",
 	PrefAct: "配置", PrefPinned: "由环境变量固定，没有写入配置文件",
 	PrefFailed: "配置文件写不了，这次改的偏好没有存下来",
 }
