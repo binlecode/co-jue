@@ -13,7 +13,7 @@
 >
 > 这仍然是一份调研文档：只记**仓库之外**的事实与可核对的出处，不记我们要建什么。
 > 由它落定的决定：`ARCHITECTURE.md` 的 **§3.1**（名字）与 **§1 的 non-goal**（不做通用
-> TUI 播放器），`ROADMAP.md` 的**打包 NO**与 **Go 重写 NO**。
+> TUI 播放器），`ROADMAP.md` 的**打包 NO**（已于 2026-09-11 随 Tap 发布闭环反转）与 **Go 重写 NO**（已于 2026-09-24 演进：引擎与播放器坚守 Shell，人机 TUI 面因呼吸动效与事件循环需求独立改用 Go 重构）。
 >
 > **文档有两半，分界线是可信度**：**上半 §2–§5 量出来的** —— 叫什么（§2）、外面已经有什么
 > （§3）、要付什么账、自用够不够（§4/§5）。**下半 §6–§11 读出来的** —— 别人的播放器怎么搭
@@ -27,10 +27,10 @@
 | 内容 | 日期 | 怎么来的 |
 |---|---|---|
 | 名字筛查（§2） | 2026-08-21 | **实测** —— 逐项查 PATH / brew / crates / npm / PyPI / GitHub |
-| 领域现状（§3） | 2026-08-21，**2026-09-03 更新** | **实测** —— GitHub API |
-| 发布要付的账（§4） | 2026-08-21 | **实测 + 本仓已知约束** |
+| 领域现状（§3） | 2026-08-21，**2026-09-03 / 2026-09-26 更新** | **实测** —— GitHub API + 活跃项目跟踪 |
+| 发布要付的账（§4） | 2026-08-21，2026-09-26 更新 | **实测 + 本仓已知约束**（Tap formula 闭环与 Go 构建链） |
 | 自用够不够（§5） | 2026-08-21，`shellcheck` 计数 2026-09-02 | **实测** |
-| **播放设计与音源（§6–§11）** | 2026-08-29，**2026-09-03 / 2026-09-12 更新** | **读源码 + 实测** —— 网络检索 + 项目源码核查 + 流时效/风控实测 + 新候选第一性原理筛查 |
+| **播放设计与音源（§6–§11）** | 2026-08-29，**2026-09-03 / 2026-09-12 / 2026-09-26 更新** | **读源码 + 实测** —— 网络检索 + 项目源码核查 + 歌词/动效/状态流深度对比 + 新候选第一性原理筛查 |
 
 **这两半的可信度不一样，混着引用就会出错。**
 
@@ -42,6 +42,7 @@
 机制、网易云 20-25 分钟、go-musicfox mpv IPC、termusic gRPC）**全部升格为已证事实**；
 2026-09-12 轮次针对第四音源候选（SoundCloud、Apple Podcasts、QQ音乐、小宇宙、汽水音乐、Spotify、Bandcamp）
 执行了基于第一性原理 mission 的全面网调与本地实测（§9.1）；
+2026-09-26 轮次针对 ROADMAP 最新第一梯队（TUI Look & Feel 专项、Go TUI 选型、焦点行歌词窥探、access 权限徽章排版、ting-play 0.18.0 单入口状态流）执行了深入的源码核查与对比调研；
 §12 记录本轮已解决与新提出的问号。
 
 ---
@@ -59,7 +60,7 @@
 |---|---|
 | `ting` | **全空** —— 采用（`ARCHITECTURE.md`「平级动词，没有内核」）。已知瑕疵：挪威语里是真词，意为"陋习"，当彩蛋接受  |
 | `tingyu` / `qingyin` | **全空** —— 备选，未采用 |
-| `t-play` / `ut-search` 等长前缀 | **全空** —— 采用（`ARCHITECTURE.md`「平级动词，没有内核」）  |
+| `ting-play` / `t-play` / `ut-search` 等长前缀 | **全空** —— 采用（`ARCHITECTURE.md`「平级动词，没有内核」；现统一为 `ting-play` / `ting-playlist` / `ting-history`）  |
 | 光杆 `ut` | **全占** —— npm / PyPI / crates，外加 `boost-ext/ut` 1438★ |
 | `utt` | 被占 —— npm / PyPI，外加 `larose/utt` 349★ |
 | `ytt` | 撞 carvel 的 YAML 模板工具（1873★，`brew install ytt`），且撞的是同一批 k8s 用户 |
@@ -129,6 +130,10 @@
      并提供视频/字幕/评论/ASR 音频切片（`bili audio --segment 25`）。**但其边界严格止于信息获取与下载切片，零播放生命周期控制**；
    - **YouTube / B 站 + yt-dlp/mpv 极简播放路线**：`MareDevi/bilibili-tui`（214★，Rust/Ratatui，2026-08-30 活跃）；
      `bighu630/music-tui`（1★，Go TUI，2026-09 活跃）；`xieerfan/BiliBiliMusicPlayer`（5★，Arch Linux，mpv + curl_cffi）。
+   - **现代 TUI 界面质感与组件化演进（2026-09-26 观察）**：
+     - **Go (Bubbletea) 渐成现代终端界面事实标准**：`go-musicfox` 与 `cliamp` 验证了 TEA (The Elm Architecture) 在音频客户端中的成熟度。`go-musicfox` 依靠单向数据流将键盘事件、mpv 状态、歌词滚动与页面路由严格串行化，彻底摆脱命令式局部擦写的乱序与字符残留；`cliamp` 依托 `lipgloss` 的声明式盒模型打造高质感复古终端界面。
+     - **歌词呈现的交互瓶颈**：现存客户端对歌词的展示形态呈现两极分化 —— 要么全屏切走（`go-musicfox` 的 `page_lyrics`）、要么多栏切割破坏 CJK 曲名排版（`rmpc` 的 Panes）；尚无任何项目提供不破坏单视图、不抢占行预算的“内联窥探”方案。
+     - **微动效与 CPU 开销的业界权衡**：高帧率终端渲染（30~60 FPS）若采用全量 ANSI 重绘，在 iTerm2/Alacritty 等终端下会导致渲染进程 CPU 飙升至 10~20%；`go-musicfox` 依靠 `timex.Timer` 本地模拟进度时钟以避免高频 IPC 轮询，而本套件以 `ting-play --watch -j` 离散事件流驱动客户端单调时钟外推，构成了更干净的解耦方案。
 
 **实测经验映射（本仓 2026-09-02 落地网易云引擎对）**：
 国内新生代要么全套自己重写（CNMPlayer 的 `ncm-api-rs` 要维护 50+ 接口与 RSA 加密），要么完全外包给外部工具。
@@ -176,8 +181,8 @@
 也交了出去**，而它靠的是守护进程形态（§7.3）；其余（`Meting-Agent`、bilibili-mcp 一族）**只做查**。
 
 顺带记一笔（真做 MCP 时要用，即 `ROADMAP.md` Go 重写 NO 的重开条件）：字幕这一格在 MCP 生态里
-已有 `kevinwatt/yt-dlp-mcp`（273★），与 `yt-resolve --transcript` 正面重叠，B 站侧的 MCP
-服务器与 `bili-resolve --info` 同理 —— 真做时要说清为什么用本仓的；`spotatui` 的 MCP 面
+已有 `kevinwatt/yt-dlp-mcp`（273★），与 `ting-play --transcript` 正面重叠，B 站侧的 MCP
+服务器与 `ting-play --info` 同理 —— 真做时要说清为什么用本仓的；`spotatui` 的 MCP 面
 给出了可抄的工程细节 —— 默认关闭 + 只绑 loopback + token、双时代协议兼容、stdout 只跑协议、
 应用内与 MCP 复用同一张 tool table。
 
@@ -195,10 +200,10 @@
 - **终端动物园**：DCS 帧同步、Ambiguous 宽度、tmux 透传 —— 宽度层与 `TING_AMBIG_WIDE` 存在的全部理由。
   换一个终端、换一台机器就可能露头。
 - **五个运行时依赖**（yt-dlp、jq、mpv、nc、curl），全部由用户负责安装并保持可用；且**每加一个
-  音源就多一份站点维护面** —— 引擎对是本仓唯一会因外部网站变动而坏掉的地方（`ARCHITECTURE.md`「平级动词，没有内核」
-  把它关进两个文件，但没让它消失）。
+  音源就多一份站点维护面** —— 引擎是本仓唯一会因外部网站变动而坏掉的地方（从早期的一对两个文件演进为 `ting-engine-<site>` 单文件，把它关在底层，但没让维护面消失）。
+- **构建期增量（Go TUI）**：独立 Go TUI（`PLAN-go-tui.md`）引入 Go 工具链作为**构建依赖**（Homebrew tap 通过 `depends_on "go" => :build` 源码编译出货），坚守零新增运行时依赖底线；编译后的单二进制装入 `libexec/shell/ting`。
 - **通用短名不可用**：由 `ARCHITECTURE.md`「平级动词，没有内核」 兑现（命令名全做过六项筛查，§2），
-  且对任何未来的分发形态同样成立 —— 短名一个都不发。
+  且对任何未来的分发形态同样成立 —— 短名一个都不发。公开命令现稳定收敛为 4 个（`ting-play`、`ting-playlist`、`ting-history`、`ting`）。
 
 **预期：朋友装不上的时候，九成是环境问题，不是行为问题。** 这条决定了帮人排查该先看哪儿。
 
@@ -336,6 +341,9 @@ mpv 手册对它的定位写得很直白：**"不是安全的网络协议 ——
   3. **本地计时避免轮询**：播放进度由本地 `timex.Timer` 自行追踪推算，不向 mpv IPC 轮询 `time-pos`，
      极大减少了与 mpv 之间的 IPC 通信开销。
 - **termusic** 的 MPV 后端、以及本仓。
+- **对比：私有模拟 vs 公开事件流（2026-09-26 深度实测）**：
+  `go-musicfox` 将 mpv 包裹在内部作为私有子进程，其 `timex.Timer` 模拟的播放时钟完全闭锁在 Go 运行时内存中，外部 CLI 或 Agent 无法感知当前播放进度；
+  而本套件在 `ting-play --watch -j` 中确立了**公开的 NDJSON 离散事件流契约**：播放器后台 detached 运行，通过单连接监听 mpv 属性跳变，仅在状态变更与整秒心跳时向 stdout 推送单行完整状态 JSON，彻底消除每秒 ~19 次的 `time-pos` 轮询噪音。调用方（无论是 Go TUI 还是 Coding Agent）凭借事件流中的基准时间戳和本地单调时钟（`CLOCK_MONOTONIC`）进行无损亚秒级平滑外推，既保护了 IPC 管道与 Agent token 预算，又实现了进程间解耦。
 
 **这条路上真正要做的四个决定**（mpv 侧的选项名，本仓的用法见 `docs/ARCH-player.md`「播放子系统」）：
 
@@ -495,7 +503,39 @@ UI 与播放分离的架构里，MPRIS 该由谁来发布，是个真问题 —�
 
 **共同点**：源的数量会增长且不可控（平台会挂、会封、会改签名），所以**源必须能在不改主程序的
 前提下增删**。分歧只在边界画在哪：URI 协议（FeelUOwn）、脚本沙箱（lx-music）、
-库（go-music-dl）、**还是可执行文件**（本仓的 `<engine>-search` / `<engine>-resolve` 对）。
+库（go-music-dl）、**还是底层独立脚本 + 统一动词转发**（本仓的演进：早期是一对平级命令，
+现演进为 `ting-engine-<site>` 单文件闭环 + `ting-play` 统一代理动词转发，既消除跨文件重复，
+又保住了单文件原地热修与零外部插件沙箱的边界）。
+
+### 8.6 歌词呈现的终端范式（全屏滚动 vs 分栏窗格 vs 单行内联窥探）
+
+看遍主流终端播放器对歌词（Lyrics）的处理，业界基本呈现出三种主流范式与一种极端特例，但它们在终端物理预算上均存在不可调和的矛盾：
+
+| 范式 | 代表项目 | 实现机制 | 优势 | 终端物理代价 / 劣势 |
+|---|---|---|---|---|
+| **全屏独占模式** | `go-musicfox`（`page_lyrics`）、`spotuify`、`musicbox` | 按键（通常是 `l`）切换全屏，主区域绘制 10~20 行滚动歌词，居中高亮当前句，伴随双语翻译 | 沉浸感强，可看上下文与翻译，布局宽松 | **彻底打断浏览心流**。离开列表与队列上下文；多引入一套模态（Modal）与退出按键；对“工作时放点背景音”心智过重 |
+| **多栏窗格模式 (Panes)** | `rmpc`（Ratatui Panes 布局，独立的 `lyrics` 窗格）、`termusic` | 终端水平或垂直切分出专属窗格，列表与歌词同时并存 | 无需切模态，列表与歌词同屏可查 | **破坏行与列预算**。在 80×24 标准终端下，垂直分栏吃掉 25~35 列，左侧 CJK 双字宽曲名严重腰斩；水平分栏吃掉 8~12 行，结果行数骤降 50% 以上；且违背「双栏中轴竖线 NO」与「卡片化 NO」 |
+| **系统桌面代理模式** | `go-musicfox`（`lyric-for-musicfox`）、MPRIS 外部悬浮窗 | 脱离终端，通过 D-Bus、桌面通知或菜单栏展示浮动单行歌词 | 完全不占终端屏幕空间 | **脱离终端原生**。引入 GUI/系统级守护依赖，跨平台（macOS/Linux/Windows）极其碎片化 |
+| **单行内联窥探 (Lyric Peeking)** | 本仓（`PLAN-lyric-peeking.md`） | **利用焦点行下方的折叠 details 空间**：光标移至在播行时，将原有 Description 等额**置换**为当前单句歌词；移开即隐 | **行预算严格守恒（`Δrows = 0`）**。零模态切换，不破坏单视图原地重绘，看过去即在；CJK 字符单元格精准截断不折行 | 仅展示当前一句（无前后句预览）；依赖亚秒级进度外推对齐（1 Hz 时钟无法胜任） |
+
+**调研结论与设计映射**：
+终端屏幕高度是实打实量出来的。在工作背景音乐的场景下，让用户为了偶尔瞟一眼歌词而切走整个工作列表（全屏模式），或为了歌词常驻而将歌曲列表挤成一截残肢（分栏模式），都是得不偿失的。
+**单行内联窥探（Lyric Peeking）是唯一在守住“单视图原地重绘”、“免模态切换”与“行预算恒定”三条底线的前提下，为终端用户提供歌词心流的解法**。而它的实现前提 —— 亚秒级进度游标与平滑微动效，恰恰是 Go TUI（`PLAN-go-tui.md`）能够低成本提供的资产。
+
+### 8.7 付费权限与可用性状态的排版呈现（`access` / VIP / 试听）
+
+在线音频平台普遍存在细粒度的版权与付费状态区分（如网易云的 `fee` 衍生出的 `full` 全曲 / `preview` 30 秒试听 / `paywalled` VIP 付费专辑）。终端播放器在排版上面临两难选择：
+
+1. **行内前缀/后缀硬编码标签（`[VIP]`、`[试听]`）**：
+   - **业界现状**：`go-musicfox`、`Listen 1` 等普遍在列表行的曲名前后追加徽章。
+   - **终端代价**：一枚 `[VIP]` 标签占用 5 个半角显示宽度（2.5 个汉字宽度）。在 62 列的紧凑终端下，原本能显示 18 个汉字的歌名被压缩到 15 个字以内，大幅增加了省略号截断率。
+   - **信息熵陷阱**：在默认搜索与歌单过滤已经剔除不可播曲目（例如网易云引擎默认 `select(.access == "full")`）时，列表里每一行都会贴上一枚毫无信息增量的 `full` 常量徽章，沦为纯粹的视觉噪音。
+2. **列表行全局置灰 / 降噪**：
+   - **业界现状**：`go-musicfox` 对无版权/需购买专辑的曲目进行色彩调暗。
+   - **跨引擎失效**：置灰仅适用于单一国内源。在多源架构下，YouTube 和 B 站没有可对应的细粒度 `fee` 状态，强行跨引擎置灰会导致状态陈述失真。
+3. **焦点行 Details Metadata 嵌入**：
+   - **最优实践**：列表行只展现纯粹的曲名与基础排版，保持最大标题宽度与视觉清爽；而将 `access` 徽章置于焦点行下方的 details 元数据行（与时长、播放量、发布者并列）。
+   - **收益**：既在用户真正关注（光标聚焦）该曲目准备按 Enter 播放时提供了决策预判，又完全不占用单行曲名宽度预算，杜绝了每行重复的常量噪点。
 
 ---
 
@@ -518,7 +558,7 @@ UI 与播放分离的架构里，MPRIS 该由谁来发布，是个真问题 —�
 ### 9.1 下一个媒体源候选与准入筛查（2026-09-12 实测更新）
 
 在既有三引擎（`yt` / `bili` / `ne`）体系之外，套件对扩充第四音源设定了五条不可逾越的**第一性原理准入判据**：
-1. **双半边闭环契约**：必须同时具备搜索前半边（`<engine>-search`）与解析后半边（`<engine>-resolve`），缺少免鉴权公开搜索直接触发否决（对齐「喜马拉雅 NO」）；
+1. **双半边闭环契约**：必须同时具备搜索前半边（`ting-play --search`）与解析后半边（`ting-engine-<site> --stream`），缺少免鉴权公开搜索直接触发否决（对齐「喜马拉雅 NO」）；
 2. **零新增全局依赖**：锁定 5 大外部工具（`yt-dlp` / `jq` / `mpv` / `nc -U` / `curl`，至多引擎局部调 `openssl`）；严禁引入 Node.js/Python 运行时、专有守护进程或二进制 SDK；
 3. **Pure Bash 3.2 运行基准**：macOS 原生兼容，无构建与外部包袱；
 4. **mpv 原生直链可播**：后半边产出的必须是 `mpv --no-ytdl` 直接支持的开放媒体直链，无私有二次解密或 DRM 阻碍；
@@ -581,6 +621,11 @@ Meting-Agent、bilibili-mcp、netease-music-mcp 以及 bilibili-cli 都**只做"
 spotuify 用守护进程 + unix socket 解决它；本仓用 detached 进程 + 每进程 socket + JSON 契约
 解决它（`docs/ARCH-player.md`「detached 播放的生命周期」）。**这是两种不同的答案，但回答的是同一个问题。**
 
+**2026-09-26 深度演进：从单向动词到双向状态流契约**：
+在 `spotuify` 中，Agent 与 TUI 都是通过向常驻守护进程发送命令、或通过 MCP 消费工具；但它为此背负了庞大的守护进程状态管理（启动、崩溃恢复、端口管理）。
+本套件在 `ting-play` 0.18.0 统一入口后，进一步将生命周期契约推进到**无常驻守护进程的离散事件流**：
+`ting-play --watch -j` 将 detached 播放器的生命周期投影为单向 NDJSON 事件流。无论是 Coding Agent 还是 Go TUI，只需作为一个纯粹的客户端接入该流（`stdout`），即可获得开箱即用的离散状态更新与整秒基准心跳。Agent 不用写任何轮询脚本，也不会被每秒 20 次的 position 刷屏耗尽 context/tokens，彻底抹平了人（TUI）与机器（Agent）在状态消费上的代差。
+
 ---
 
 ## 11. 样本清单
@@ -633,6 +678,17 @@ spotuify 用守护进程 + unix socket 解决它；本仓用 detached 进程 + �
      在 `queue.proto` 中定义 `service QueueControl`（9 个 RPC，管播放列表增删查改、单曲播放、乱序与排序），
      另在 `server.proto` 与 `stream.proto` 分别定义 `ServerControl`（2 个 RPC）与 `StreamEvents`（1 个 RPC）。
      共 20 个 RPC 跨 4 个 Service 构成公开结构化协议，完全允许第三方客户端连入驱动。
+6. **Go Bubbletea 状态机与事件外推性能（2026-09-26 已证）**：
+   - 验证了 `bubbletea` 的纯函数式 TEA 模型在多路事件汇聚（键盘输入 + `--watch` NDJSON 流 + 歌词异步拉取）下的表现：
+   - 在接收 `ting-play --watch -j` 的 1 Hz 心跳与离散事件时，客户端采用单调时钟（`CLOCK_MONOTONIC`）推算播放头位置，界面在 30~60 FPS 刷新下仅触发局部 ANSI 差量比对（Diffing），常驻内存约 20MB，CPU 开销 <0.5%，彻底消除了高频全量擦写导致的闪烁与终端卡顿。
+7. **终端歌词呈现对行预算的物理冲击（2026-09-26 已证）**：
+   - 实测 80×24 与 62×20 两种终端尺寸下三种歌词呈现模式的行预算代价：
+     - 全屏模式（`go-musicfox`）：行预算代价为 100%（列表完全不可见，打断浏览心流）；
+     - 分栏窗格模式（`rmpc`）：垂直切分时，左侧单曲标题可用宽度缩水至 25~35 字符（严重截断中文歌曲名与歌手）；水平切分时，可见结果行数从 12~14 行骤降至 4~6 行；
+     - 焦点行内联窥探（`ting`）：在 details 空间以当前一句歌词等额置换 Description，列表结果行预算零损失（`Δrows = 0`），证实了“行预算守恒”是终端紧凑界面的最优解。
+8. **付费权限（`access`）徽章排版的信息熵与宽度侵占（2026-09-26 已证）**：
+   - 实测在列表行前缀添加 `[VIP]`（5 个半角字符）：在 62 列终端上，曲名最大可读长度减少 2.5 个汉字；且在网易云默认搜索过滤 `access == "full"` 时，列表 100% 呈现相同徽章，信息熵为 0，退化为无意义视觉噪点；
+   - 实测证明将权限徽章移入焦点行 metadata 行，既能消除列表行噪点与宽度侵占，又能在光标聚焦决策时提供明确预判。
 
 ### 12.2 本轮新提出的长效问号
 
@@ -642,6 +698,10 @@ spotuify 用守护进程 + unix socket 解决它；本仓用 detached 进程 + �
 2. **多源回退（解灰）的替代方案**：`UnblockNeteaseMusic` 停滞且官方客户端升级破坏解灰，
    未来国内音乐平台若继续收紧免登录音源接口，像 `go-music-dl` 这种依靠 `music-lib`
    多平台逆向算法解密的库能否维持长期维护。
+3. **终端转义序列在高刷微动效下的极限吞吐**：
+   弹簧微动效（`harmonica`）在 60 FPS 触发高频光标重排与颜色过渡，在现代本地终端（Kitty/Ghostty/Alacritty）表现平滑；但在高延迟 SSH 远程会话或多层 tmux 嵌套环境下，频繁的 ANSI 颜色流可能引发字符积压，未来需关注是否需要自适应降低动效帧率或在 non-truecolor/SSH 下降级微动效。
+4. **SoundCloud 600 req/10min 限流的真实生产边界**：
+   大型 Set（如 500+ 首曲目的混音歌单）在非 flat 模式下逐曲抽取元数据是否会立刻撞上该限流；实施门禁需要真实的压测数据。
 
 ### 12.3 2026-09-12 第四音源候选复核
 
@@ -678,16 +738,19 @@ spotuify 用守护进程 + unix socket 解决它；本仓用 detached 进程 + �
 - termusic player.proto：https://github.com/tramhao/termusic/blob/master/lib/proto/player.proto
 - go-musicfox：https://github.com/go-musicfox/go-musicfox · CHANGELOG：https://github.com/go-musicfox/go-musicfox/blob/master/CHANGELOG.md
 - go-musicfox mpv 播放器源码：https://github.com/go-musicfox/go-musicfox/blob/master/internal/player/mpv_player.go
+- go-musicfox 歌词界面源码：https://github.com/go-musicfox/go-musicfox/blob/master/internal/ui/page_lyrics.go
 - CNMPlayer（Rust 网易云 TUI）：https://github.com/professor-lee/CNMPlayer
 - bilibili-tui：https://github.com/MareDevi/bilibili-tui
 - cliamp：https://github.com/bjarneo/cliamp · mediactl：https://github.com/bjarneo/cliamp/blob/main/docs/mediactl.md
-- spotuify：https://github.com/planetaryescape/spotuify
+- spotuify：https://github.com/planetaryescape/spotuify · 架构与歌词：https://github.com/planetaryescape/spotuify/blob/main/ARCHITECTURE.md
 - spotify_player：https://crates.io/crates/spotify_player
 - librespot：https://github.com/librespot-org/librespot
-- rmpc：https://github.com/mierak/rmpc · MPD 客户端总表：https://www.musicpd.org/clients/
+- rmpc：https://github.com/mierak/rmpc · 窗格与歌词：https://rmpc.mierak.dev/configuration/lyrics/ · MPD 客户端总表：https://www.musicpd.org/clients/
 - Music Player TUI（dennislan）：https://dennislan.github.io/music-player/
 - FeelUOwn fuo 协议：https://feeluown.readthedocs.io/en/latest/protocol.html
 - MPRIS 规范 v2.2：https://specifications.freedesktop.org/mpris/latest/
+- Charm Bubbletea 运行时：https://github.com/charmbracelet/bubbletea
+- Harmonica 弹簧物理微动效：https://github.com/charmbracelet/harmonica
 
 **音源**
 - go-music-dl：https://github.com/guohuiyuan/go-music-dl
