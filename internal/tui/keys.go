@@ -62,9 +62,6 @@ func (m *Model) updateList(k tea.KeyMsg) tea.Cmd {
 	switch key {
 	case "ctrl+c", "q":
 		return tea.Quit
-	case "Q":
-		m.keepOnQuit = true
-		return tea.Quit
 	case "up", "k", "K", "down", "J", "left", "right":
 		return m.move(key)
 	case "j":

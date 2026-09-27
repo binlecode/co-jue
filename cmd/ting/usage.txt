@@ -102,7 +102,6 @@ Keys (List View):
            other text opens the search prompt with it. With the queue on screen p moves
   q        quit, and stop the player on the banner — one this session started or one it
            adopted when it opened (a player running before ting opened is adopted)
-  Q        quit and leave it playing; the next ting adopts it
 
   The eleven settings these keys change — engine, sort field, playback mode, quality tier,
   theme, chrome language, the result count, the key-hint tier, row numbers, the list mode

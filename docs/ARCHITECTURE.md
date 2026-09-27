@@ -733,7 +733,7 @@ ARCH-cli-contract.md「数据契约」）。B 站根本没有 `--transcript` 这
        而一个章节行是一次带偏移的调用：Enter 从那一章起播（在播的就是这一条
        则 seek），`+` 入队、`a` 存进播放列表都带着那个偏移。
        Space 暂停 · s 停止 · ? 键位提示换档 · q 退出并停掉横幅上的播放器（自己起的或
-       开屏时接管来的）· Q 退出并让它继续放，下一次打开的 ting 接管它 —— ARCH-tui.md「启动与退出」
+       开屏时接管来的）—— ARCH-tui.md「启动与退出」
      完整键位面：`ting --help`（键表本身）、ARCH-tui.md（行为与 why）；
      命令面与那道 TTY 门在 ARCH-cli-contract.md「命令规格」
 ```

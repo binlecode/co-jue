@@ -149,7 +149,6 @@ type Model struct {
 	playURL    string
 	playEngine string
 	cpu, mem   *float64
-	keepOnQuit bool
 
 	// Volume presses coalesce: one --set-volume in flight at most, and only the newest target.
 	volTarget   *int
@@ -207,13 +206,8 @@ func New(ctx context.Context, suite *verb.Suite, opt Options) *Model {
 }
 
 // SessionPlayer is the player q stops on the way out: whatever is on the banner, adopted or
-// started here, unless Q asked to leave it playing.
-func (m *Model) SessionPlayer() string {
-	if m.keepOnQuit {
-		return ""
-	}
-	return m.playerID
-}
+// started here.
+func (m *Model) SessionPlayer() string { return m.playerID }
 
 // Fatal is why the session could not start (the first search broke rather than came back
 // empty); nil otherwise.
