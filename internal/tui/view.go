@@ -51,17 +51,48 @@ func (m *Model) ambigW() int {
 
 // statusItems is the title line's right-hand segment. A field at its default takes no cell.
 func (m *Model) statusItems() []string {
-	sort := map[string]string{"relevance": m.s.SortRelevance, "view_count": m.s.SortViews,
-		"duration": m.s.SortDur}[m.opt.Search.Sort]
-	it := []string{m.engine().Name, strconv.Itoa(len(m.rows)) + " " + m.s.UResults, sort}
-	switch m.auth {
-	case "":
-	case "anon":
-		it = append(it, m.s.AuthAnon)
-	case "blocked":
-		it = append(it, m.s.AuthBlocked)
-	default:
-		it = append(it, m.s.AuthIn)
+	var it []string
+	if m.src == srcSearch {
+		sort := map[string]string{"relevance": m.s.SortRelevance, "view_count": m.s.SortViews,
+			"duration": m.s.SortDur}[m.opt.Search.Sort]
+		// The engine of the rows on screen, which a pasted URL can make other than the
+		// session's.
+		eng := m.engine().Name
+		if len(m.all) > 0 {
+			eng = engines(m.all)
+		}
+		it = []string{eng, strconv.Itoa(len(m.rows)) + " " + m.s.UResults, sort}
+		switch m.auth {
+		case "":
+		case "anon":
+			it = append(it, m.s.AuthAnon)
+		case "blocked":
+			it = append(it, m.s.AuthBlocked)
+		default:
+			it = append(it, m.s.AuthIn)
+		}
+	} else {
+		// A stored list is mixed-source, so it names its engines and no one auth: a single
+		// token there would be false for half of it.
+		unit := m.s.UItems
+		switch m.src {
+		case srcChapters:
+			unit = m.s.UChap
+		case srcParts:
+			unit = m.s.PartsKey
+		}
+		it = []string{engines(m.all), strconv.Itoa(len(m.rows)) + " " + unit}
+		if m.src == srcParts && m.totalFmt != "" {
+			it = append(it, m.s.Total+" "+m.totalFmt)
+		}
+	}
+	if m.infoFocused() {
+		if m.info.uploaded != "" {
+			it = append(it, m.info.uploaded)
+		}
+		if m.info.likes != "" {
+			it = append(it, m.s.Likes+" "+m.info.likes)
+		}
 	}
 	if m.opt.Search.MinDur > 0 {
 		it = append(it, m.g.GE+strconv.Itoa(m.opt.Search.MinDur)+"s")
@@ -84,16 +115,18 @@ func (m *Model) statusItems() []string {
 		it = append(it, m.s.Loop+" "+m.s.LoopOne)
 	}
 	if q := m.queue(); q != nil && q[1] > 1 {
-		it = append(it, fmt.Sprintf("%s %d/%d", m.s.QAct, q[0], q[1]))
+		it = append(it, fmt.Sprintf("%s %d/%d", m.s.QAct, q[0]+1, q[1]))
 	}
 	return it
 }
 
+// queue is the running player's queue (pos, len), from whichever said it last: an event or
+// the envelope of the verb that changed it.
 func (m *Model) queue() *[2]int {
-	if m.last == nil || m.last.Queue == nil {
+	if m.playerID == "" {
 		return nil
 	}
-	return &[2]int{m.last.Queue.Pos, m.last.Queue.Len}
+	return m.q
 }
 
 // navItems is the key-hint block. Three tiers: core is this view's own job, full is every
@@ -104,26 +137,84 @@ func (m *Model) navItems() []hint {
 		return nil
 	}
 	full := m.opt.Keys == "full"
+	search := m.src == srcSearch
 	it := []hint{{m.g.AV, m.s.Select}}
 	if m.opt.ListMode == "page" {
 		it = append(it, hint{m.g.AH, m.s.Page})
 	}
-	it = append(it, hint{m.g.Enter, m.s.Play})
+	if m.src == srcQueue {
+		it = append(it, hint{m.g.Enter, m.s.QPlayNow})
+	} else {
+		it = append(it, hint{m.g.Enter, m.s.Play})
+	}
 	if full {
 		it = append(it, hint{"Nj", m.s.Jump}, hint{"#", m.s.RowNum}, hint{m.g.Tab, m.s.ListMode},
-			hint{"v", m.s.Mode}, hint{"f", m.s.Quality}, hint{"n", m.s.Search}, hint{"o", m.s.Sort})
+			hint{"v", m.s.Mode}, hint{"f", m.s.Quality}, hint{"n", m.s.Search})
+		if search {
+			it = append(it, hint{"o", m.s.Sort})
+		}
 	}
-	it = append(it, hint{"/", m.s.Filter})
+	it = append(it, hint{"/", m.s.Filter}, hint{"z", m.s.UndoKey})
 	if full {
-		if len(m.opt.Engines) > 1 {
+		if search && len(m.opt.Engines) > 1 {
 			it = append(it, hint{"e", m.s.EngineKey})
 		}
-		it = append(it, hint{"l", m.s.LangKey}, hint{"-/=", m.s.Vol}, hint{"Space", m.s.Pause},
+		it = append(it, hint{"l", m.s.LangKey})
+		if m.opt.Colors {
+			it = append(it, hint{"t", m.s.ThemeKey})
+		}
+		it = append(it, hint{"-/=", m.s.Vol}, hint{"Space", m.s.Pause},
 			hint{"[ ]", m.s.Seek}, hint{"r", m.s.Loop}, hint{"s", m.s.Stop})
 	}
 	it = append(it, hint{"q", m.s.Quit})
+	if m.suite.TPlaylist != "" {
+		switch {
+		case m.src == srcPlaylist:
+			if full {
+				it = append(it, hint{"a", m.s.PLAdd}, hint{"d", m.s.PLRmKey}, hint{"D", m.s.PLDelKey}, hint{"R", m.s.PLRenameKey})
+			}
+			it = append(it, hint{"b", m.s.BackSearch})
+		case m.src == srcContainer:
+			if full {
+				it = append(it, hint{"a", m.s.PLAdd})
+			}
+			it = append(it, hint{"b", m.s.BackSearch})
+		case full:
+			it = append(it, hint{"a", m.s.PLAdd}, hint{"b", m.s.PLOpen})
+		}
+	}
+	if m.suite.THistory != "" {
+		if m.src == srcHistory {
+			it = append(it, hint{"h", m.s.BackSearch})
+		} else if full {
+			it = append(it, hint{"h", m.s.HistKey})
+		}
+	}
+	focusEng := ""
+	if len(m.rows) > 0 && m.cursor < len(m.rows) {
+		focusEng = m.rows[m.cursor].Engine
+	}
+	if m.src == srcParts {
+		it = append(it, hint{"c", m.s.BackSearch})
+	} else if full && search && m.engineHas(focusEng, "--items") {
+		it = append(it, hint{"c", m.s.PartsKey})
+	}
+	if m.src == srcChapters {
+		it = append(it, hint{"i", m.s.BackSearch})
+	} else if full && search && m.engineHas(focusEng, "--info") {
+		it = append(it, hint{"i", m.s.ChapKey})
+	}
 	if full && m.playerID != "" {
 		it = append(it, hint{"+", m.s.QAdd}, hint{">", m.s.QSkip})
+	}
+	if m.src == srcQueue {
+		it = append(it, hint{"x", m.s.QRmKey}, hint{"pP", m.s.QMvKey})
+		if full {
+			it = append(it, hint{"X", m.s.QClearKey})
+		}
+		it = append(it, hint{"u", m.s.BackSearch})
+	} else if q := m.queue(); full && m.playerID != "" && q != nil && q[1] > 1 {
+		it = append(it, hint{"u", m.s.QKey})
 	}
 	return append(it, hint{"?", m.s.Keys})
 }
@@ -159,7 +250,7 @@ func (m *Model) headLead() string {
 	if m.g.Note != "" {
 		lead = m.g.Note + " " + lead
 	}
-	return lead + "  query="
+	return lead + "  " + m.src.field() + "="
 }
 
 // layout spends the terminal's height the way the shell TUI's renderer does: chrome at the
@@ -188,7 +279,7 @@ func (m *Model) layout() frame {
 		f.statusLines = m.statusBlock(f.status, f.cols)
 		f.chromeH += len(f.statusLines)
 	}
-	if m.noticeL != "" || m.noticeT != "" || m.busy != "" {
+	if m.noticeL != "" || m.noticeT != "" || m.busy != "" || m.undoActive() {
 		f.chromeH++
 	}
 
@@ -218,7 +309,7 @@ func (m *Model) layout() frame {
 		}
 	}
 	if m.prompting {
-		f.caretH = 1
+		f.caretH = 1 + m.pickLines()
 	}
 	if f.navOK {
 		f.hintGap = 1
@@ -339,6 +430,14 @@ func (m *Model) detailLines(cols, i int) []string {
 	}
 	sep := " " + m.g.Sep + " "
 	meta := ""
+	if r.N > 0 && m.total > 0 {
+		switch m.src {
+		case srcChapters:
+			meta = fmt.Sprintf("%s %d/%d%s", m.s.ChapKey, r.N, m.total, sep)
+		case srcParts:
+			meta = fmt.Sprintf("%s %d/%d%s", m.s.PartsKey, r.N, m.total, sep)
+		}
+	}
 	if r.Channel != "" {
 		meta = r.Channel + sep
 	}
@@ -388,8 +487,12 @@ func (m *Model) View() string {
 	if f.statusInline {
 		qRoom -= m.w.of(stPlain) + 2
 	}
-	q := m.w.trunc("'"+m.query+"'", qRoom, g.Ell)
-	head := p.Bold + p.Accent + lead + p.Reset + "  query=" + q
+	label := m.query
+	if m.src != srcSearch {
+		label = m.label
+	}
+	q := m.w.trunc("'"+label+"'", qRoom, g.Ell)
+	head := p.Bold + p.Accent + lead + p.Reset + "  " + m.src.field() + "=" + q
 	if f.statusInline {
 		gap := f.rightEdge - m.w.of(m.headLead()+q) - m.w.of(stPlain)
 		if gap < 1 {
@@ -402,11 +505,19 @@ func (m *Model) View() string {
 		line(p.Dim + strings.Join(l, " "+g.Sep+" ") + p.Reset)
 	}
 
-	// The notice line: a notice until the next key, else the fetch in flight.
+	// The notice line: a notice until the next key, else the fetch in flight. While an undo
+	// is on offer it says so, for exactly as long as it can.
+	nl, nt, nu := m.noticeL, m.noticeT, ""
+	if m.undoActive() {
+		nu = " " + g.Sep + " " + m.s.UndoHint
+		if nl == "" && nt == "" {
+			nl, nt = m.undoHead, m.undoLabel
+		}
+	}
 	switch {
-	case m.noticeL != "" || m.noticeT != "":
-		t := m.w.trunc(m.noticeT, f.rightEdge-m.w.of(m.noticeL+" "), g.Ell)
-		line(p.Bold + m.noticeL + p.Reset + " " + p.Dim + t + p.Reset)
+	case nl != "" || nt != "":
+		t := m.w.trunc(nt, f.rightEdge-m.w.of(nl+" ")-m.w.of(nu), g.Ell)
+		line(p.Bold + nl + p.Reset + " " + p.Dim + t + p.Reset + nu)
 	case m.busy != "":
 		line(p.Dim + g.Spin[m.spin%len(g.Spin)] + " " + m.w.trunc(m.busy, f.rightEdge-2, g.Ell) + p.Reset)
 	}
@@ -449,7 +560,12 @@ func (m *Model) View() string {
 		}
 		b.WriteString(p.Mark + ">" + p.Reset + " " + m.filter)
 	case m.prompting:
-		b.WriteString(p.Bold + g.Caret + " " + m.s.NewSearch + ":" + p.Reset + " " + m.input.View())
+		m.renderPick(&b)
+		label := m.askLabel
+		if m.askKind == askSearch {
+			label = m.s.NewSearch
+		}
+		b.WriteString(p.Bold + g.Caret + " " + label + ":" + p.Reset + " " + m.input.View())
 	case m.jump != "":
 		b.WriteString(strings.Repeat(" ", max(0, f.rightEdge-len(m.jump))) + p.Dim + m.jump + p.Reset)
 	}
@@ -489,8 +605,19 @@ func (m *Model) renderRows(b *strings.Builder, f frame) {
 		}
 	}
 	playing := -1
+	chap := m.playingChapter()
 	for i := f.start; i < f.end; i++ {
-		if m.playingRow(m.rows[i]) {
+		r := m.rows[i]
+		var on bool
+		switch m.src {
+		case srcQueue:
+			on = m.playerID != "" && r.N == m.queuePos()
+		case srcChapters:
+			on = chap >= 0 && r.Sec == chap
+		default:
+			on = m.playingRow(r)
+		}
+		if on {
 			playing = i
 			break
 		}
@@ -595,14 +722,93 @@ func (m *Model) progressBar(width int) string {
 	if width < 10 {
 		width = 10
 	}
-	pct := 0
-	if pos, ok := m.position(); ok && m.last.Duration != nil && *m.last.Duration > 0 {
-		pct = int(pos * 100 / *m.last.Duration)
-	}
-	if pct > 100 {
-		pct = 100
+	pct, dur := 0, 0.0
+	pos, ok := m.position()
+	if ok && m.last.Duration != nil && *m.last.Duration > 0 {
+		dur = *m.last.Duration
+		pct = min(int(pos*100/dur), 100)
 	}
 	filled := pct * width / 100
-	return m.p.Accent + strings.Repeat(m.g.Fill, filled) + m.p.Reset +
-		m.p.Dim + m.p.Accent + strings.Repeat(m.g.Rest, width-filled) + m.p.Reset
+	// The focused chapter's span, when it is a chapter of what is playing: a blank cell at
+	// each end, so the bar says where that chapter sits in the whole.
+	a, b := -1, -1
+	if st, end := m.chapterSpan(); dur > 0 && end > st {
+		a = min(int(st*float64(width)/dur), width-1)
+		b = min(int(end*float64(width)/dur)-1, width-1)
+		if b <= a+1 {
+			b = -1
+		}
+	}
+	var played, rest strings.Builder
+	for c := 0; c < width; c++ {
+		g := m.g.Rest
+		switch {
+		case c == a || c == b:
+			g = " "
+		case c < filled:
+			g = m.g.Fill
+		}
+		if c < filled {
+			played.WriteString(g)
+		} else {
+			rest.WriteString(g)
+		}
+	}
+	return m.p.Accent + played.String() + m.p.Reset + m.p.Dim + m.p.Accent + rest.String() + m.p.Reset
+}
+
+// chapterSpan is the focused chapter's start and end, when the list is that item's chapters
+// and the item is what is playing; zeros otherwise.
+func (m *Model) chapterSpan() (float64, float64) {
+	if m.src != srcChapters || m.info == nil || m.live || m.cursor >= len(m.rows) {
+		return 0, 0
+	}
+	r := m.rows[m.cursor]
+	if r.Engine != m.playEngine || handleKey(r.URL) != handleKey(m.playURL) {
+		return 0, 0
+	}
+	for _, c := range m.info.chapters {
+		if int(c.Start) == r.Sec && c.End != nil {
+			return c.Start, *c.End
+		}
+	}
+	return 0, 0
+}
+
+// pickLines is the height of the playlist picker drawn above a/b's prompt.
+func (m *Model) pickLines() int {
+	if len(m.pick) == 0 {
+		return 0
+	}
+	return len(m.pick) + 1
+}
+
+// renderPick is the picker: a numbered list, so an answer is one keystroke rather than a
+// recollection, with the names in a column measured in cells (a CJK name does not line up
+// in a column counted in bytes). A narrow pane drops the date first, then cuts the names.
+func (m *Model) renderPick(b *strings.Builder) {
+	if len(m.pick) == 0 {
+		return
+	}
+	cols := max(m.width, layoutMin)
+	numW := len(strconv.Itoa(len(m.pick)))
+	metas := make([]string, len(m.pick))
+	nameW, metaW := 0, 0
+	for i, pl := range m.pick {
+		unit := m.s.PLItems
+		if pl.Count == 1 {
+			unit = m.s.PLItem
+		}
+		metas[i] = fmt.Sprintf("%d %s", pl.Count, unit)
+		if cols >= 46 && len(pl.UpdatedAt) >= 10 {
+			metas[i] += "  " + pl.UpdatedAt[:10]
+		}
+		nameW = max(nameW, m.w.of(pl.Name))
+		metaW = max(metaW, m.w.of(metas[i]))
+	}
+	nameW = min(nameW, max(cols-3-numW-1-2-metaW, layoutMinBudget))
+	b.WriteString("  " + m.p.Bold + m.askHead + m.p.Reset + "\n")
+	for i, pl := range m.pick {
+		b.WriteString(fmt.Sprintf("  %*d. %s  %s\n", numW, i+1, m.w.pad(m.w.trunc(pl.Name, nameW, m.g.Ell), nameW), metas[i]))
+	}
 }

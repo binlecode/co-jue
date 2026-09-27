@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/binlecode/ting/internal/verb"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -18,8 +19,7 @@ import (
 func (m *Model) updateList(k tea.KeyMsg) tea.Cmd {
 	key := k.String()
 	if k.Paste {
-		// A pasted query opens the prompt with the text in it.
-		return m.openPrompt(string(k.Runes))
+		return m.pasted(string(k.Runes))
 	}
 
 	// The jump count dies on any key that neither builds it nor ends it — vim's rule, applied
@@ -73,12 +73,25 @@ func (m *Model) updateList(k tea.KeyMsg) tea.Cmd {
 		}
 		return m.move(key)
 	case "enter":
+		switch m.src {
+		case srcChapters:
+			return m.playChapter()
+		case srcQueue:
+			m.queueKey("enter")
+			return nil
+		}
 		return m.playCmd()
 	case "n", "N":
 		return m.openPrompt("")
 	case "o", "O":
+		if !m.searchOnly() {
+			return nil
+		}
 		return m.cycleSort()
 	case "e", "E":
+		if !m.searchOnly() {
+			return nil
+		}
 		return m.cycleEngine()
 	case "v", "V":
 		m.opt.Play.Mode = next(modeCycle, m.opt.Play.Mode)
@@ -97,6 +110,40 @@ func (m *Model) updateList(k tea.KeyMsg) tea.Cmd {
 	case "/":
 		m.filterOn, m.filter = true, ""
 		m.applyFilter()
+	case "a", "A":
+		return m.addToPlaylist()
+	case "b", "B":
+		return m.browsePlaylists()
+	case "d":
+		m.removeFromPlaylist()
+	case "D":
+		m.deletePlaylist()
+	case "R":
+		return m.renamePlaylist()
+	case "z", "Z":
+		m.undo()
+	case "h", "H":
+		m.openHistory()
+	case "c", "C":
+		return m.openParts()
+	case "i", "I":
+		return m.openChapters()
+	case "u", "U":
+		m.openQueue()
+	case "x", "X":
+		// Queue-position keys act only with the queue on screen: an unguarded x would be a
+		// destructive key that fires from anywhere.
+		if m.src == srcQueue {
+			m.queueKey(key)
+		}
+	case "p", "P":
+		if m.src == srcQueue {
+			m.queueKey(key)
+			return nil
+		}
+		return m.pasted(clipboard())
+	case "ctrl+v":
+		return m.pasted(clipboard())
 	default:
 		// Six digits is an arithmetic guard, not a semantic one; out of range is jumpTo's
 		// business.
@@ -118,7 +165,7 @@ func (m *Model) move(key string) tea.Cmd {
 	n := len(m.rows)
 	up := key == "up" || key == "k" || key == "K"
 	down := key == "down" || key == "j" || key == "J"
-	edges := !m.filterOn
+	edges := !m.filterOn && m.src == srcSearch
 	if m.opt.ListMode == "scroll" {
 		switch {
 		case up && m.cursor > 0:
@@ -315,13 +362,13 @@ func (m *Model) enqueue() tea.Cmd {
 	r := m.rows[m.cursor]
 	id, s, ctx := m.playerID, m.suite, m.ctx
 	label, done := m.s.QAct+":", m.s.QAdded+" "+m.g.Arrow+" "+r.Title
-	failed := m.s.Failed
+	failed, it := m.s.Failed, m.item(r)
 	return func() tea.Msg {
-		err := s.Enqueue(ctx, id, []verb.QueueItem{{Engine: r.Engine, URL: r.URL, Title: r.Title, Duration: r.Duration}}, pid)
+		w, err := s.Enqueue(ctx, id, []verb.QueueItem{it}, pid)
 		if err != nil {
 			return verbDoneMsg{label: label, text: failed, err: err}
 		}
-		return noticeMsg{label: label, text: done}
+		return armMsg{store: "queue", w: w, head: label, label: done}
 	}
 }
 
@@ -346,7 +393,19 @@ func (m *Model) updateFilter(k tea.KeyMsg) tea.Cmd {
 		m.applyFilter()
 		return nil
 	case "enter":
+		if u := urlTarget(m.filter); u != "" {
+			m.filterOn, m.filter = false, ""
+			m.applyFilter()
+			return m.loadURL(u)
+		}
+		if m.src == srcChapters {
+			return m.playChapter()
+		}
 		return m.playCmd()
+	case "ctrl+v":
+		m.filter += strings.TrimSpace(clipboard())
+		m.applyFilter()
+		return nil
 	case "up", "down", "left", "right":
 		return m.move(k.String())
 	case "backspace":
@@ -383,16 +442,35 @@ func (m *Model) applyFilter() {
 
 // ── prompt ──────────────────────────────────────────────────────────────────────────────
 
-func (m *Model) openPrompt(text string) tea.Cmd {
-	m.prompting = true
-	m.input.SetValue(text)
-	m.input.CursorEnd()
+// askKind is what the one line reader is asking for. One reader for all of them, so Esc,
+// editing and wide characters mean the same thing at every prompt.
+type askKind int
+
+const (
+	askSearch askKind = iota // the startup query and n
+	askNew                   // a: the first playlist's name
+	askAdd                   // a: which playlist (number or name)
+	askOpen                  // b: which playlist (number or name)
+	askRename                // R: the new name
+)
+
+// ask opens the prompt. pick is the numbered list a/b choose from, drawn above it.
+func (m *Model) ask(kind askKind, label, head string, pick []verb.Playlist) tea.Cmd {
+	m.prompting, m.askKind, m.askLabel, m.askHead, m.pick = true, kind, label, head, pick
+	m.input.SetValue("")
 	m.input.Focus()
-	return nil
+	return textinput.Blink
 }
 
-// updatePrompt is the search prompt, at startup and on n. Esc or an empty line cancels; at
-// startup, with nothing on screen yet, cancelling is a clean quit.
+func (m *Model) openPrompt(text string) tea.Cmd {
+	cmd := m.ask(askSearch, "", "", nil)
+	m.input.SetValue(text)
+	m.input.CursorEnd()
+	return cmd
+}
+
+// updatePrompt reads the line. Esc or an empty line cancels; the startup prompt, with
+// nothing on screen yet, cancels to a clean quit.
 func (m *Model) updatePrompt(k tea.KeyMsg) tea.Cmd {
 	switch k.Type {
 	case tea.KeyCtrlC:
@@ -400,24 +478,53 @@ func (m *Model) updatePrompt(k tea.KeyMsg) tea.Cmd {
 	case tea.KeyEsc:
 		return m.cancelPrompt()
 	case tea.KeyEnter:
-		q := strings.TrimSpace(m.input.Value())
-		if q == "" {
+		v := strings.TrimSpace(m.input.Value())
+		if v == "" {
 			return m.cancelPrompt()
 		}
-		m.prompting = false
+		kind, pick := m.askKind, m.pick
+		m.prompting, m.pick = false, nil
 		m.input.Blur()
-		if m.pending != nil && m.all != nil {
-			return nil
+		switch kind {
+		case askSearch:
+			if m.pending != nil {
+				return nil
+			}
+			if u := urlTarget(v); u != "" {
+				if m.all == nil {
+					m.query, m.all, m.rows = u, []row{}, []row{}
+				}
+				return m.loadURL(u)
+			}
+			return m.fetch(fetchNew, v, m.opt.Engine, m.opt.Search, m.s.Searching+` "`+v+`"`+m.g.Ell)
+		case askNew:
+			m.doAdd(v)
+		case askAdd:
+			m.doAdd(pickName(v, pick))
+		case askOpen:
+			m.openPlaylist(pickName(v, pick))
+		case askRename:
+			m.doRename(v)
 		}
-		return m.fetch(fetchNew, q, m.opt.Engine, m.opt.Search, m.s.Searching+` "`+q+`"`+m.g.Ell)
+		return nil
 	}
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(k)
 	return cmd
 }
 
+// pickName resolves an answer to the picker: a number on the list is that row's name (it
+// wins over a list literally named "7", which is still reachable by its own number);
+// anything else is a name.
+func pickName(v string, pick []verb.Playlist) string {
+	if n, err := strconv.Atoi(v); err == nil && len(v) <= 9 && n >= 1 && n <= len(pick) {
+		return pick[n-1].Name
+	}
+	return v
+}
+
 func (m *Model) cancelPrompt() tea.Cmd {
-	m.prompting = false
+	m.prompting, m.pick = false, nil
 	m.input.Blur()
 	if m.all == nil && m.pending == nil {
 		return tea.Quit

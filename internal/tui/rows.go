@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/binlecode/ting/internal/verb"
@@ -12,6 +13,9 @@ type row struct {
 	ID, Title, URL, Engine, Channel, Live, Desc, Thumb string
 	Duration                                           *float64
 	Views                                              *int64
+	N                                                  int    // queue index, or a part/chapter ordinal; -1 = none
+	Rail                                               string // a chapter's span, drawn instead of the clock
+	Sec                                                int    // a chapter's start; -1 = not a chapter
 }
 
 func rowsFromSearch(res *verb.SearchResult) []row {
@@ -24,9 +28,62 @@ func rowsFromSearch(res *verb.SearchResult) []row {
 		}
 		out = append(out, row{ID: r.ID, Title: clean(r.Title), URL: r.URL, Engine: eng,
 			Channel: ch, Live: r.LiveStatus, Desc: clean(r.Description),
-			Thumb: r.Thumbnail, Duration: r.Duration, Views: r.ViewCount})
+			Thumb: r.Thumbnail, Duration: r.Duration, Views: r.ViewCount, N: -1, Sec: -1})
 	}
 	return out
+}
+
+// rowsFromItems reads any list-shaped envelope. Channel and view count are absent there on
+// purpose (a stored item keeps neither; they expire), so they render as absent. ordinal
+// numbers the rows 1..n for a parts list, whose details say "part k/total".
+func rowsFromItems(l *verb.ItemList, ordinal bool) []row {
+	out := make([]row, 0, len(l.Items))
+	for i, it := range l.Items {
+		t := it.URL
+		if it.Title != nil && *it.Title != "" {
+			t = *it.Title
+		}
+		r := row{Title: clean(t), URL: it.URL, Engine: it.Engine, Desc: clean(it.Description),
+			Thumb: it.Thumbnail, Duration: it.Duration, N: -1, Sec: -1}
+		if r.Engine == "" {
+			r.Engine = l.Engine
+		}
+		if it.ID != nil {
+			r.ID = *it.ID
+		}
+		switch {
+		case it.Index != nil:
+			r.N = *it.Index
+		case ordinal:
+			r.N = i + 1
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// engines is the source segment of a mixed list: its engines, sorted, joined.
+func engines(rows []row) string {
+	var seen []string
+	for _, r := range rows {
+		dup := false
+		for _, s := range seen {
+			dup = dup || s == r.Engine
+		}
+		if !dup && r.Engine != "" {
+			seen = append(seen, r.Engine)
+		}
+	}
+	if len(seen) == 0 {
+		return "?"
+	}
+	sort.Strings(seen)
+	return strings.Join(seen, "+")
+}
+
+// fmtDurLong is the wire's duration_fmt shape, 01h:02m:03s.
+func fmtDurLong(s int) string {
+	return fmt.Sprintf("%02dh:%02dm:%02ds", s/3600, s/60%60, s%60)
 }
 
 func oneline(s string) string { return strings.Join(strings.Fields(s), " ") }
@@ -84,6 +141,9 @@ func commas(n int64) string {
 
 // rail is what a row prints at its right edge.
 func (r row) rail() string {
+	if r.Rail != "" {
+		return r.Rail
+	}
 	if r.isLive() {
 		return "LIVE"
 	}

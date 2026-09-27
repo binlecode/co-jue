@@ -18,6 +18,16 @@ type strs struct {
 	NoMatch, NoMatchNew, NoMatchFilt, NoMatchSrc, FilterHint                                   string
 	QAdd, QSkip, QAct, Loop, LoopAct, LoopOff, LoopSeq, LoopOne, LoopNext, QNone, QEnd, QAdded string
 	Failed, AdoptAct, AdoptMany                                                                string
+
+	UItems, UChap, Likes, Total, URLAct, ContainerAct, BackSearch                             string
+	PLAdd, PLOpen, PLAct, PLPromptAdd, PLPromptOpen, PLPromptNew, PLAdded, PLEmpty, PLNone    string
+	PLItem, PLItems, PLAbsent, PLSearchOnly, PLListOnly, PLRmKey, PLRemoved, PLDelKey         string
+	PLDeleted, PLRenameKey, PLRenamePrompt, PLRenamed                                         string
+	UndoKey, UndoAct, UndoHint, UndoDone, UndoNone, UndoStale                                 string
+	HistKey, HistAct, HistLabel, HistEmpty, HistAbsent, PartsKey, PartsAct, PartsOne, InfoAct string
+	ChapKey, ChapNone, QKey, QLabel, QPlayNow, QRmKey, QMvKey, QClearKey, QOne, QElsewhere    string
+	QPlayingRow, QRemoved, QCleared, QStale                                                   string
+	PrefAct, PrefPinned, PrefFailed                                                           string
 }
 
 var strsEN = strs{
@@ -39,6 +49,27 @@ var strsEN = strs{
 	QEnd: "nothing queued after this track", QAdded: "Queued", Failed: "failed",
 	AdoptAct:  "Player",
 	AdoptMany: "several background players are running, none adopted (ting-play --status lists them)",
+	UItems:    "items", UChap: "chapters", Likes: "likes", Total: "total", URLAct: "URL",
+	ContainerAct: "Container", BackSearch: "back to results",
+	PLAdd: "add to list", PLOpen: "playlists", PLAct: "Playlist",
+	PLPromptAdd: "Add to which (number, name, Esc cancels)", PLPromptOpen: "Open which (number, name, Esc cancels)",
+	PLPromptNew: "Name the new playlist (Esc cancels)", PLAdded: "Added to", PLEmpty: "that playlist is empty",
+	PLNone: "no playlists yet (press a to make one)", PLItem: "item", PLItems: "items",
+	PLAbsent: "ting-playlist is not installed", PLSearchOnly: "that key needs search results (press n to search)",
+	PLListOnly: "that key needs a playlist (press b to open one)", PLRmKey: "remove", PLRemoved: "Removed from",
+	PLDelKey: "del-list", PLDeleted: "Deleted playlist", PLRenameKey: "rename",
+	PLRenamePrompt: "New name for playlist (Esc cancels)", PLRenamed: "Renamed to",
+	UndoKey: "undo", UndoAct: "Undo", UndoHint: "z to undo", UndoDone: "Undone", UndoNone: "nothing to undo",
+	UndoStale: "changed elsewhere, not undone",
+	HistKey:   "history", HistAct: "History", HistLabel: "newest first", HistEmpty: "nothing listened to yet",
+	HistAbsent: "ting-history is not installed", PartsKey: "parts", PartsAct: "Parts",
+	PartsOne: "this video has only one part", InfoAct: "Info", ChapKey: "chapters", ChapNone: "this item has no chapters",
+	QKey: "queue", QLabel: "waiting", QPlayNow: "play now", QRmKey: "remove", QMvKey: "move", QClearKey: "clear",
+	QOne: "the queue holds only the track that is playing", QElsewhere: "go back to the results first, then open the queue",
+	QPlayingRow: "this one is playing — s stops it, > skips it", QRemoved: "Removed from the queue",
+	QCleared: "Cleared the queue", QStale: "the queue moved — reopening it",
+	PrefAct: "Config", PrefPinned: "is fixed by the environment — not written to your config",
+	PrefFailed: "could not be written — this session's preferences were not saved",
 }
 
 var strsZH = strs{
@@ -60,6 +91,27 @@ var strsZH = strs{
 	QEnd: "队列已到末尾", QAdded: "已加入队列", Failed: "操作失败",
 	AdoptAct:  "播放器",
 	AdoptMany: "后台有多个播放器在跑，没有接管（ting-play --status 可以看）",
+	UItems:    "项", UChap: "章", Likes: "赞", Total: "总长", URLAct: "链接", ContainerAct: "合集",
+	BackSearch: "返回搜索列表",
+	PLAdd:      "加入列表", PLOpen: "播放列表", PLAct: "播放列表",
+	PLPromptAdd: "加入哪个（序号或名称，Esc 取消）", PLPromptOpen: "打开哪个（序号或名称，Esc 取消）",
+	PLPromptNew: "新建列表名称（Esc 取消）", PLAdded: "已加入", PLEmpty: "该列表是空的",
+	PLNone: "还没有播放列表（按 a 建一个）", PLItem: "首", PLItems: "首",
+	PLAbsent: "未安装 ting-playlist", PLSearchOnly: "该键只在搜索结果里可用（按 n 重新搜索）",
+	PLListOnly: "该键只在播放列表里可用（按 b 打开一个）", PLRmKey: "移出", PLRemoved: "已移出",
+	PLDelKey: "删列表", PLDeleted: "已删除列表", PLRenameKey: "重命名",
+	PLRenamePrompt: "重命名列表名称（Esc 取消）", PLRenamed: "已重命名",
+	UndoKey: "撤销", UndoAct: "撤销", UndoHint: "z 撤销", UndoDone: "已撤销", UndoNone: "无可撤销",
+	UndoStale: "已被别处修改，未撤销",
+	HistKey:   "历史", HistAct: "收听历史", HistLabel: "最近收听", HistEmpty: "还没有收听记录",
+	HistAbsent: "未安装 ting-history", PartsKey: "分P", PartsAct: "分P", PartsOne: "这个视频只有一 P",
+	InfoAct: "详情", ChapKey: "章节", ChapNone: "这个条目没有章节",
+	QKey: "队列", QLabel: "待播队列", QPlayNow: "立刻播", QRmKey: "移出", QMvKey: "上移/下移", QClearKey: "清空",
+	QOne: "队列里只有正在播放的这一首", QElsewhere: "先回结果列表再看队列",
+	QPlayingRow: "正在播的这首不能移出，用 s 停、用 > 跳过", QRemoved: "已移出队列",
+	QCleared: "已清空待播", QStale: "队列已经变了，重新读一次",
+	PrefAct: "配置", PrefPinned: "由环境变量固定，没有写入配置文件",
+	PrefFailed: "配置文件写不了，这次改的偏好没有存下来",
 }
 
 // DetectLang resolves TING_LANG: en|zh wins, else a zh* locale picks Chinese, else English.

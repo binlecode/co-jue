@@ -229,3 +229,59 @@ func TestSortCycles(t *testing.T) {
 		t.Errorf("the title line does not name the new sort: %q", strings.SplitN(m.View(), "\n", 2)[0])
 	}
 }
+
+func typeLine(m *Model, s string) {
+	for _, r := range s {
+		key(m, string(r))
+	}
+	key(m, "enter")
+}
+
+// a stores the focused row, b opens the store's list by its number, d removes a row and z
+// puts it back — each checked against the store itself, not the screen.
+func TestPlaylistRoundTrip(t *testing.T) {
+	m := model(t, Options{Query: "lofi hip hop", Search: verb.SearchOpts{N: 5}, Batch: 5})
+	start(t, m)
+	stored := func() int {
+		l, err := m.suite.PlaylistShow(context.Background(), "t")
+		if err != nil {
+			return -1
+		}
+		return l.Count
+	}
+	first := m.rows[0].URL
+	key(m, "a")
+	if !m.prompting || m.askKind != askNew {
+		t.Fatalf("a on an empty store did not ask for a name (kind %v)", m.askKind)
+	}
+	typeLine(m, "t")
+	key(m, "j")
+	key(m, "a")
+	if m.askKind != askAdd || len(m.pick) != 1 {
+		t.Fatalf("a with one playlist did not offer it (kind %v, %d listed)", m.askKind, len(m.pick))
+	}
+	typeLine(m, "1")
+	if n := stored(); n != 2 {
+		t.Fatalf("the store holds %d rows after two a's, want 2", n)
+	}
+	key(m, "b")
+	typeLine(m, "1")
+	if m.src != srcPlaylist || len(m.rows) != 2 {
+		t.Fatalf("b 1 left source %v with %d rows", m.src, len(m.rows))
+	}
+	key(m, "d")
+	if n := stored(); n != 1 || m.rows[0].URL == first {
+		t.Fatalf("d on the first row left %d stored, first on screen %q", n, m.rows[0].URL)
+	}
+	if !m.undoActive() {
+		t.Fatal("d opened no undo offer")
+	}
+	key(m, "z")
+	if n := stored(); n != 2 || m.rows[0].URL != first {
+		t.Fatalf("z left %d stored, first on screen %q, want 2 and %q", n, m.rows[0].URL, first)
+	}
+	key(m, "b")
+	if m.src != srcSearch || len(m.rows) != 5 {
+		t.Errorf("b did not return to the 5 results (source %v, %d rows)", m.src, len(m.rows))
+	}
+}

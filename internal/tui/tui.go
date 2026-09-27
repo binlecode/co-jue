@@ -83,21 +83,40 @@ type Model struct {
 	p     palette
 	w     width
 
-	// The rows. all is what the search returned; rows is what is on screen (all, or the
+	// The rows. all is what the source returned; rows is what is on screen (all, or the
 	// live filter's matches of it).
-	all    []row
-	rows   []row
-	query  string
-	cursor int
-	top    int // scroll mode's window top; page mode derives its page from the cursor
-	psize  int // the last frame's page size
-	jump   string
+	src        source
+	label      string // a stored source's name for itself, on the title line
+	plName     string // the playlist on screen, as the store spells it
+	total      int    // a parts or chapters list's length, for "part k/total"
+	totalFmt   string // a parts list's summed length, when every part has one
+	stash      stash
+	info       *info
+	chapFollow int
+	all        []row
+	rows       []row
+	query      string
+	cursor     int
+	top        int // scroll mode's window top; page mode derives its page from the cursor
+	psize      int // the last frame's page size
+	jump       string
 
 	filterOn bool
 	filter   string
 
 	prompting bool
+	askKind   askKind
+	askLabel  string
+	askHead   string
+	pick      []verb.Playlist
+	payload   verb.QueueItem
 	input     textinput.Model
+
+	undoStore string // playlist | queue: the store holding this session's copy
+	undoEnd   time.Time
+	undoHead  string
+	undoLabel string
+	undoStop  bool // a stop the write implied, held until the offer closes
 
 	searchGen int
 	busy      string // the fetch in flight, as a line the frame carries until it lands
@@ -129,6 +148,8 @@ type Model struct {
 	volInFlight bool
 	volQueued   bool
 
+	q *[2]int // the queue's (pos, len)
+
 	spin    int
 	ticking bool
 
@@ -157,9 +178,9 @@ func New(ctx context.Context, suite *verb.Suite, opt Options) *Model {
 		m.opt.Search.N = 20
 	}
 	m.query = opt.Query
+	m.chapFollow = -1
 	if m.query == "" {
-		m.prompting = true
-		m.input.Focus()
+		m.ask(askSearch, "", "", nil)
 	}
 	return m
 }
@@ -233,6 +254,12 @@ type volDoneMsg struct{ err error }
 
 // noticeMsg is a verb that succeeded and has something to say about it.
 type noticeMsg struct{ label, text string }
+
+// armMsg is a write that succeeded off the update loop and may carry an undo offer.
+type armMsg struct {
+	store, head, label string
+	w                  *verb.Written
+}
 
 type tickMsg struct{}
 
@@ -360,16 +387,21 @@ func (m *Model) ensureTick() tea.Cmd {
 }
 
 func (m *Model) moving() bool {
-	return m.playerID != "" && (m.loading || m.starting || m.playing()) || m.starting || m.busy != ""
+	return m.playerID != "" && (m.loading || m.playing()) || m.starting || m.busy != "" || !m.undoEnd.IsZero()
 }
 
 // ── update ──────────────────────────────────────────────────────────────────────────────
 
 func (m *Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{m.authCmd()}
-	if m.prompting {
+	switch {
+	case m.prompting:
 		cmds = append(cmds, textinput.Blink)
-	} else {
+	case urlTarget(m.query) != "":
+		u := urlTarget(m.query)
+		m.query, m.all, m.rows = u, []row{}, []row{}
+		cmds = append(cmds, m.loadURL(u))
+	default:
 		cmds = append(cmds, m.fetch(fetchNew, m.query, m.opt.Engine, m.opt.Search,
 			m.s.Searching+` "`+m.query+`"`+m.g.Ell))
 	}
@@ -456,6 +488,26 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.notice(msg.label, msg.text)
 		return m, nil
 
+	case armMsg:
+		m.noteQueue(msg.w)
+		m.arm(msg.store, msg.w, msg.head, msg.label)
+		return m, m.ensureTick()
+
+	case partsMsg:
+		m.pending, m.busy = nil, ""
+		m.partsDone(msg)
+		return m, nil
+
+	case infoMsg:
+		m.pending, m.busy = nil, ""
+		m.infoDone(msg)
+		return m, nil
+
+	case urlMsg:
+		m.pending, m.busy = nil, ""
+		m.urlDone(msg)
+		return m, nil
+
 	case volDoneMsg:
 		m.volInFlight = false
 		if m.volQueued && m.volTarget != nil && m.playerID != "" {
@@ -466,6 +518,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		m.spin++
+		if !m.undoEnd.IsZero() && !m.undoActive() {
+			m.undoForget()
+		}
+		m.followChapter()
 		if m.moving() {
 			return m, tick()
 		}
@@ -587,6 +643,9 @@ func (m *Model) watchEvent(msg watchEventMsg) tea.Cmd {
 	if ev.CPU != nil {
 		m.cpu, m.mem = ev.CPU, ev.Mem
 	}
+	if ev.Queue != nil {
+		m.q = &[2]int{ev.Queue.Pos, ev.Queue.Len}
+	}
 	if ev.URL != "" && ev.URL != m.playURL {
 		// A queue moved on: the banner follows the player, not the row that started it.
 		m.playURL, m.startedAt, m.live = ev.URL, time.Now(), false
@@ -609,10 +668,30 @@ func (m *Model) watchEvent(msg watchEventMsg) tea.Cmd {
 	return tea.Batch(nextEvent(msg.gen, m.watcher), m.ensureTick())
 }
 
+// stopNow stops the player on the banner in line: the stops a store write implied, which
+// must not be lost to a closing session. A player that already ended (4) is stopped.
+func (m *Model) stopNow() {
+	if m.playerID == "" {
+		return
+	}
+	err := m.suite.Stop(m.ctx, m.playerID)
+	var ve *verb.Error
+	if err != nil && !(errors.As(err, &ve) && ve.Kind() == verb.NotEffective) {
+		m.notice(m.s.AdoptAct+":", "the player could not be stopped and is still playing — stop it with: ting-play --stop --id "+m.playerID)
+		return
+	}
+	if m.watcher != nil {
+		m.watcher.Close()
+		m.watcher = nil
+	}
+	m.watchGen++
+	m.clearPlayer()
+}
+
 func (m *Model) clearPlayer() {
 	m.playerID, m.owned, m.last = "", false, nil
 	m.loading, m.live, m.playTitle, m.playURL, m.playEngine = false, false, "", "", ""
-	m.cpu, m.mem, m.volTarget, m.volQueued = nil, nil, nil, false
+	m.cpu, m.mem, m.volTarget, m.volQueued, m.q = nil, nil, nil, false, nil
 }
 
 func (m *Model) playing() bool {

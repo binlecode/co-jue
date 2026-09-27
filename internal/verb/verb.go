@@ -267,6 +267,7 @@ func (o PlayOpts) argv() []string {
 	if o.Loop != "" {
 		a = append(a, "--loop", o.Loop)
 	}
+
 	return a
 }
 
@@ -313,18 +314,15 @@ func (s *Suite) PlayQueue(ctx context.Context, items []QueueItem, o PlayOpts) (*
 	return &st, nil
 }
 
-// Enqueue appends items to a running player's queue. owner is this process's PID, which
-// keeps a copy --undo can put back.
-func (s *Suite) Enqueue(ctx context.Context, id string, items []QueueItem, owner int) error {
+// Enqueue appends items to a running player's queue. pid is this process's, which keeps a
+// copy --undo can put back.
+func (s *Suite) Enqueue(ctx context.Context, id string, items []QueueItem, pid int) (*Written, error) {
 	in, err := json.Marshal(items)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	argv := []string{s.TPlay, "--enqueue", "-", "--id", id, "-j"}
-	if owner > 0 {
-		argv = append(argv, "--owner", fmt.Sprint(owner))
-	}
-	return runIn(ctx, argv, in, nil)
+	var w Written
+	return &w, runIn(ctx, owner([]string{s.TPlay, "--enqueue", "-", "--id", id, "-j"}, pid), in, &w)
 }
 
 // Next skips to the next queued track; NotEffective when there is none.

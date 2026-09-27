@@ -323,6 +323,7 @@ func main() {
 	})
 	_, runErr := tea.NewProgram(m, tea.WithAltScreen()).Run()
 	m.Close()
+	m.Discard()
 	cancel()
 	if id := m.SessionPlayer(); id != "" {
 		sctx, scancel := context.WithTimeout(context.Background(), 10*time.Second)
