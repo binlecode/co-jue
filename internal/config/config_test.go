@@ -118,3 +118,49 @@ func TestRealShippedConfig(t *testing.T) {
 		}
 	}
 }
+
+func TestRewriteKeepsTheFile(t *testing.T) {
+	in := "# mine\nTING_THEME = nord   # the palette\nTING_KEYS=core\nTING_THEME=second\n\nTING_OTHER=x\n"
+	got := Rewrite(in, true, []Pref{{"TING_THEME", "dracula"}, {"TING_LANG", "zh"}, {"TING_KEYS", "bad#value"}})
+	want := "# mine\nTING_THEME = dracula   # the palette\nTING_KEYS=core\nTING_THEME=second\n\nTING_OTHER=x\nTING_LANG=zh\n"
+	if got != want {
+		t.Errorf("Rewrite =\n%s\nwant\n%s", got, want)
+	}
+	if got := Rewrite("", false, []Pref{{"TING_LANG", "en"}}); got != header+"TING_LANG=en\n" {
+		t.Errorf("a new file = %q", got)
+	}
+}
+
+// WriteBack follows a symlink to the file it names, keeps that file's mode, and leaves a key
+// the environment pinned alone.
+func TestWriteBack(t *testing.T) {
+	dir := t.TempDir()
+	shipped := filepath.Join(dir, "config")
+	real := filepath.Join(dir, "real")
+	link := filepath.Join(dir, "link")
+	write(t, shipped, "TING_THEME=minimal\n")
+	write(t, real, "TING_THEME=nord\n")
+	if err := os.Chmod(real, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load([]string{"HOME=" + dir, "TING_CONFIG=" + link, "TING_LANG=zh"}, shipped)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.WriteBack([]Pref{{"TING_THEME", "dracula"}, {"TING_LANG", "en"}}); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(real)
+	if string(b) != "TING_THEME=dracula\n" {
+		t.Errorf("the linked file holds %q", b)
+	}
+	if st, _ := os.Lstat(link); st.Mode()&os.ModeSymlink == 0 {
+		t.Error("the symlink was replaced by a file")
+	}
+	if st, _ := os.Stat(real); st.Mode().Perm() != 0o600 {
+		t.Errorf("mode %v, want 0600", st.Mode().Perm())
+	}
+}

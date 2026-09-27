@@ -285,3 +285,30 @@ func TestPlaylistRoundTrip(t *testing.T) {
 		t.Errorf("b did not return to the 5 results (source %v, %d rows)", m.src, len(m.rows))
 	}
 }
+
+// A real row's thumbnail decodes and fits the box — for every engine, since they serve
+// different formats (YouTube's .jpg arrives as webp).
+func TestCoverFitsTheBox(t *testing.T) {
+	m := model(t, Options{Query: "piano", Search: verb.SearchOpts{N: 3}, Batch: 3})
+	for _, e := range m.opt.Engines {
+		res, err := m.suite.Search(context.Background(), e.Name, "piano", verb.SearchOpts{N: 3})
+		if err != nil || len(res.Results) == 0 || res.Results[0].Thumbnail == "" {
+			t.Errorf("%s: no row with a thumbnail (%v)", e.Name, err)
+			continue
+		}
+		b, err := fetchCover(context.Background(), res.Results[0].Thumbnail)
+		if err != nil {
+			// The CDN, not this code: measured stalling curl and Go alike.
+			t.Logf("%s: not checked, the download failed: %v", e.Name, err)
+			continue
+		}
+		img, err := fitCover(b, 16, 36)
+		if err != nil {
+			t.Errorf("%s: %s did not decode: %v", e.Name, res.Results[0].Thumbnail, err)
+			continue
+		}
+		if img.cols < 1 || img.cols > coverCols {
+			t.Errorf("%s: the cover takes %d columns, the box is %d", e.Name, img.cols, coverCols)
+		}
+	}
+}

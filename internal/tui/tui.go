@@ -6,9 +6,11 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/binlecode/ting/internal/config"
 	"github.com/binlecode/ting/internal/verb"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -29,6 +31,11 @@ type Options struct {
 	RowIndex  bool
 	Resource  bool
 	Colors    bool
+	Theme     string
+	BG        Background
+	TrueColor bool
+	Pinned    func(key string) bool // set by the environment: never written back
+	Cover     Cover
 	Lang      string
 	ASCII     bool
 	AmbigWide bool
@@ -150,6 +157,11 @@ type Model struct {
 
 	q *[2]int // the queue's (pos, len)
 
+	cover coverState
+
+	dirty map[string]bool // preferences a key changed, written back on the way out
+	said  map[string]bool // pinned keys already told about
+
 	spin    int
 	ticking bool
 
@@ -169,7 +181,7 @@ func New(ctx context.Context, suite *verb.Suite, opt Options) *Model {
 	ti := textinput.New()
 	ti.CharLimit = 400
 	ti.Prompt = ""
-	m := &Model{suite: suite, opt: opt, ctx: ctx, s: s, g: g, p: paletteFor(opt.Colors),
+	m := &Model{suite: suite, opt: opt, ctx: ctx, s: s, g: g, p: paletteFor(opt.Colors, opt.Theme, opt.BG, opt.TrueColor),
 		w: newWidth(opt.AmbigWide), input: ti, width: 80, height: 24}
 	if m.opt.Batch <= 0 {
 		m.opt.Batch = 20
@@ -179,6 +191,12 @@ func New(ctx context.Context, suite *verb.Suite, opt Options) *Model {
 	}
 	m.query = opt.Query
 	m.chapFollow = -1
+	m.dirty, m.said = map[string]bool{}, map[string]bool{}
+	m.cover = coverState{on: opt.Cover.On, cw: opt.Cover.CW, ch: opt.Cover.CH,
+		done: map[string]*coverImg{}, failed: map[string]bool{}}
+	if m.opt.Pinned == nil {
+		m.opt.Pinned = func(string) bool { return false }
+	}
 	if m.query == "" {
 		m.ask(askSearch, "", "", nil)
 	}
@@ -387,7 +405,8 @@ func (m *Model) ensureTick() tea.Cmd {
 }
 
 func (m *Model) moving() bool {
-	return m.playerID != "" && (m.loading || m.playing()) || m.starting || m.busy != "" || !m.undoEnd.IsZero()
+	return m.playerID != "" && (m.loading || m.playing()) || m.starting || m.busy != "" ||
+		!m.undoEnd.IsZero() || m.cover.inFlight != ""
 }
 
 // ── update ──────────────────────────────────────────────────────────────────────────────
@@ -430,7 +449,39 @@ func (m *Model) Init() tea.Cmd {
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	_, cmd := m.update(msg)
+	return m, tea.Batch(cmd, m.coverCmd())
+}
+
+// coverCmd starts the focused row's cover when the frame would draw one and it is neither
+// here, nor failed, nor already on its way — off the key loop, which is correctness: a
+// five-second download in line is a keyboard that does not answer for five seconds.
+func (m *Model) coverCmd() tea.Cmd {
+	c := &m.cover
+	if !c.on || c.inFlight != "" || m.prompting && m.all == nil || len(m.rows) == 0 {
+		return nil
+	}
+	if !m.layout().coverGate {
+		return nil
+	}
+	u := m.rows[m.cursor].Thumb
+	if u == "" || c.done[u] != nil || c.failed[u] {
+		return nil
+	}
+	return tea.Batch(c.fetch(m.ctx, u), m.ensureTick())
+}
+
+func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case coverMsg:
+		m.cover.inFlight = ""
+		if msg.img != nil {
+			m.cover.done[msg.url] = msg.img
+		} else {
+			m.cover.failed[msg.url] = true
+		}
+		return m, nil
+
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		return m, nil
@@ -582,6 +633,7 @@ func (m *Model) searchDone(msg searchDoneMsg) tea.Cmd {
 		cur := m.cursor
 		m.all, m.rows = rows, rows
 		m.opt.Search.N = req.opts.N
+		m.mark("TING_SEARCH_RESULTS")
 		m.cursor = cur
 		if grew {
 			m.stepOntoNew(cur)
@@ -591,8 +643,10 @@ func (m *Model) searchDone(msg searchDoneMsg) tea.Cmd {
 		m.opt.Engine = req.engine
 		m.auth = ""
 		cmd = m.authCmd()
+		m.mark("TING_DEFAULT_ENGINE")
 	case fetchSort:
 		m.opt.Search.Sort = req.opts.Sort
+		m.mark("TING_SORT_FIELD")
 	case fetchNew:
 		m.query = req.query
 	}
@@ -667,6 +721,43 @@ func (m *Model) watchEvent(msg watchEventMsg) tea.Cmd {
 	}
 	return tea.Batch(nextEvent(msg.gen, m.watcher), m.ensureTick())
 }
+
+// mark records that a key changed a preference. One the environment pins is never written
+// back, and says so once.
+func (m *Model) mark(key string) {
+	if m.opt.Pinned(key) {
+		if !m.said[key] {
+			m.said[key] = true
+			m.notice(m.s.PrefAct+":", key+" "+m.s.PrefPinned)
+		}
+		return
+	}
+	m.dirty[key] = true
+}
+
+// Prefs is every preference a key changed this session, with its value now.
+func (m *Model) Prefs() []config.Pref {
+	val := map[string]string{
+		"TING_DEFAULT_ENGINE": m.engine().Name, "TING_THEME": m.opt.Theme,
+		"TING_PLAY_MODE": m.opt.Play.Mode, "TING_PLAY_QUALITY": m.opt.Play.Quality,
+		"TING_SORT_FIELD": m.opt.Search.Sort, "TING_LANG": m.opt.Lang,
+		"TING_SEARCH_RESULTS": strconv.Itoa(m.opt.Search.N), "TING_KEYS": m.opt.Keys,
+		"TING_ROW_INDEX": map[bool]string{true: "on", false: "off"}[m.opt.RowIndex],
+		"TING_LIST_MODE": m.opt.ListMode, "TING_LOOP_MODE": m.opt.Loop,
+	}
+	var out []config.Pref
+	for _, k := range prefKeys {
+		if m.dirty[k] {
+			out = append(out, config.Pref{Key: k, Val: val[k]})
+		}
+	}
+	return out
+}
+
+// prefKeys is the eleven the keys change, in the order a new file lists them.
+var prefKeys = []string{"TING_DEFAULT_ENGINE", "TING_THEME", "TING_PLAY_MODE", "TING_PLAY_QUALITY",
+	"TING_SORT_FIELD", "TING_LANG", "TING_SEARCH_RESULTS", "TING_KEYS", "TING_ROW_INDEX",
+	"TING_LIST_MODE", "TING_LOOP_MODE"}
 
 // stopNow stops the player on the banner in line: the stops a store write implied, which
 // must not be lost to a closing session. A player that already ended (4) is stopped.

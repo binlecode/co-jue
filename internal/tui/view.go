@@ -39,6 +39,7 @@ type frame struct {
 	filterHint             bool
 	caretH                 int
 	details                []string
+	coverGate              bool // this frame draws a cover column (its rows charged either way)
 	psize, start, end      int
 }
 
@@ -61,7 +62,7 @@ func (m *Model) statusItems() []string {
 		if len(m.all) > 0 {
 			eng = engines(m.all)
 		}
-		it = []string{eng, strconv.Itoa(len(m.rows)) + " " + m.s.UResults, sort}
+		it = []string{m.pillText(eng), strconv.Itoa(len(m.rows)) + " " + m.s.UResults, sort}
 		switch m.auth {
 		case "":
 		case "anon":
@@ -81,7 +82,7 @@ func (m *Model) statusItems() []string {
 		case srcParts:
 			unit = m.s.PartsKey
 		}
-		it = []string{engines(m.all), strconv.Itoa(len(m.rows)) + " " + unit}
+		it = []string{m.pillText(engines(m.all)), strconv.Itoa(len(m.rows)) + " " + unit}
 		if m.src == srcParts && m.totalFmt != "" {
 			it = append(it, m.s.Total+" "+m.totalFmt)
 		}
@@ -122,6 +123,28 @@ func (m *Model) statusItems() []string {
 
 // queue is the running player's queue (pos, len), from whichever said it last: an event or
 // the envelope of the verb that changed it.
+// pillText is the engine field as measured: a name on a ground carries a cell of padding
+// on each side.
+func (m *Model) pillText(name string) string {
+	if o, _ := m.p.pill(name); o != "" {
+		return " " + name + " "
+	}
+	return name
+}
+
+// statusLine renders the status items, the first (the engine) on its pill.
+func (m *Model) statusLine(items []string) string {
+	sep := " " + m.g.Sep + " "
+	out := make([]string, len(items))
+	copy(out, items)
+	if len(out) > 0 {
+		if o, c := m.p.pill(strings.TrimSpace(out[0])); o != "" {
+			out[0] = o + out[0] + c + m.p.Dim
+		}
+	}
+	return m.p.Dim + strings.Join(out, sep) + m.p.Reset
+}
+
 func (m *Model) queue() *[2]int {
 	if m.playerID == "" {
 		return nil
@@ -326,9 +349,24 @@ func (m *Model) layout() frame {
 	}
 	m.clampCursor()
 	if len(m.rows) > 0 {
-		d := m.detailLines(f.cols, m.cursor)
+		// The gate asks how many rows the list keeps and how many columns the text keeps,
+		// not how big the terminal is. With it open the block is the box's height whether or
+		// not this row has a cover, so moving across rows never reflows the list.
+		dw := f.cols
+		if m.cover.on && f.rightEdge-coverCols-1 >= coverMinText &&
+			lines-f.chromeH-foot()-layoutCursorRow-coverRows >= coverMinRows {
+			f.coverGate, dw = true, f.rightEdge-coverCols-1
+		}
+		d := m.detailLines(dw, m.cursor)
+		if f.coverGate {
+			for len(d) < coverRows {
+				d = append(d, "")
+			}
+		}
 		if lines-f.chromeH-foot()-layoutCursorRow-len(d) >= layoutDetailKeep {
 			f.details = d
+		} else {
+			f.coverGate = false
 		}
 	}
 	avail := lines - f.chromeH - foot() - len(f.details) - layoutCursorRow
@@ -492,17 +530,27 @@ func (m *Model) View() string {
 		label = m.label
 	}
 	q := m.w.trunc("'"+label+"'", qRoom, g.Ell)
-	head := p.Bold + p.Accent + lead + p.Reset + "  " + m.src.field() + "=" + q
+	shown := lead
+	if m.opt.Lang == "zh" && p.on && !m.opt.ASCII && m.playing() {
+		// The zh wordmark lights while sound is coming out: its character on the playing
+		// row's ground.
+		shown = strings.Replace(lead, "【 听 】", "【"+p.RowEnd+p.Bold+p.Accent+p.RowHL+" 听 "+p.RowEnd+p.Bold+p.Accent+"】", 1)
+	}
+	head := p.Bold + p.Accent + shown + p.Reset + "  " + m.src.field() + "=" + q
 	if f.statusInline {
 		gap := f.rightEdge - m.w.of(m.headLead()+q) - m.w.of(stPlain)
 		if gap < 1 {
 			gap = 1
 		}
-		head += strings.Repeat(" ", gap) + p.Dim + stPlain + p.Reset
+		head += strings.Repeat(" ", gap) + m.statusLine(f.status)
 	}
 	line(head)
-	for _, l := range f.statusLines {
-		line(p.Dim + strings.Join(l, " "+g.Sep+" ") + p.Reset)
+	for i, l := range f.statusLines {
+		if i == 0 {
+			line(m.statusLine(l))
+		} else {
+			line(p.Dim + strings.Join(l, " "+g.Sep+" ") + p.Reset)
+		}
 	}
 
 	// The notice line: a notice until the next key, else the fetch in flight. While an undo
@@ -531,11 +579,26 @@ func (m *Model) View() string {
 	line("")
 
 	m.renderRows(&b, f)
+	// The cover rides the line after the rows: a put when this frame draws one, else a
+	// delete. The renderer rewrites a line only when it changed, so each is sent exactly when
+	// the cover changes — and a delete is needed, because erasing text never erases an image.
+	img := m.coverEscape(f)
 	if f.rowGap > 0 {
-		line("")
+		line(img)
+		img = ""
 	}
-	for _, d := range f.details {
-		line("  " + p.Dim + d + p.Reset)
+	for i, d := range f.details {
+		l := img + "  " + p.Dim + d + p.Reset
+		img = ""
+		if f.coverGate && i == coverRows/2 && m.coverLoading() {
+			t := g.Spin[m.spin%len(g.Spin)] + " loading pic..."
+			pad := f.rightEdge - coverCols + 1 + (coverCols-m.w.of(t))/2 - 2 - m.w.of(d)
+			l += strings.Repeat(" ", max(1, pad)) + p.Dim + t + p.Reset
+		}
+		line(l)
+	}
+	if img != "" {
+		line(img)
 	}
 	if f.navOK {
 		if f.hintGap > 0 {
@@ -811,4 +874,35 @@ func (m *Model) renderPick(b *strings.Builder) {
 	for i, pl := range m.pick {
 		b.WriteString(fmt.Sprintf("  %*d. %s  %s\n", numW, i+1, m.w.pad(m.w.trunc(pl.Name, nameW, m.g.Ell), nameW), metas[i]))
 	}
+}
+
+// coverEscape is this frame's cover bytes: the focused row's image, placed flush with the
+// right edge at the first details row (the cursor jumps there and back), or a delete.
+func (m *Model) coverEscape(f frame) string {
+	if !m.cover.on {
+		return ""
+	}
+	if f.coverGate && len(m.rows) > 0 {
+		if img := m.cover.done[m.rows[m.cursor].Thumb]; img != nil {
+			col := max(1, f.rightEdge-img.cols+1)
+			down := ""
+			if f.rowGap > 0 {
+				down = "\x1b[1B"
+			}
+			up := ""
+			if down != "" {
+				up = "\x1b[1A"
+			}
+			return kittyDel(false) + down + fmt.Sprintf("\x1b[%dG", col) + kittyPut(img.b64) + up + "\x1b[1G"
+		}
+	}
+	return kittyDel(false)
+}
+
+func (m *Model) coverLoading() bool {
+	if len(m.rows) == 0 {
+		return false
+	}
+	u := m.rows[m.cursor].Thumb
+	return u != "" && m.cover.done[u] == nil && !m.cover.failed[u]
 }

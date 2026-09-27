@@ -292,11 +292,21 @@ func main() {
 		die(1, "TING_LANG must be en or zh (got '%s')", cfg.Value("TING_LANG"))
 	}
 
+	image := cfg.Value("TING_IMAGE")
+	if image == "" {
+		image = "auto"
+	}
+	if !oneOf(image, "auto", "on", "off") {
+		die(1, "TING_IMAGE must be one of: auto, on, off (got '%s')", image)
+	}
 	colors := color == "always" || color == "auto" && os.Getenv("NO_COLOR") == ""
 	if !term.IsTerminal(os.Stdin.Fd()) || !term.IsTerminal(os.Stdout.Fd()) {
 		die(1, "requires a terminal (interactive menu); use 'ting-play --search' / ting-play headless")
 	}
 
+	bg := tui.DetectBackground(cfg.Value("TING_BG"))
+	cover := tui.DetectCover(image)
+	ct := os.Getenv("COLORTERM")
 	players, err := suite.Status(ctx)
 	if err != nil {
 		players = nil
@@ -316,6 +326,11 @@ func main() {
 		RowIndex:  rowIndex,
 		Resource:  resource == "1",
 		Colors:    colors,
+		Theme:     theme,
+		BG:        bg,
+		TrueColor: ct == "truecolor" || ct == "24bit",
+		Pinned:    cfg.Pinned,
+		Cover:     cover,
 		Lang:      lang,
 		ASCII:     tui.DetectASCII(cfg.Value("TING_ASCII"), os.Getenv),
 		AmbigWide: ambig,
@@ -323,7 +338,11 @@ func main() {
 	})
 	_, runErr := tea.NewProgram(m, tea.WithAltScreen()).Run()
 	m.Close()
+	tui.ClearCover(cover)
 	m.Discard()
+	if err := cfg.WriteBack(m.Prefs()); err != nil {
+		fmt.Println("Config: could not be written — this session's preferences were not saved")
+	}
 	cancel()
 	if id := m.SessionPlayer(); id != "" {
 		sctx, scancel := context.WithTimeout(context.Background(), 10*time.Second)

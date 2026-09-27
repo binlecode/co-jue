@@ -45,14 +45,17 @@ func (m *Model) updateList(k tea.KeyMsg) tea.Cmd {
 		return m.verbCmd("", "", func(ctx context.Context, id string) error { return m.suite.Seek(ctx, id, 10) })
 	case "?", "？":
 		m.opt.Keys = next([]string{"core", "full", "hidden"}, m.opt.Keys)
+		m.mark("TING_KEYS")
 		return nil
 	case "#", "＃":
 		m.opt.RowIndex = !m.opt.RowIndex
+		m.mark("TING_ROW_INDEX")
 		return nil
 	case "tab":
 		// The cursor is the anchor across the switch: page mode takes the page it falls in,
 		// scroll mode pulls its window to it on the next frame.
 		m.opt.ListMode = next([]string{"scroll", "page"}, m.opt.ListMode)
+		m.mark("TING_LIST_MODE")
 		return nil
 	}
 
@@ -95,13 +98,23 @@ func (m *Model) updateList(k tea.KeyMsg) tea.Cmd {
 		return m.cycleEngine()
 	case "v", "V":
 		m.opt.Play.Mode = next(modeCycle, m.opt.Play.Mode)
+		m.mark("TING_PLAY_MODE")
 	case "f", "F":
 		m.opt.Play.Quality = next(qualityCycle, m.opt.Play.Quality)
+		m.mark("TING_PLAY_QUALITY")
 	case "l", "L":
 		if m.opt.Lang == "zh" {
 			m.opt.Lang, m.s = "en", strsEN
 		} else {
 			m.opt.Lang, m.s = "zh", strsZH
+		}
+		m.mark("TING_LANG")
+	case "t", "T":
+		// No-op with colours off: --color never and NO_COLOR are not repainted mid-session.
+		if m.opt.Colors {
+			m.opt.Theme = next(themeCycle, m.opt.Theme)
+			m.p = paletteFor(true, m.opt.Theme, m.opt.BG, m.opt.TrueColor)
+			m.mark("TING_THEME")
 		}
 	case "+":
 		return m.enqueue()
@@ -228,6 +241,7 @@ func (m *Model) fewer() {
 		return
 	}
 	m.opt.Search.N = target
+	m.mark("TING_SEARCH_RESULTS")
 	if len(m.all) > target {
 		m.all = m.all[:target]
 	}
@@ -336,6 +350,7 @@ func (m *Model) adjustVolume(delta int) tea.Cmd {
 // running player at once; seq is how the next Enter builds its launch, so it says so.
 func (m *Model) cycleLoop() tea.Cmd {
 	m.opt.Loop = next(loopCycle, m.opt.Loop)
+	m.mark("TING_LOOP_MODE")
 	switch m.opt.Loop {
 	case "one":
 		m.notice(m.s.LoopAct+":", m.s.LoopOne)
