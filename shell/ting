@@ -469,8 +469,7 @@ refresh_engine_flags() {
 
 # Every probe, one name for the callers. Two functions because they ask two different verbs;
 # one caller-facing name because the two places that switch engines would otherwise each list
-# every probe — the shape that drifts the day a third one lands, the way F11/F12 did
-# (ARCHITECTURE.md).
+# every probe — and two copies of one list drift apart the day a third probe lands.
 refresh_engine_caps() {
     refresh_engine_auth
     refresh_engine_flags
@@ -492,9 +491,9 @@ With no query, prompts for one (interactive). Requires a terminal.
 
 Search options (forwarded to ting-play --search):
   -n NUM    Number of results to fetch (default: 20)
-  -m SEC    Minimum duration in seconds
-  -M SEC    Maximum duration in seconds
-  -s FIELD  Sort field: relevance | view_count | duration (default: relevance)
+  --min-duration SEC  Minimum duration in seconds
+  --max-duration SEC  Maximum duration in seconds
+  --sort FIELD        relevance | view_count | duration (default: TING_SORT_FIELD)
   --engine NAME  Which source to search. Defaults to TING_DEFAULT_ENGINE (the same variable
             ting-play reads), falling back to the first one installed. An engine is one
             ting-engine-<name> file, as 'ting-play --engines' lists them — nothing here lists
@@ -755,7 +754,7 @@ QUALITY_CYCLE=(auto medium high)
 # The r key.
 LOOP_CYCLE=(off seq one)
 # The -s default, one value shared with both search halves.
-SORT_FIELD="$TING_SORT_FIELD"  # -s flag overrides. Runtime-mutable: o rotates it (cycle_sort).
+SORT_FIELD="$TING_SORT_FIELD"  # --sort overrides. Runtime-mutable: o rotates it (cycle_sort).
 # WHICH THEME NAMES ARE LEGAL — one place. This used to be spelled five times (the cycle
 # validator's allowed list, the --theme gate's pattern, that gate's message, and usage()'s
 # two lists), and an eighth name meant editing five strings and forgetting one. The two
@@ -799,15 +798,20 @@ while (($#)); do
     -n)
         [[ $# -ge 2 ]] || die "$1 requires a value"
         RESULT_N="$2"; shift 2 ;;
-    -s)
+    # The same long names ting-play --search takes: one thing, one spelling, whichever
+    # entry point a caller reaches it through.
+    --sort)
         [[ $# -ge 2 ]] || die "$1 requires a value"
         SORT_FIELD="$2"; shift 2 ;;
-    -m)
+    --sort=*) SORT_FIELD="${1#*=}"; shift ;;
+    --min-duration)
         [[ $# -ge 2 ]] || die "$1 requires a value"
-        MIN_DISP="$2"; SEARCH_ARGS+=(--min-duration "$2"); shift 2 ;;
-    -M)
+        MIN_DISP="$2"; shift 2 ;;
+    --min-duration=*) MIN_DISP="${1#*=}"; shift ;;
+    --max-duration)
         [[ $# -ge 2 ]] || die "$1 requires a value"
-        MAX_DISP="$2"; SEARCH_ARGS+=(--max-duration "$2"); shift 2 ;;
+        MAX_DISP="$2"; shift 2 ;;
+    --max-duration=*) MAX_DISP="${1#*=}"; shift ;;
     -f)
         [[ $# -ge 2 ]] || die "$1 requires a value"
         PLAY_MODE="$2"; shift 2 ;;   # validated against the closed set below
@@ -830,7 +834,7 @@ while (($#)); do
         shift
         while (($#)); do query+=("$1"); shift; done
         break ;;
-    -*) die "unknown flag '$1' (ting flags: -n -m -M -s -f -p --color --theme --volume); run 'ting -h'" ;;
+    -*) die "unknown flag '$1' (ting flags: -n --min-duration --max-duration --sort -f -p --engine --color --theme --volume); run 'ting -h'" ;;
     *) query+=("$1"); shift ;;
     esac
 done
@@ -838,17 +842,19 @@ done
 is_uint "$PAGE_OPT" && ((PAGE_OPT > 0)) || die "-p must be a positive integer (TING_PAGE_ROWS)"
 is_uint "$RESULT_N" && ((RESULT_N > 0)) || die "-n must be a positive integer (TING_SEARCH_RESULTS)"
 
-# Duration bounds and volume are forwarded (-m/-M as ting-play --search's --min/--max-duration,
-# --volume to ting-play),
+# Duration bounds and volume are forwarded (the bounds to ting-play --search, --volume to
+# ting-play),
 # so the core would reject them anyway — but only at the first fetch or the first Enter, where
 # it reads as "search failed" / a play that silently does not start. Same three checks the core
 # makes (yt's is_non_negative_int), up front, in the core's own wording.
-is_uint "$MIN_DISP" || die "-m must be a non-negative integer"
-is_uint "$MAX_DISP" || die "-M must be a non-negative integer"
-((MAX_DISP == 0 || MAX_DISP > MIN_DISP)) || die "-M must be greater than -m when both are set"
+is_uint "$MIN_DISP" || die "--min-duration must be a non-negative integer"
+is_uint "$MAX_DISP" || die "--max-duration must be a non-negative integer"
+((MAX_DISP == 0 || MAX_DISP > MIN_DISP)) || die "--max-duration must be greater than --min-duration when both are set"
+if ((MIN_DISP > 0)); then SEARCH_ARGS+=(--min-duration "$MIN_DISP"); fi
+if ((MAX_DISP > 0)); then SEARCH_ARGS+=(--max-duration "$MAX_DISP"); fi
 # Validated against the CLOSED SET, not against SORT_CYCLE: the cycle is the order the o key
 # rotates through, not the set of fields the engines accept.
-case "$SORT_FIELD" in relevance | view_count | duration) ;; *) die "-s must be one of: relevance, view_count, duration" ;; esac
+case "$SORT_FIELD" in relevance | view_count | duration) ;; *) die "--sort must be one of: relevance, view_count, duration" ;; esac
 # A mistyped engine is caught HERE, against what is actually installed, rather than at the
 # first fetch as "search failed". The message lists what there is, because the answer to
 # "which sources do I have" is not written down anywhere else.
@@ -857,7 +863,7 @@ refresh_engine_caps
 # Playback is DETACHED here (ting-play -d), and a detached player has no terminal, so the
 # terminal-rendering modes (ascii/viz) cannot work — the core rejects them for -d. Validate
 # up front instead of letting an Enter fail silently. Same list the v key cycles.
-# The closed set, for the same reason as -s above.
+# The closed set, for the same reason as --sort above.
 case "$PLAY_MODE" in audio | video | fast) ;; *) die "-f must be one of: audio, video, fast (ascii/viz need a terminal, which detached playback has none of)" ;; esac
 case "$COLOR_MODE" in auto | always | never) ;; *) die "--color must be one of: auto, always, never" ;; esac
 theme_known "$THEME" || die "--theme must be one of: $THEME_NAMES_CSV"
@@ -5975,8 +5981,8 @@ have_store() {
 
 # What the store holds, fetched once per keypress into PL_LS_JSON. BOTH playlist keys need
 # it — `b` to pick a list to open, `a` to pick one to add to — and the ten lines that fetch
-# it (the errfile, the rc, the two-step message strip) are exactly the copy that drifted
-# apart in F11/F12, so there is one of them. -j, not the prose --ls: the picker needs the
+# it (the errfile, the rc, the two-step message strip) are exactly the kind of copy that
+# drifts apart, so there is one of them. -j, not the prose --ls: the picker needs the
 # names as DATA. The COUNT is left to the caller to judge, because the same number means
 # different things to the two keys: an empty store is a dead end for `b` and a perfectly
 # ordinary starting point for `a`.
@@ -6488,15 +6494,14 @@ open_playlist() {
 }
 
 # The two keys that RE-FETCH a query (o / e) cannot run against a playlist, which has
-# no query behind it. One guard, called by both: three copies of it drifted apart in
-# every earlier duplication this file has had (ARCHITECTURE.md's F11/F12), and the
-# no-shared-library trade that licenses copies BETWEEN the six commands does not license
+# no query behind it. One guard, called by both: copies of a guard drift apart, and the
+# no-shared-library trade that licenses copies BETWEEN the seven files does not license
 # them WITHIN one file.
 # The other half of search_only: rows that came from a STORE rather than from a search — a
 # playlist, or the listening log. Everywhere the difference between those two is not the
 # LABEL they are one case (same item record, same renderer, same one-item payload shape), and
 # one predicate is what stops that from becoming three copies of a two-way test that drift
-# apart the way F11/F12 did (ARCHITECTURE.md).
+# apart.
 # `parts` belongs here even though no store holds it: what this predicate actually asks is
 # "does `.items[]` read this envelope", and a part list's --items envelope is exactly that.
 # `chapters` is the same answer for the same reason — build_chapter_rows writes that envelope

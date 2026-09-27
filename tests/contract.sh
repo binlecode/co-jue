@@ -245,7 +245,7 @@ jqv() { printf '%s' "$2" | jq -e "$1" >/dev/null 2>&1; echo $?; }
 
 # jq_ok <jq-filter> <command...>  — run it, then filter what it printed. The output is
 # captured FIRST and never piped straight from the command: `set -o pipefail` makes a
-# pipeline carry the LEFT side's status, so `yt-resolve … | jq -e …` reports the command's
+# pipeline carry the LEFT side's status, so `ting-engine-yt --stream … | jq -e …` reports the command's
 # own exit as jq's verdict. Both error-path checks below went red against correct behaviour
 # that way.
 jq_ok() { local f=$1; shift; local o; o=$("$@" 2>/dev/null); jqv "$f" "$o"; }
@@ -861,27 +861,17 @@ echo "── the playlist store: durable state, one file, one lock ────�
 export TING_STATE_DIR
 TING_STATE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/ting-plstore.XXXXXX")
 PL=shell/ting-playlist
-ENV_JSON='{"status":"ok","engine":"yt","query":"q","count":2,"results":[{"id":"a1","title":"One","url":"https://www.youtube.com/watch?v=a1","channel":"c","duration":213,"duration_fmt":"00h:03m:33s","view_count":5,"live_status":"not_live"},{"id":"a2","title":"Two","url":"https://www.youtube.com/watch?v=a2","channel":"c","duration":null,"duration_fmt":null,"view_count":null,"live_status":"is_live"}]}'
+# Items as a caller writes them by hand — the array form --add documents alongside the search
+# envelope, so this is an INPUT the store really takes, not a stand-in for another command's
+# output. The search envelope itself is only ever fed from a real search (the live half).
+ITEMS_JSON='[{"engine":"yt","id":"a1","url":"https://www.youtube.com/watch?v=a1","title":"One","duration":213},{"engine":"yt","id":"a2","url":"https://www.youtube.com/watch?v=a2","title":"Two","duration":null}]'
 
 report "empty store: ok, exit 0"      0 "$(jq_ok '.status=="ok" and .count==0 and .playlists==[]' $PL --ls -j)"
-# ── ARCH-cli-contract.md「调用面」's first pipeline, RUN rather than printed:
-#     yt-search -j -n 20 -- "lofi hip hop" | ting-playlist --add chill
-# That block is the one place the suite documents commands COMPOSING, and until now nothing
-# executed a line of it: the storage side had checks, the pipeline did not, so a flag
-# misspelled there, an argument reordered, or a combination that stopped being legal would sit
-# in the doc being wrong. The direction is fixed — the CHECK is the authority and the doc is
-# its reader's view; when the two disagree, the doc moves.
-#
-# The left half is a real search, which this hermetic half may not make, so it is a FIXTURE:
-# a search envelope is DATA the real ting-playlist really reads, not something that RUNS in
-# place of yt-search (CLAUDE.md's testing rules). The right half is the doc's argv verbatim,
-# `-j` and all — prose mode, because that is what the documented line says, and the prose
-# writer is a different exit path from the -j one.
-printf '%s' "$ENV_JSON" | $PL --add chill >/dev/null 2>&1
-report "search envelope | --add: 0"    0 "$?"
-report "a search envelope tags engine" 0 "$(jq_ok '.count==2 and ([.items[].engine]|unique==["yt"])' $PL --show chill -j)"
-# An ITEM carries no engine — the envelope does. An engine tag that survived the store is
-# the only thing that makes a stored record a callable `ting-play --engine E -- URL`.
+# The search-envelope pipeline (ARCH-cli-contract.md「调用面」) runs in the live half, on a
+# real search. Here the store takes the item array; prose mode, the documented default.
+printf '%s' "$ITEMS_JSON" | $PL --add chill >/dev/null 2>&1
+report "an item array | --add: 0"      0 "$?"
+report "…each item keeps its engine"   0 "$(jq_ok '.count==2 and ([.items[].engine]|unique==["yt"])' $PL --show chill -j)"
 echo '[{"engine":"bili","id":"BV1","url":"https://www.bilibili.com/video/BV1","title":"三","duration":90}]' | $PL --add chill -j >/dev/null 2>&1
 report "an array keeps its own engine"  0 "$(jq_ok '[.items[].engine]|unique==["bili","yt"]' $PL --show chill -j)"
 report "--show is ONE line"             1 "$($PL --show chill -j | wc -l | tr -d ' ')"
@@ -897,7 +887,7 @@ report "--rm removes exactly one"       0 "$(jq_ok '.count==2' $PL --rm chill --
 report "--del missing: 0, deleted=false" 0 "$(jq_ok '.status=="ok" and .deleted==false' $PL --del ghost -j)"
 $PL --rename chill mellow -j >/dev/null 2>&1
 report "--rename moves the file"        0 "$(jq_ok '.playlists[0].name=="mellow" and .count==1' $PL --ls -j)"
-printf '%s' "$ENV_JSON" | $PL --add other -j >/dev/null 2>&1
+printf '%s' "$ITEMS_JSON" | $PL --add other -j >/dev/null 2>&1
 report "--rename onto a name: 4"        4 "$(rc $PL --rename other mellow)"
 report "…with reason exists"            0 "$(jq_ok '.reason=="exists"' $PL --rename other mellow -j)"
 # The store round trip: its own --show output is accepted by --add, which is what copying
@@ -917,8 +907,8 @@ report "a playlist envelope re-adds"    0 "$(jq_ok '.count==2' $PL --show copy -
 # this file starts none. The launch off a real --show envelope is proved in playback.sh.
 report "a real --show reaches the gate" 4 "$($PL --show mellow -j | shell/ting-play --enqueue - -j >/dev/null 2>&1; echo $?)"
 # An unreadable file on disk. Before this, jq's parse error escaped as exit 5 with no
-# envelope at all under -j — the failure yt-search was fixed for, reintroduced in a second
-# command. --show fails (the question was about that list); --ls still answers (the question
+# envelope at all under -j — the failure the search verb was fixed for, reintroduced in a
+# second command. --show fails (the question was about that list); --ls still answers (the question
 # was about the store, and one bad file must not hide the rest).
 printf '%s' '{ not json' > "$TING_STATE_DIR/playlists/wrecked.json"
 report "--show on a corrupt file: 4"    4 "$(rc $PL --show wrecked)"
@@ -987,9 +977,9 @@ UNDO_EXPIRY_OUT="$TING_STATE_DIR.expiry"
 UNDO_EXPIRY_DIR=$(mktemp -d "${TMPDIR:-/tmp}/ting-plundo.XXXXXX")
 (
     TING_STATE_DIR=$UNDO_EXPIRY_DIR
-    printf '%s' "$ENV_JSON" | $PL --add expiry >/dev/null 2>&1
+    printf '%s' "$ITEMS_JSON" | $PL --add expiry >/dev/null 2>&1
     $PL --rm expiry --index 0 --owner "$UNDO_HOLD" >/dev/null 2>&1
-    printf '%s' "$ENV_JSON" | $PL --add expiry >/dev/null 2>&1
+    printf '%s' "$ITEMS_JSON" | $PL --add expiry >/dev/null 2>&1
     s=$SECONDS; last=""; r=""
     while [ $((SECONDS - s)) -le 5 ]; do
         r=$($PL --undo --owner "$UNDO_HOLD" -j 2>/dev/null | jq -r '.reason // "ok"')
@@ -1000,7 +990,7 @@ UNDO_EXPIRY_DIR=$(mktemp -d "${TMPDIR:-/tmp}/ting-plundo.XXXXXX")
 ) &
 UNDO_EXPIRY_PID=$!
 
-printf '%s' "$ENV_JSON" | $PL --add u >/dev/null 2>&1
+printf '%s' "$ITEMS_JSON" | $PL --add u >/dev/null 2>&1
 echo '[{"engine":"bili","url":"https://www.bilibili.com/video/BV1","title":"三"}]' | $PL --add u >/dev/null 2>&1
 U0=$($PL --show u -j)
 report "--rm --owner: undo.deadline"   0 "$(jq_ok '.status=="ok" and .removed==1 and (.undo.deadline|type)=="number"' $PL --rm u --index 1 --owner $$ -j)"
@@ -1015,23 +1005,23 @@ $PL --rename u v --owner $$ -j >/dev/null 2>&1
 report "--rename undo names both"      0 "$(jq_ok '.undone=="rename" and .name=="u" and .from=="v"' $PL --undo --owner $$ -j)"
 report "…the old name is back"         0 "$([ "$($PL --show u -j)" = "$U0" ]; echo $?)"
 report "…the new name is gone"         4 "$(rc $PL --show v)"
-printf '%s' "$ENV_JSON" | $PL --add u --owner $$ -j >/dev/null 2>&1
+printf '%s' "$ITEMS_JSON" | $PL --add u --owner $$ -j >/dev/null 2>&1
 report "--add onto a list, undone"     0 "$($PL --undo --owner $$ >/dev/null 2>&1; [ "$($PL --show u -j)" = "$U0" ]; echo $?)"
-printf '%s' "$ENV_JSON" | $PL --add fresh --owner $$ -j >/dev/null 2>&1
+printf '%s' "$ITEMS_JSON" | $PL --add fresh --owner $$ -j >/dev/null 2>&1
 report "--add that made a list, undone" 4 "$($PL --undo --owner $$ >/dev/null 2>&1; rc $PL --show fresh)"
 # Without --owner nothing is kept, and the envelope is the one it always was.
 report "no --owner: no undo field"     0 "$(jq_ok 'has("undo")|not' $PL --rm u --index 0 -j)"
-report "…on --add either"              0 "$(jq_in 'has("undo")|not' "$ENV_JSON" $PL --add u -j)"
+report "…on --add either"              0 "$(jq_in 'has("undo")|not' "$ITEMS_JSON" $PL --add u -j)"
 report "…and nothing to undo"          0 "$(jq_ok '.reason=="undo_none"' $PL --undo --owner $$ -j)"
 # The store moved between the write and the undo: the undo refuses and changes nothing.
 $PL --rm u --index 0 --owner $$ -j >/dev/null 2>&1
-printf '%s' "$ENV_JSON" | $PL --add u -j >/dev/null 2>&1
+printf '%s' "$ITEMS_JSON" | $PL --add u -j >/dev/null 2>&1
 U1=$($PL --show u -j)
 report "changed since: 4"              4 "$(rc $PL --undo --owner $$ -j)"
 report "…reason undo_stale"            0 "$(jq_ok '.reason=="undo_stale"' $PL --undo --owner $$ -j)"
 report "…and the change is kept"       0 "$([ "$($PL --show u -j)" = "$U1" ]; echo $?)"
 $PL --del u --owner $$ -j >/dev/null 2>&1
-printf '%s' "$ENV_JSON" | $PL --add u -j >/dev/null 2>&1
+printf '%s' "$ITEMS_JSON" | $PL --add u -j >/dev/null 2>&1
 report "deleted then re-made: stale"   0 "$(jq_ok '.reason=="undo_stale"' $PL --undo --owner $$ -j)"
 # Removing the last item keeps an empty list, and the undo brings the item back into it.
 echo '[{"engine":"yt","url":"https://x/solo"}]' | $PL --add solo >/dev/null 2>&1
@@ -1208,7 +1198,7 @@ echo "── gates: verbs, engine names and the host allowlist (no network) ─"
 MEDIA_ID="jNQXAC9IVRw"
 BILI_ID="BV1mL411E7Fb"
 # A third handle, and it earns its own line because BILI_ID above is deliberately SINGLE-part
-# and --parts has nothing to say about a list of one. A long-lived public 100-part course; the
+# and its --items is a list of one. A long-lived public 100-part course; the
 # checks on it assert `>= 2` and never the count, because the site's own numbers change and a
 # regression on 100 would be a regression in Bilibili's catalogue, not in this engine.
 BILI_PARTS_ID="BV1vKEn6eE6Q"
@@ -1662,9 +1652,9 @@ report "--engines refuses --engine"    1 "$(rc shell/ting-play --engines --engin
 report "…a positional argument"        1 "$(rc shell/ting-play --engines -j -- yt)"
 report "…and a second verb"            1 "$(rc shell/ting-play --engines --status -j)"
 
-# One engine, one site. `yt-resolve` used to accept ANY http(s) URL and hand it to yt-dlp,
-# which supports 1700+ sites — so a Bilibili URL resolved fine and came back labelled
-# `engine:"yt"`. It WORKED, which is why it went unnoticed, and it made the one field whose
+# One engine, one site. An engine that handed ANY http(s) URL to yt-dlp, which supports
+# 1700+ sites, would resolve a Bilibili URL fine and label it `engine:"yt"`. It would WORK,
+# which is why it would go unnoticed, and it would make the one field whose
 # job is routing a result back to its resolver into a field that lies.
 #
 # Engine-DISCOVERED, not hardcoded: an engine is a `ting-engine-<name>` file, the convention
@@ -1702,7 +1692,7 @@ for n in $ENGINES; do
 done
 report "every search refuses --quality" "$NENG" "$_qdash"
 # --items' cross-engine obligations, stated over every discovered engine because the verb is
-# on all of them (unlike --parts and --transcript, which are capabilities of one site each):
+# on all of them (unlike --transcript, which some engines have and some do not):
 # a handle is required, exactly one is taken, and two verbs in one invocation is a caller who
 # has not said what it wants — refused rather than resolved by picking the last one
 # (ARCH-cli-contract.md「门模型」). Engine #4 is covered the day it lands.
@@ -2083,7 +2073,7 @@ report "ting-engine-yt still takes youtu.be" 1 \
 # THE CLAIM: NetEase publishes one song under four spellings a person really pastes — the
 # plain URL, the desktop app's single-page route (the id lives in a FRAGMENT there, invisible
 # to a query parser), the mobile share host, and the bare number — and all four must
-# canonicalise to the one string `ne-search` puts in results[].url. They must, because
+# canonicalise to the one string ne's --search puts in results[].url. They must, because
 # `ting-playlist --add` stores that string: two spellings of one track that do not collapse are
 # two rows in a playlist and two rows in the listening log.
 #
@@ -2362,17 +2352,17 @@ report "--info retries without it too" network "$(ck missing shell/ting-play --e
 report "--transcript retries on a cookie file it may not open" network \
     "$(ck denied shell/ting-play --engine yt --transcript -j -- "$YT_WATCH")"
 report "…and names the error and the file" 1 "$(ck_said 'no chrome cookies: Permission denied reading ')"
-# The probe, the diagnosis and the wrapper are COPIED into every engine that reads cookies
-# (site knowledge stays per engine), so each copy is driven, not only yt's: its own --info
-# and its own prefix on the sentence.
-for n in bili ne; do
-    case $n in
-    bili) CK_URL="https://www.bilibili.com/video/BV1mL411E7Fb" ;;
-    ne) CK_URL="https://music.163.com/song?id=1824020871" ;;
-    esac
-    report "$n --info retries without the store" network "$(ck missing $(verb_cmd "$n") --info -j -- "$CK_URL")"
-    report "…and ting-engine-$n says why" 1 "$(ck_said "^ting-engine-$n: no chrome cookies: ")"
-done
+# The probe and the diagnosis are COPIED into every engine that reads cookies (site knowledge
+# stays per engine), so each copy is driven, not only yt's, through a verb of its own that
+# runs yt-dlp: bili's --info, and ne's --stream — ne's --info reads the site's record and no
+# cookie store. --stream reports the cookie attempt's reason, not the anonymous retry's: that
+# is the attempt that describes what the caller asked for.
+report "bili --info retries without the store" network \
+    "$(ck missing $(verb_cmd bili) --info -j -- "https://www.bilibili.com/video/BV1mL411E7Fb")"
+report "…and ting-engine-bili says why" 1 "$(ck_said "^ting-engine-bili: no chrome cookies: ")"
+report "ne --stream names the store" cookies \
+    "$(ck missing shell/ting-engine-ne --stream -j -f audio -- "https://music.163.com/song?id=1824020871")"
+report "…and ting-engine-ne says why" 1 "$(ck_said "^ting-engine-ne: no chrome cookies: ")"
 # --auth: the decision was always `cookie` whenever the folder existed; the new field is
 # whether the store can be read, in both directions so an always-false field fails too —
 # over every engine that has --auth.
@@ -2456,7 +2446,7 @@ fi
 # block picks its handle out of a search) — that goes in the second wave, after this one.
 #
 # The suite's own runtime is not a claim: nothing below asserts on how long a fetch took
-# (see `bili --parts` for why that check went), so overlapping them cannot make anything pass
+# (see the bili parts check for why), so overlapping them cannot make anything pass
 # that would otherwise fail.
 LIVE="$TING_TEST_TMP/live"; mkdir -p "$LIVE"
 # `spawn_once <slot> <cmd…>` — the command's stdout, stderr and exit code, kept by name.
@@ -2493,7 +2483,6 @@ spawn() {
 out() { cat "$LIVE/$1.out" 2>/dev/null; }
 src() { cat "$LIVE/$1.rc" 2>/dev/null; }
 
-printf 'TING_SEARCH_RESULTS=4\n'   > "$TING_TEST_TMP/cfg-dflt"
 # The searches go first and are waited on BY PID, because one thing downstream needs an
 # answer out of them (the offset block's handle) and everything else does not. Waiting on the
 # whole batch to start that one would serialise the two slowest calls in the file behind each
@@ -2505,17 +2494,19 @@ for n in $ENGINES; do
 done
 for n in $ENGINES; do
     spawn "searchJ-$n"   shell/ting-engine-$n --search --raw -n 5  -- lofi
-    spawn "dflt-$n"      env TING_CONFIG="$TING_TEST_TMP/cfg-dflt" $(search_cmd "$n") -j -- lofi
+    spawn "dflt-$n"      env TING_SEARCH_RESULTS=4 $(search_cmd "$n") -j -- lofi
 done
-spawn yt-resolve   shell/ting-engine-yt --stream -j -- "$MEDIA_ID"
+spawn yt-stream    shell/ting-engine-yt --stream -j -- "$MEDIA_ID"
 spawn yt-info      shell/ting-play --engine yt --info -j -- "$MEDIA_ID"
 spawn yt-trans     shell/ting-play --engine yt --transcript -j -- "$CAPTIONED"
 spawn yt-transJ    shell/ting-play --engine yt --transcript --segments -j -- "$CAPTIONED"
 spawn yt-nocap     shell/ting-play --engine yt --transcript -j -- "$BARE"
 spawn yt-argv      shell/ting-play --engine yt --search -j -n 1 -- --status
 spawn yt-dead      shell/ting-play   -j -- AAAAAAAAAAA
-spawn bili-resolve shell/ting-engine-bili --stream -j -- "$BILI_ID"
+spawn yt-info-dead shell/ting-play --engine yt --info -j -- AAAAAAAAAAA
+spawn bili-stream  shell/ting-engine-bili --stream -j -- "$BILI_ID"
 spawn bili-info    shell/ting-play --engine bili --info -j -- "$BILI_ID"
+spawn ne-info      shell/ting-play --engine ne --info -j -- "$NE_LYRIC"
 spawn bili-zh      shell/ting-play --engine bili --search -j -n 20 --max-duration 600 -- 周杰伦
 spawn yt-zh        shell/ting-engine-yt --search --raw -n 15 -- 周杰伦
 spawn bili-offset  shell/ting-engine-bili --stream -j -- "https://www.bilibili.com/video/$BILI_PARTS_ID?p=2&t=601"
@@ -2584,28 +2575,41 @@ else
     echo "  skip  (needs tmux for a real tty)"
 fi
 
-echo "── the config file, on a real fetch ───────────────────────────────"
+echo "── the config chain, on a real fetch ──────────────────────────────"
 # THE CLAIM THAT ONLY A REAL FETCH CAN SETTLE. Everything about the config file in the
 # offline half is about parsing and refusal; this one is about the value actually reaching
 # the code that spends requests, and the observable is the row count in a real envelope.
+# Set through the environment, the chain's tier a caller really uses per call — not a
+# config file staged for the test.
 # Stated over EVERY discovered engine, because the key is cross-engine: a check driving one
 # of them would be green while another kept its own default.
 for n in $ENGINES; do
     # The shared default really is shared. No -n at all, so the count comes from
     # TING_SEARCH_RESULTS — the check that would have caught the drift the centralisation was
     # for: an engine still carrying its own inlined 25 answers with more than 4 here.
-    report "$n --search takes -n from the config" "true" \
+    report "$n --search takes -n from the chain" "true" \
         "$(out "dflt-$n" | jq -r '(.results | length) <= 4' 2>/dev/null)"
 done
 
 echo "── search envelope ────────────────────────────────────────────────"
 # ONE LIVE SEARCH PER ENGINE, for the whole live half: the envelope checks here, the
 # cross-engine parity check further down, the row-is-a-call invariant, and the offset block's
-# choice of handle all read the same two answers. They used to make their own calls — six
-# yt-search round trips a run, all of them the same query.
+# choice of handle all read the same two answers, rather than each making the same yt
+# search round trip again.
 YT_S=$(out search-yt)
 YT_SJ=$(out searchJ-yt)
-# `<=10`, not `==10`: `-n` says how many to FETCH and never how many come back — -m/-M have
+# ARCH-cli-contract.md「调用面」's first pipeline, RUN rather than printed, on the real search
+# above: `ting-play --search -j … | ting-playlist --add chill`. That block is the one place the
+# suite documents commands COMPOSING; a flag misspelled there, an argument reordered, or a
+# combination that stopped being legal would otherwise sit in the doc being wrong. A result
+# ROW carries no engine — the envelope does — and the tag surviving into the store is the only
+# thing that makes a stored record a callable `ting-play --engine E -- URL`.
+printf '%s' "$YT_S" | $PL --add live-chill >/dev/null 2>&1
+report "search envelope | --add: 0"    0 "$?"
+report "…every row stored, tagged yt"  0 \
+    "$(jqv '.[0] as $s | .[1] as $l | $l.count == ($s.results|length) and $l.count > 0
+            and ([$l.items[].engine]|unique == ["yt"])' "[$YT_S,$($PL --show live-chill -j)]")"
+# `<=10`, not `==10`: `-n` says how many to FETCH and never how many come back — the duration bounds have
 # always shortened it, and since the container gate the row count can drop by one on a query
 # whose page holds a channel (ARCH-engine.md「kind 与 access」). The -n-default claim is
 # the dflt- check above, which is where it belongs; asserting an exact count here
@@ -2625,15 +2629,15 @@ report "search --raw has raw id" 0 \
 report "search -j is one line" 1 "$(lines "$YT_S")"
 
 echo "── resolve envelope: the half that turns a handle into bytes ──────"
-YT_R=$(out yt-resolve)
+YT_R=$(out yt-stream)
 # Every key the PLAYER reads. A new engine that renames one, or omits http_headers, breaks
 # playback in a way no other check here would notice: the search half would still look fine.
 # http_headers is asserted PRESENT rather than non-empty — {} is a legal answer, absent is not.
-report "resolve -j envelope" 0 \
+report "--stream -j envelope" 0 \
     "$(jqv '.status=="ok" and .engine=="yt" and (.stream_urls|length)>0
               and has("http_headers") and (.http_headers|type)=="object"
               and has("title") and has("format") and has("retried")' "$YT_R")"
-report "resolve -j is one line" 1 "$(lines "$YT_R")"
+report "--stream -j is one line" 1 "$(lines "$YT_R")"
 echo "── the player's engine seam ───────────────────────────────────────"
 # A well-formed id that resolves to nothing is a PROPAGATED tool failure (2+), not usage,
 # and it must still say why — the semantics the shape check sitting in the engine buys.
@@ -2642,15 +2646,20 @@ echo "── the player's engine seam ──────────────
 DEAD=$(out yt-dead); DEAD_ST=$(src yt-dead)
 report "dead id is 2+, not 1"     2 "$DEAD_ST"
 report "dead id keeps its reason" 0 \
-    "$(jqv '.status=="error" and .exit_code>=2 and (.reason|type)=="string"' "$DEAD")"
+    "$(jqv '.status=="error" and .exit_code>=2 and .reason=="unavailable"' "$DEAD")"
+# The same id read instead of played: a miss the fetch answered is a tool result (2), not a
+# malformed call (1), and it is the same `unavailable` the player reports for it.
+report "--info on a dead id is 2"  2 "$(src yt-info-dead)"
+report "--info dead id reason"     0 \
+    "$(jqv '.status=="error" and .reason=="unavailable"' "$(out yt-info-dead)")"
 
 echo "── argv order: a flag-shaped query after -- is SEARCHED ───────────"
-# Not a player list: --status after -- is eight characters of query text. The check lives on
-# yt-search because that is where searching lives now; the player has no search branch left
-# to confuse a flag-shaped token with (ARCH-cli-contract.md「门模型」).
-# Asserted POSITIVELY, on the query the engine echoes back. The old form folded stderr into
-# the pipe and asked only "is line one not JSON?", so `Error: search failed (network)` — a
-# yt-search that did not run at all — satisfied it. It was also the one live call in this file
+# Not a player list: --status after -- is eight characters of query text. ting-play forwards
+# --search before it parses its own argv, so the engine is what sees the token; the player has
+# no search branch to confuse it with (ARCH-cli-contract.md「门模型」).
+# Asserted POSITIVELY, on the query the engine echoes back: a check that folded stderr into
+# the pipe and asked only "is line one not JSON?" would pass on `Error: search failed
+# (network)` — a search that did not run at all.
 report "--search -- --status searches" 0 \
     "$(jqv '.status=="ok" and .query=="--status"' "$(out yt-argv)")"
 
@@ -2663,7 +2672,7 @@ report "transcript --segments has segments" 0 \
 NOCAP=$(out yt-nocap); NOCAP_ST=$(src yt-nocap)
 report "no captions -> error"     0 \
     "$(jqv '.status=="error" and .reason=="no_subtitles_available"' "$NOCAP")"
-report "no captions exit"         1 "$NOCAP_ST"
+report "no captions exit"         2 "$NOCAP_ST"
 
 # THE SAME VERB ON A SITE WHOSE CAPTION TRACK IS A LYRIC. Asserted as the same envelope,
 # because that is the claim `--transcript` makes across engines — but with `lang` explicitly
@@ -2683,7 +2692,7 @@ report "ne transcript envelope"   0 \
 NE_NOLYR=$(out ne-notrans); NE_NOLYR_ST=$(src ne-notrans)
 report "an instrumental is a miss, not empty words" 0 \
     "$(jqv '.status=="error" and .reason=="no_subtitles_available"' "$NE_NOLYR")"
-report "…and it exits 1, like the other engine's" 1 "$NE_NOLYR_ST"
+report "…and it exits 2, like the other engine's" 2 "$NE_NOLYR_ST"
 
 echo "── --items: a container is not a row ─────────────────────────────"
 # ONE ENVELOPE OVER THREE SITES, and the shape is the claim: whatever a container is called
@@ -2845,14 +2854,15 @@ echo "── the second engine: the same envelope, or the split is a fiction ─
 # set does not care what was searched for, and this used to be a fourth round trip asking
 # the same engine the same kind of question.
 BILI_S=$(out search-bili)
-BILI_R=$(out bili-resolve)
+BILI_R=$(out bili-stream)
 YT_I=$(out yt-info)
 BILI_I=$(out bili-info)
+NE_I=$(out ne-info)
 
 # THE check the engine split exists for. Two engines are only interchangeable if a caller
 # cannot tell which one answered, so the assertion is on the KEY SETS THEMSELVES rather
 # than on a list of names written out twice: a field renamed, added or dropped in EITHER
-# engine fails here, including one added to yt-search years from now and forgotten on the
+# engine fails here, including one added to ting-engine-yt years from now and forgotten on the
 # other side. Nothing else in this file would notice — each engine's own checks would still
 # pass, and playback would break only for the engine nobody happened to run.
 report "search envelopes agree" \
@@ -2870,7 +2880,7 @@ report "search result keys agree" \
 #     is why they are injected before the lean projection rather than inside it: an engine
 #     that adds them to the projection alone hands the caller who asked for MORE data (--raw) an
 #     envelope missing two required fields, and every -j check in this file stays green.
-#   · A row whose `url` is null is not a row: `ting-play` has nothing to call. bili-search
+#   · A row whose `url` is null is not a row: `ting-play` has nothing to call. bili's search
 #     shipped exactly that — search_type=video mixes in `ketang` (paid-course) records that
 #     carry no `bvid`, 3 of 20 on "钢琴", and an EMPTY bvid is TRUTHY in jq, so the `.id !=
 #     null` gate passed them through with `id: ""` and `url: null`.
@@ -2879,7 +2889,7 @@ report "search result keys agree" \
 #     call either has a duration or says why it has none: a live stream carries
 #     live_status "is_live" with duration null, an archived one carries "was_live" with a
 #     number. A channel row carries NEITHER (measured 2026-09-03: row 15 of 周杰伦 on
-#     yt-search is the artist's channel — duration null, and yt-dlp does not even put the
+#     yt's search is the artist's channel — duration null, and yt-dlp does not even put the
 #     live_status key on that entry, while every video entry beside it has it). That is the
 #     engine-independent way to say "a row is a playable call" without any site knowledge
 #     leaking in here: this file must not know what a /channel/ url looks like.
@@ -2990,8 +3000,8 @@ report "resolve envelopes agree" \
 # THE START OFFSET, over every discovered engine. Only a real resolve can observe it: an
 # engine's reading of a timestamp has no dry-run face. Stated as an invariant rather than
 # against yt because the two engines fill this key from OPPOSITE SIDES — yt-dlp publishes
-# .start_time for YouTube and nothing at all for Bilibili, so yt-resolve normalises what it
-# is handed and bili-resolve parses the query itself. A check driving one of them proves
+# .start_time for YouTube and nothing at all for Bilibili, so ting-engine-yt normalises what
+# it is handed and ting-engine-bili parses the query itself. A check driving one of them proves
 # nothing about the other, and engine #3 is covered the day it lands.
 #
 # The handle comes from the engine's OWN search rather than a table of ids, so the only
@@ -3067,6 +3077,13 @@ report "info -j is ok and named" 0 \
 report "info envelopes agree" \
     "$(printf '%s' "$YT_I" | jq -Sc 'keys' 2>/dev/null)" \
     "$(printf '%s' "$BILI_I" | jq -Sc 'keys' 2>/dev/null)"
+# The third engine answers --info from the site's own song record rather than an extractor —
+# how a source gets its metadata is its own business; the envelope it answers with is not.
+report "ne --info is ok and named" 0 \
+    "$(jqv '.status=="ok" and .engine=="ne" and .kind=="track" and (.access|IN("full","preview","paywalled"))' "$NE_I")"
+report "ne info envelope agrees" \
+    "$(printf '%s' "$YT_I" | jq -Sc 'keys' 2>/dev/null)" \
+    "$(printf '%s' "$NE_I" | jq -Sc 'keys' 2>/dev/null)"
 report "--info -j is one line" 1 "$(lines "$YT_I")"
 # …and --info carries every key a search ROW carries, so a caller holding a URL instead of a
 # search result builds the same row out of it. Without that the TUI read the raw record for
@@ -3208,8 +3225,8 @@ echo "── failure taxonomy: 2 is a tool failure, never 1 ──────�
 # a correct number (ARCH-cli-contract.md「数据契约」).
 #
 # STATED OVER EVERY DISCOVERED ENGINE, and that is not tidiness — it is the whole finding.
-# This check drove yt-search alone, where the failure path prints from the top level and is
-# fine. `bili-search` reached its site through a page loop, called search_fail from INSIDE the
+# Driving yt's search alone proves nothing: its failure path prints from the top level and
+# is fine. bili's search reached its site through a page loop, called search_fail from INSIDE the
 # command substitution that collected the page, and so printed its error envelope into a shell
 # variable: the caller got nothing on stdout and 2. Every exit-code check in this file stayed
 # green for as long as that lasted, because the exit code really was 2. The third engine pages
@@ -4326,7 +4343,7 @@ else
             poll_until 5 pane_has 'page ' >/dev/null
             # The same walk shape the `i` block uses, and for the same reason: which of
             # today's rows is multi-part is the site's business, not this file's. Cheaper per
-            # lap than that one — `--parts` is a single HTTP request, not an extraction — so
+            # lap than that one — a video's --items is a single HTTP request, not an extraction — so
             # the bound is the WHOLE page it fetched, ten rows. Six was the bound until
             # 2026-09-13, when the day's ranking put the only multi-part rows at 7 and 9 and
             # the walk went red one row short of the door it was testing — a bound smaller
@@ -4353,7 +4370,7 @@ else
             # A SKIP, not a red, when every row on the page refused — and the distinction is
             # not politeness, it is which claim failed. `c` on a single-part row answering
             # "only one part" IS the door working: the key reached the engine, a real
-            # `--parts` round trip came back, and the view declined for the one reason it is
+            # `--items` round trip came back, and the view declined for the one reason it is
             # allowed to. What is missing then is a multi-part video in bilibili's ranking
             # for this query, which this file does not get a vote on — and it moves: the same
             # query answered 17, 6, 99, 1, 1, 3 across its first six rows on 2026-09-03, and

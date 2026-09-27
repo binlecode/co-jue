@@ -522,7 +522,6 @@ Options:
   -n N          How many records --ls prints, newest first (default 20)
   --before DATE What --clear cuts at: YYYY-MM, YYYY-MM-DD, or a full ISO timestamp.
                 Records at or after DATE are kept.
-  -l            Plain text output (default)
   -j            JSON envelope, one line
   --color MODE  auto | always | never (default: auto)
   -h            This help
@@ -570,7 +569,6 @@ while (($#)); do
         printf 'ting-history %s\n' "$TING_VERSION"
         exit 0
         ;;
-    -l | --list) OUTPUT_MODE="list"; shift ;;
     -j | --json) OUTPUT_MODE="json"; shift ;;
     --color=*) COLOR_MODE="${1#*=}"; shift ;;
     --color)

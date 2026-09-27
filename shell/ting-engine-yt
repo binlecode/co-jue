@@ -382,7 +382,7 @@ classify_yt_dlp_error() {
         echo "forbidden"
         return
     fi
-    if grep -qiE 'Video unavailable|Private video|has been removed|no longer available|does not exist|account.*terminated|members-only|Sign in to confirm' <<<"$text"; then
+    if grep -qiE 'video (is )?unavailable|Private video|has been removed|no longer available|does not exist|account.*terminated|members-only|Sign in to confirm' <<<"$text"; then
         echo "unavailable"
         return
     fi
@@ -1168,15 +1168,17 @@ stream_run() {
 # ==============================================================================
 
 # The one place a read-only verb reports a miss, so the text and JSON shapes cannot drift:
-# machine callers get {status:"error", ...} and exit 1, humans get a sentence on stderr.
-# `reason` is the shared enum, never prose.
+# machine callers get {status:"error", ...}, humans get a sentence on stderr, and both exit 2.
+# A miss is what the fetch answered, not a malformed call — 1 would send the caller off to
+# fix an argv that was never wrong. `reason` is the shared enum, never prose.
 readonly_fail() { # <reason> <prose>
     if is_json_out; then
         jq -nc --arg engine "$ENGINE_NAME" --arg url "$TARGET_URL" --arg reason "$1" \
             '{status: "error", engine: $engine, url: $url, reason: $reason}'
-        exit 1
+    else
+        err "$2"
     fi
-    die "$2"
+    exit 2
 }
 
 # Rich metadata for a video WITHOUT playing: description, chapters, uploader, upload date,

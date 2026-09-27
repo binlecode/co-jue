@@ -387,7 +387,7 @@ echo "── three more players, launched back to back ────────�
 #
 # THE HANDLE FOR THE THIRD ENGINE IS SEARCHED FOR, NOT WRITTEN DOWN, and on that site it is not
 # a style choice. Roughly 43% of the NetEase catalogue is VIP-only, so a pinned song id is a
-# check that goes red the day someone else's licence changes. `ne-search` filters to
+# check that goes red the day someone else's licence changes. ne's --search filters to
 # access:"full" by default, so its first row is by construction a track this account can really
 # play — which makes "take row one" both the cheapest handle and the correct one. `lofi` is the
 # query because it measured 98% playable; the row itself is asserted, so a query that stops
@@ -436,13 +436,13 @@ else
 fi
 
 echo "── a third engine: a search row plays, end to end ─────────────────"
-# THE WHOLE PIPELINE ON ONE ENGINE, with nothing pinned: a real `ne-search` answered above, its
+# THE WHOLE PIPELINE ON ONE ENGINE, with nothing pinned: a real ne --search answered above, its
 # first row's url went straight to `ting-play -d --engine ne`, and the playhead moves. Three
-# envelopes have to agree for that to happen — search's row, resolve's stream_urls/http_headers,
+# envelopes have to agree for that to happen — search's row, --stream's stream_urls/http_headers,
 # and the player's record — and this is the only place all three are the same engine's and all
 # three are real.
 if [ -z "$NE_ROW" ]; then
-    bad "ne-search returned no playable row — the third engine's pipeline is untested"
+    bad "ne --search returned no playable row — the third engine's pipeline is untested"
 else
     report "ne detach envelope" 0 \
         "$(printf '%s' "$o6" | jq -e '.id and .pid and .sock' >/dev/null 2>&1; echo $?)"
@@ -914,7 +914,7 @@ report "an interrupted track says so" 0 \
 report "…and every row is a call"    0 \
     "$(printf '%s' "$HIST" | jq -e 'all(.items[]; (.engine|test("^[a-z0-9][a-z0-9_-]*$")) and (.url|test("^[^[:space:]]+$")))' >/dev/null 2>&1; echo $?)"
 # One shape for every source: the three engines the sections above drove are all in the log,
-# with no per-site branch anywhere between them and the row. An ne-search that returned no
+# with no per-site branch anywhere between them and the row. An ne search that returned no
 # playable row leaves this red as well, which is correct — the ne row was never written.
 report "…from all three engines, one shape" 0 \
     "$(printf '%s' "$HIST" | jq -e '[.items[].engine]|unique|length >= 3' >/dev/null 2>&1; echo $?)"

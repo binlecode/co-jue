@@ -210,10 +210,10 @@ under its own name — the suite ships no second spelling for anything. The thre
 and nothing else calls them:
 
 ```sh
-ln -s "$PWD/shell/ting"         ~/bin/ting
-ln -s "$PWD/shell/ting-play"       ~/bin/ting-play
-ln -s "$PWD/shell/ting-playlist"   ~/bin/ting-playlist
-ln -s "$PWD/shell/ting-history"    ~/bin/ting-history
+ln -s "$PWD/shell/ting"          ~/bin/ting
+ln -s "$PWD/shell/ting-play"     ~/bin/ting-play
+ln -s "$PWD/shell/ting-playlist" ~/bin/ting-playlist
+ln -s "$PWD/shell/ting-history"  ~/bin/ting-history
 ```
 
 One name per command, one name per key, one path per store: no aliases.

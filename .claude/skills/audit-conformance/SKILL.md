@@ -1,6 +1,6 @@
 ---
 name: audit-conformance
-description: Periodic whole-suite audit of ting against the coding rules baked into this skill — surface layering (no YouTube logic in the TUI), DRY across the ten scripts, bash 3.2 portability, dead functions and one-sided variables, swallowed errors, stale prose defending retired mechanisms, contract drift in the JSON envelope / exit codes, and doc drift against docs/ARCHITECTURE.md. Inventories every violation with file:line + rule citation, then writes a scoped cleanup report. The whole-tree counterpart to reviewing a single diff. Never proposes structural or guard tests.
+description: Periodic whole-suite audit of ting against the coding rules baked into this skill — surface layering (no YouTube logic in the TUI), DRY across the seven scripts, bash 3.2 portability, dead functions and one-sided variables, swallowed errors, stale prose defending retired mechanisms, contract drift in the JSON envelope / exit codes, and doc drift against docs/ARCHITECTURE.md. Inventories every violation with file:line + rule citation, then writes a scoped cleanup report. The whole-tree counterpart to reviewing a single diff. Never proposes structural or guard tests.
 argument-hint: "[file-or-surface scope, default all of shell/]"
 disable-model-invocation: true
 ---
@@ -14,8 +14,8 @@ slow accretion. This skill is the other scope: judgment-scan the whole suite aga
 **defined in this file**, inventory every violation with `file:line` + the rule cited, and
 write a scoped cleanup report.
 
-**Why this exists here specifically.** ting has no linter, no type checker, no CI, and ten
-standalone bash scripts — a player, a TUI, three engine pairs, and two durable stores
+**Why this exists here specifically.** ting has no linter, no type checker, no CI, and seven
+standalone bash scripts — a player, a TUI, three engine files, and two durable stores
 (`ting-playlist`, `ting-history`) — written to a frozen bash 3.2 floor. Nothing but judgment
 defends its invariants, and three of them erode silently: logic creeping *up* into the TUI, a
 bash-4 idiom slipping in (it runs fine on the author's shell and aborts under `/bin/bash`), and
@@ -53,8 +53,8 @@ mandate — and both are restated inline where they matter.
 |---|------|---------------|------------------|
 | R1 | **One-sided variable / flag** | A variable, flag, or env knob with only a write site or only a read site. A parsed flag that nothing consumes, an exported `YT_*` nothing reads, a state var set and never tested. | grep the bare name **and** the `${…}` form **and** `"$name"`; one side missing = candidate. Beware indirection: a var read only inside a `jq --arg`, a heredoc, or an `eval`-shaped string won't show in a bare-word grep — that is this rule's #1 false positive. #2 is arithmetic context: `((VAR == 0))` reads VAR with no `$`, so a `$`-anchored read-scan calls it write-only. |
 | R2 | **Redundant same-lifecycle state** | Two variables always assigned together and cleared together (e.g. a `CURRENT_PLAY_*` pair, a "have we drawn" flag beside the value it guards) — one concept wearing two names. | read the mutation sites; look for co-set / co-cleared pairs. |
-| R3 | **Logic in the wrong surface (layer back-edge)** | Three hard layering rules now. (a) **`ting` contains ZERO site logic and ZERO playback logic** — it shapes argv for `yt-search` / `ting-play` and delegates; a `yt-dlp` or `mpv` invocation or an IPC command construction there is a back-edge (reading the mpv socket through the *documented* envelope field is not). (b) **player and engine do not trade knowledge**: a `yt-dlp` call, a cookie decision, a format string, or a URL pattern in `shell/ting-play` is a back-edge, and so is an `mpv` call or any player-state / `players/` write in ANY `*-search` / `*-resolve`. (c) **the stores know no site and no playback**: `ting-playlist` / `ting-history` hold `{engine, url, …}` records and jq — a yt-dlp call, an mpv call, a host pattern, or a `players/` touch in either is a back-edge. | `grep -n 'yt-dlp\|cookies-from-browser' shell/ting-play shell/ting`, `grep -n 'mpv \|--input-ipc-server\|players/' shell/*-search shell/*-resolve`, and `grep -n 'yt-dlp\|mpv \|--input-ipc-server\|players/' shell/ting-playlist shell/ting-history` must all be empty apart from dependency-check strings and comments — read each hit. |
-| R4 | **Duplication (DRY)** | Three carve-outs first, all deliberate: (a) each script must run standalone, so `die` / `print_usage` / `require_cmd` living in more than one file is **not** a finding; (b) the engine halves each holding their own cookie block and jq prelude is **not** a finding either — nor is one engine pair duplicating another's — they are separate executables and the alternative is a shared library the split exists to avoid (a duplicate spanning *player* and *engine*, however, IS a finding: that is a boundary leak); (c) the player's IPC property reader and `ting`'s are intentionally separate and must not call each other — the TUI's is fire-and-forget, the player's confirms delivery and exits 4 (`docs/ARCH-player.md`「运行时 IPC」). Otherwise: the same logic in ≥2 homes: a second duration formatter beside the engine's `JQ_PRELUDE` `fmt_dur`, a re-implemented width/cell measurement, a copied jq filter, the same validation in two places. The governing principle is that correctness is added *down* — in the **player** if it is about playback, in the **engine** if it is about a site — so every surface inherits it; a fix in `ting` that `ting-play` could have made is a bug in the wrong file. **And the carve-outs cut both ways: where permitted near-twins legitimately DIFFER, the difference must be justified in the code** — five call sites of one lock helper where four say `\|\| true` and one is bare, with no comment saying which is intended, is indistinguishable from a drift bug, and that IS a finding even though the duplication itself is sanctioned. | the function graph (Pass 0) for same-named or near-identical bodies across files; grep for duplicated jq programs and `printf` format strings. |
+| R3 | **Logic in the wrong surface (layer back-edge)** | Three hard layering rules now. (a) **`ting` contains ZERO site logic and ZERO playback logic** — it shapes argv for `ting-play` and delegates; a `yt-dlp` or `mpv` invocation or an IPC command construction there is a back-edge (reading the mpv socket through the *documented* envelope field is not). (b) **player and engine do not trade knowledge**: a `yt-dlp` call, a cookie decision, a format string, or a URL pattern in `shell/ting-play` is a back-edge, and so is an `mpv` call or any player-state / `players/` write in ANY `ting-engine-*`. (c) **the stores know no site and no playback**: `ting-playlist` / `ting-history` hold `{engine, url, …}` records and jq — a yt-dlp call, an mpv call, a host pattern, or a `players/` touch in either is a back-edge. | `grep -n 'yt-dlp\|cookies-from-browser' shell/ting-play shell/ting`, `grep -n 'mpv \|--input-ipc-server\|players/' shell/ting-engine-*`, and `grep -n 'yt-dlp\|mpv \|--input-ipc-server\|players/' shell/ting-playlist shell/ting-history` must all be empty apart from dependency-check strings and comments — read each hit. |
+| R4 | **Duplication (DRY)** | Three carve-outs first, all deliberate: (a) each script must run standalone, so `die` / `print_usage` / `require_cmd` living in more than one file is **not** a finding; (b) each engine file holding its own cookie block and jq prelude is **not** a finding either — nor is one engine duplicating another's — they are separate executables and the alternative is a shared library the split exists to avoid (a duplicate spanning *player* and *engine*, however, IS a finding: that is a boundary leak); (c) the player's IPC property reader and `ting`'s are intentionally separate and must not call each other — the TUI's is fire-and-forget, the player's confirms delivery and exits 4 (`docs/ARCH-player.md`「运行时 IPC」). Otherwise: the same logic in ≥2 homes: a second duration formatter beside the engine's `JQ_PRELUDE` `fmt_dur`, a re-implemented width/cell measurement, a copied jq filter, the same validation in two places. The governing principle is that correctness is added *down* — in the **player** if it is about playback, in the **engine** if it is about a site — so every surface inherits it; a fix in `ting` that `ting-play` could have made is a bug in the wrong file. **And the carve-outs cut both ways: where permitted near-twins legitimately DIFFER, the difference must be justified in the code** — five call sites of one lock helper where four say `\|\| true` and one is bare, with no comment saying which is intended, is indistinguishable from a drift bug, and that IS a finding even though the duplication itself is sanctioned. | the function graph (Pass 0) for same-named or near-identical bodies across files; grep for duplicated jq programs and `printf` format strings. |
 | R5 | **bash 3.2 violation** | `declare -A`, `mapfile`/`readarray`, `${var,,}`/`${var^^}`, `${arr[-1]}`, `&>>`, `\|&`, `${!prefix@}`; an unguarded `"${arr[@]}"` on a possibly-empty array under `set -u`; a bare `((n += w))` **as a statement** under `set -e`; treating `read -rsn1` as one character rather than one byte; `LC_ALL=C [[ … ]]` (not valid bash at all). | the forbidden-idiom greps below, then **read** each array expansion and each `((…))` to classify statement vs test. The pre-commit hook blocks these on *added* lines; this rule sweeps what predates the hook. |
 | R6 | **Swallowed error** | `\|\| true`, `2>/dev/null`, or an empty branch on a path where the user must see the failure — a real fault rendered as an empty list, a `0`, or a blank field. A *deliberate* best-effort degrade is fine **if** it degrades visibly (`--:--`, `n/a`, `LIVE`) and never as a fake value. | `grep -n '|| true\|2>/dev/null' shell/*` then read every hit and ask what the user sees when it fires. The sweep returns ~150 hits and nearly all are three sanctioned shapes — `rm -f`/`rmdir` cleanup, `chmod` best-effort hardening, `kill` in teardown — so triage those on sight and spend the reading on the residue: a swallowed error on a **jq parse**, a **state write**, or a **lock** is where this rule's real findings live. |
 | R7 | **Optimistic state** | State written before the operation it asserts has committed: a player record or a "playing" flag persisted before mpv is confirmed launched, a lock recorded before it is held, `TTY_ECHO_OFF=1` set before `stty` succeeded. A failure mid-op then leaves a lying record. | read the order of the write vs the op, in `detach_play`, the lock helpers, and the echo/cursor traps. |
@@ -70,9 +70,9 @@ mandate — and both are restated inline where they matter.
 ```
   primitives     yt-dlp · curl (engines only)   ·   mpv · nc (player only)   ·   jq (all)
         ↑                                            ↑
-  engine pairs   shell/yt-search · shell/yt-resolve     shell/ting-play   (player)
-                 shell/bili-search · shell/bili-resolve
-                 shell/ne-search · shell/ne-resolve
+  engines        shell/ting-engine-yt                 shell/ting-play   (player)
+                 shell/ting-engine-bili
+                 shell/ting-engine-ne
                  (every site-specific fact)           (playback + lifecycle; asks an
         ↑                                              engine BY NAME, never a site;
         │                                              writes the listening row by
@@ -87,9 +87,9 @@ mandate — and both are restated inline where they matter.
 Every arrow points **up**. A violation is any downward reach that skips a layer: the TUI
 touching a primitive, an engine writing player state, a store learning a host pattern or an
 mpv flag, the player or an engine knowing anything about the TUI. The player may not read a
-`YT_TUI_*`-shaped knob; the TUI may not construct yt-dlp argv. **There are no wrappers left
-to hide a decision in** — the ten scripts are peers, so a misplaced fact is always in one
-of ten files.
+`TING_*` key that only the TUI owns; the TUI may not construct yt-dlp argv. **There are no wrappers left
+to hide a decision in** — the seven scripts are peers, so a misplaced fact is always in one
+of seven files.
 
 ---
 
@@ -124,7 +124,7 @@ of ten files.
    # R3 back-edges: these MUST be empty apart from dep-check strings and comments
    grep -n 'yt-dlp\|mpv \|--input-ipc-server' shell/ting
    grep -n 'yt-dlp\|cookies-from-browser' shell/ting-play
-   grep -n 'mpv \|--input-ipc-server\|players/' shell/*-search shell/*-resolve
+   grep -n 'mpv \|--input-ipc-server\|players/' shell/ting-engine-*
    grep -n 'yt-dlp\|mpv \|--input-ipc-server\|players/' shell/ting-playlist shell/ting-history
 
    # R5 bash-4 leaks (the hook gates added lines; this catches what predates it)
@@ -167,7 +167,7 @@ of ten files.
 
 ## Pass 1 — Rule-class audit
 
-Read-only. The suite is ten files; a single careful sweep by the orchestrator is usually
+Read-only. The suite is seven files; a single careful sweep by the orchestrator is usually
 right. For a full periodic audit, fan out to read-only subagents (`Read, Grep, Bash`; no
 Edit/Write) grouped by rule cluster so each holds one mental model:
 
@@ -209,7 +209,7 @@ The orchestrator does this, so source-verification stays in one place.
 
 4. **Write `docs/PLAN-conformance-YYYY-MM-DD.md`** from the template below. Each task names
    the rule + `file:line`, states a **structural** fix (move down into the player or engine / collapse /
-   delete / rename), and gives a `done_when` that is observable — *"`shell/yt-search -j` emits
+   delete / rename), and gives a `done_when` that is observable — *"`shell/ting-play --search -j` emits
    one line and `grep yt-dlp shell/ting` is empty"* — **never** "a guard test passes".
 
 5. **If a deletion would orphan a helper**, chain it into the same task.

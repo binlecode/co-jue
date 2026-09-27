@@ -782,7 +782,6 @@ Options:
                 3 seconds, in PID's one slot (the next write by PID replaces it). The -j
                 envelope then carries undo.deadline (epoch seconds). Without it, no copy.
   --discard     With --undo: drop PID's copy without restoring it (0 even if none)
-  -l            Plain text output (default)
   -j            JSON envelope, one line
   --color MODE  auto | always | never (default: auto)
   -h            This help
@@ -828,7 +827,6 @@ while (($#)); do
         printf 'ting-playlist %s\n' "$TING_VERSION"
         exit 0
         ;;
-    -l | --list) OUTPUT_MODE="list"; shift ;;
     -j | --json) OUTPUT_MODE="json"; shift ;;
     --color=*) COLOR_MODE="${1#*=}"; shift ;;
     --color)

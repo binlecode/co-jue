@@ -296,9 +296,8 @@ ROADMAP 那条 Go 重写 NO 的全部账**：收益只剩"删渲染负债"，分
 
 - **契约（`ting-play` 的 argv，含它转发出去的引擎动词与信封；不含引擎文件自己的 argv）是被冻结、被版本化的那个面** —— 唯一完整活过重写的东西，
   也是任何一次移植的验收规格；semver 2.0.0 版本化它、不是代码（0.y.z 期间：破坏性 → y，
-  其余 → z）。**1.0.0 是对这个面的冻结承诺，不是一个分发里程碑** —— 它一度被系在"打包 NO
-  反转那一天"上，而那条 NO 已于 2026-09-11 反转（发布 tag + 一份 tap formula），契约却没有
-  因此多稳一天：能不能装，和敢不敢承诺不再破坏，是两个问题。
+  其余 → z）。**1.0.0 是对这个面的冻结承诺，不是一个分发里程碑**：有了发布 tag 与 tap formula，
+  契约并不因此多稳一天 —— 能不能装，和敢不敢承诺不再破坏，是两个问题。
   （边界表与 bump 判法：ARCH-cli-contract.md 开头）
 
 ## 命令拓扑与文件布局
@@ -474,9 +473,9 @@ source 进来的库：一个共享库会让其余的反过来向持有它的那�
 
 | 原语 | 角色 | 谁可以调它 | 接缝（唯一的调用点） |
 |---|---|---|---|
-| **yt-dlp** | 抽取 | 只有引擎 | `search_run`、`items_run`、`transcript_run`（`ting-engine-yt`）；`dump_once`（`--stream`）与 `info_run`（`--info`），三个引擎各一份 |
+| **yt-dlp** | 抽取 | 只有引擎 | `search_run`、`items_run`、`transcript_run`（`ting-engine-yt`）；`dump_once`（`--stream`，三个引擎各一份）与 `info_run`（`--info`，yt 与 bili） |
 | **mpv** | 播放 | 只有播放器 | `run_mpv()`（唯一的播放接缝）+ `mpv_supports_vo()` 能力探测 |
-| **curl** | HTTP 传输 | B 站与网易云引擎的手工请求；`ting-engine-yt`（仅探测） | 每个引擎一个传输函数：`http_get`（`ting-engine-bili`：搜索、容器与分 P）、`ne_http_get` 与 `fetch_page_once`（`ting-engine-ne`：容器、歌词、`--info -j` 的补字段请求与搜索）—— 全套件仅有的手工拼请求，全部对着公开端点；`probe_raw`（`ting-engine-yt`，可取性探测） |
+| **curl** | HTTP 传输 | B 站与网易云引擎的手工请求；`ting-engine-yt`（仅探测） | 每个引擎一个传输函数：`http_get`（`ting-engine-bili`：搜索、容器与分 P）、`ne_http_get` 与 `fetch_page_once`（`ting-engine-ne`：容器、歌词、`--info` 与搜索）—— 全套件仅有的手工拼请求，全部对着公开端点；`probe_raw`（`ting-engine-yt`，可取性探测） |
 | **openssl** | AES-128-CBC | 只有 `ting-engine-ne` 的 `--search` | `weapi_params`（`ting-engine-ne`）—— 全套件唯一一处加密。**动词局部依赖**：不进必需依赖表，缺它只少这一个动词（ARCH-engine.md） |
 | **nc** | mpv JSON-IPC | 播放器，以及作为客户端的 `ting` | `live_props`（读）与 `ipc_command`（命令 —— 五个 socket 动词共用）（`ting-play`）；TUI 自己的客户端（`ARCH-tui.md`）   |
 | jq | JSON 整形 | 所有人 | 无处不在 |
@@ -709,7 +708,7 @@ ARCH-cli-contract.md「数据契约」）。B 站根本没有 `--transcript` 这
 | 2 | `search_page_once`（`ting-engine-bili`） | 对 `search/type` 的 `curl` | 引擎 | 搜索信封 |
 | 3 | `dump_once`（`--stream`，三个引擎各一份） | `yt-dlp --dump-single-json -f` | 引擎 | **真正被播放的那条流** |
 | 4 | `probe_raw`（`ting-engine-yt`） | `curl` 取 1 字节，失败则第二次解析 | 引擎 | 挑客户端；置 `retried`（ARCH-engine.md「先探后播」） |
-| 5 | `info_run`（三个引擎各一份） | `yt-dlp --dump-single-json --skip-download`；网易云的 `-j` 另打一次 song/detail 的 `curl` | 引擎 | `--info` 信封 |
+| 5 | `info_run`（三个引擎各一份） | yt / bili：`yt-dlp --dump-single-json --skip-download`；ne：一次 song/detail 的 `curl`（无 yt-dlp） | 引擎 | `--info` 信封 |
 | 6 | `transcript_run`（`ting-engine-yt`） | `yt-dlp --skip-download --no-simulate` | 引擎 | 字幕文件 → 文本 |
 | 7 | `items_parts`（`ting-engine-bili`） | 对 view 端点的 `curl`，被拒则改打 pagelist（无 yt-dlp） | 引擎 | 多 P 视频的 `--items` 信封（分 P 即条目） |
 | 8 | `fetch_page_once`（`ting-engine-ne`） | 对 weapi 搜索端点的 `curl`，载荷经 `openssl` 两道 AES（`weapi_params`） | 引擎 | 搜索信封 |
@@ -919,19 +918,18 @@ ARCH-cli-contract.md「命令规格」）与 `-j`（结构化结果），
   第二个不变量（进程启动时间，或去探播放器自己的 socket）。
 - **`resolve_nc_unix` 的 ncat 分支在 macOS 上跑不到**：本机 `nc -h` 有 `-U`，探测选 nc。
   **如实记为无覆盖** —— 造覆盖要么 shim PATH（那是替身，规矩禁止），要么真上一台 Linux；
-  后者才是补法。**这一条曾经整个说反了**：探测原来写成 `nc -h | grep -q` 跑在 pipefail 下，
-  管道的状态是 nc 自己的，而 BSD `nc -h` 退 1，所以死掉的其实是 **nc** 分支 —— 每台 Mac 上都
-  拒掉系统自带的 nc，这台机器能跑只是因为装了 nmap 的 ncat（2026-09-24 发现并修掉）。如今 nc
-  分支由 `contract.sh` 与 `playback.sh` 在只放系统目录的 PATH 上真跑一遍来证明；ncat 分支仍无覆盖。
-- **一次未定位的整体变慢**（2026-08-30，`playback.sh` 七条一起红，两次背靠背同样 346s / 348s，
-  同日第三次 79s 全绿）。七条的共同点是**都要求播放头真的往前走**，而只要信封的检查全绿；
+  后者才是补法。探测读的是 `nc -h` 的**输出**，不是管道状态：BSD `nc -h` 退 1，在 pipefail 下
+  按状态判，死掉的会是 **nc** 分支 —— 每台 Mac 都拒掉系统自带的 nc，只有装了 ncat 的机器能跑。
+  nc 分支由 `contract.sh` 与 `playback.sh` 在只放系统目录的 PATH 上真跑一遍来证明；ncat 分支仍无覆盖。
+- **一次未定位的整体变慢**（观察到过一次：`playback.sh` 七条一起红，两次背靠背同样 346s / 348s，
+  紧接着第三次 79s 全绿）。七条的共同点是**都要求播放头真的往前走**，而只要信封的检查全绿；
   机制是 `wait_live` 那个**固定 40 秒**的预算被一次约 4.4× 的普遍变慢吃掉（健康时首个非零位置
   只要 4–8s，余量 5–8 倍）。触发没定位，最吻合的是上游突发之后限流，但没有证据。
   **不调那个数**：调大买到抖动更少，付出的是一次真的挂住要更久才报出来 —— 一次观察不足以做这笔
   交易。再次观察到时，该动的是让这几条等一个**事件**而不是等一段时间。
 - **封面「画成什么样」证不了；「发没发」证得了**（`ARCH-tui.md`「封面」）。
-  这条曾经写成"两个套件都证不了"，是把 `capture-pane` 的限制当成了套件的限制：
-  它渲染的是字符网格，贴图不在网格里；而 `pipe-pane` 抄的是程序写出去的字节，
+  `capture-pane` 的限制不是套件的限制：它渲染的是字符网格，贴图不在网格里；而 `pipe-pane`
+  抄的是程序写出去的字节，
   于是 tmux 一个都不转发也照样读得到。**已证的因此包括**：走一趟光标必有一次贴图上线、
   一次动不了封面的重画必须一个字节都不发（`#` 是那个判别输入），
   以及画图有没有弄坏这个 TUI（tmux 段整体跑 `TING_IMAGE=on`，它抓到过三个真 bug）。

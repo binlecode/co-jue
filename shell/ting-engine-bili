@@ -498,7 +498,7 @@ classify_yt_dlp_error() {
         echo "forbidden"
         return
     fi
-    if grep -qiE 'may be deleted or geo-restricted|Video unavailable|Private video|has been removed|no longer available|does not exist|paid video|premium|大会员|需要登录' <<<"$text"; then
+    if grep -qiE 'may be deleted or geo-restricted|video (is )?unavailable|Private video|has been removed|no longer available|does not exist|paid video|premium|大会员|需要登录' <<<"$text"; then
         echo "unavailable"
         return
     fi
@@ -1553,9 +1553,10 @@ info_run() {
         if is_json_out; then
             jq -nc --arg engine "$ENGINE_NAME" --arg url "$TARGET_URL" --arg reason "$reason" \
                 '{status: "error", engine: $engine, url: $url, reason: $reason}'
-            exit 1
+        else
+            err "could not fetch metadata for: $TARGET_URL ($reason)"
         fi
-        die "could not fetch metadata for: $TARGET_URL ($reason)"
+        exit 2   # a miss is what the fetch answered, not a malformed call
     fi
 
     case "$OUTPUT_MODE" in

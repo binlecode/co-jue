@@ -677,27 +677,6 @@ cookie_diagnosis() {
     esac
     return 0
 }
-# Run one yt-dlp command ("$@", cookie args NOT included) with the configured cookie store,
-# and once more WITHOUT it when the store itself is what failed — only then, so a network
-# error is not paid for twice. stdout is the command's; yt-dlp's stderr lands in ERR_FILE for
-# the caller's classifier; the diagnosis goes to this process's stderr.
-ytdlp_cookied() {
-    local out="" rc=0
-    if ((${#COOKIE_ARGS[@]} > 0)); then
-        out=$("$@" "${COOKIE_ARGS[@]}" 2>"$ERR_FILE") || rc=$?
-        if ((rc != 0)) || [[ -z "$out" ]]; then
-            if [[ "$(classify_yt_dlp_error "$(cat "$ERR_FILE" 2>/dev/null)" "$rc")" == "cookies" ]]; then
-                cookie_diagnosis "$(cat "$ERR_FILE" 2>/dev/null)" >&2
-                rc=0
-                out=$("$@" 2>"$ERR_FILE") || rc=$?
-            fi
-        fi
-    else
-        out=$("$@" 2>"$ERR_FILE") || rc=$?
-    fi
-    printf '%s' "$out"
-    return "$rc"
-}
 
 # This process's own scratch dir: 0700, created lazily, removed however we exit. Lazily
 # because -h / -V must answer without touching the filesystem, and process-level rather
@@ -1383,97 +1362,79 @@ stream_run() {
 # ==============================================================================
 
 # The one place a read-only verb reports a miss, so the text and JSON shapes cannot drift:
-# machine callers get {status:"error", ...} and exit 1, humans get a sentence on stderr.
-# `reason` is the shared enum, never prose.
+# machine callers get {status:"error", ...}, humans get a sentence on stderr, and both exit 2.
+# A miss is what the fetch answered, not a malformed call — 1 would send the caller off to
+# fix an argv that was never wrong. `reason` is the shared enum, never prose.
 readonly_fail() { # <reason> <prose>
     if is_json_out; then
         jq -nc --arg engine "$ENGINE_NAME" --arg url "$TARGET_URL" --arg reason "$1" \
             '{status: "error", engine: $engine, url: $url, reason: $reason}'
-        exit 1
+    else
+        err "$2"
     fi
-    die "$2"
+    exit 2
 }
 
-# Rich metadata for a song WITHOUT playing. -j projects a lean schema; --raw returns the full raw
-# yt-dlp record; the default is a readable text block.
+# Rich metadata for a song WITHOUT playing, from ONE request: song/detail, the plain GET --items
+# already spends for the same records. -j projects a lean schema; --raw returns the site's own
+# record; the default is a readable text block.
 #
-# THE -j ENVELOPE CARRIES EVERY FIELD A SEARCH ROW DOES — `kind`, `access` and `thumbnail`
-# included — so a caller holding a URL instead of a search result can build the same row out
-# of it. `kind` is the constant search states. The other two need `fee` and `.al.picUrl`, and
-# the yt-dlp record carries neither the fee nor this site's cover field (measured 2026-09-26 on
-# 1824020871: no `fee` key at all, `thumbnail` an http URL). So -j asks song/detail — the plain
-# GET --items already spends for the same records — for this ONE id: one request, and the
-# record it returns is the same shape a search row is shaped from, so `access` goes through the
-# same ne_access and `thumbnail` through the same pick_thumb (measured: 1824020871 answers fee
-# 1 -> preview, 5257138 answers fee 8 -> full).
+# THE -j ENVELOPE IS A SEARCH ROW — every field, through the same JQ_SHAPE — so a caller holding
+# a URL instead of a search result gets exactly the row a search would have given it. It can be,
+# because song/detail answers the same song objects cloudsearch does (`name`, `ar`, `al`, `dt`,
+# `fee`). `description` is therefore the album name, as on the row. yt-dlp is not asked: its
+# NetEase record carries neither `fee` (so `access` could not be computed) nor this site's cover
+# field, its `description` is the lyric text — which is --transcript's answer, not metadata — and
+# it costs about ten seconds where this GET costs about one (measured on 1824020871). A song has
+# no chapters, so `chapters` is null.
 #
-# A song/detail failure is a failure of --info -j, reported the same way a yt-dlp failure is:
-# `access` is a closed enum with no "unknown" member (ARCH-cli-contract.md「数据契约」), so an
-# envelope that could not learn it has no honest value to print. Prose and --raw do not print
-# either field and do not spend the request.
+# `upload_date` is `publishTime` (epoch MILLISECONDS) as a UTC calendar day, the YYYYMMDD shape
+# the other engines publish.
 info_run() {
     ensure_scratch
-    local cmd=(yt-dlp --dump-single-json --no-playlist --skip-download)
-    cmd+=(--no-warnings --quiet "$TARGET_URL")
-
-    local raw rc=0
-    raw=$(ytdlp_cookied "${cmd[@]}") || rc=$?
-
-    if ((rc != 0)) || [[ -z "$raw" ]]; then
-        local reason
-        reason=$(classify_yt_dlp_error "$(cat "$ERR_FILE" 2>/dev/null)" "$rc")
-        readonly_fail "$reason" "could not fetch metadata for: $TARGET_URL ($reason)"
-    fi
+    local detail="$SCRATCH_DIR/detail.json" song
+    ne_http_get "$detail" "$DETAIL_ENDPOINT" --data-urlencode "c=[{\"id\":$TARGET_ID}]" ||
+        readonly_fail "$(classify_ne_error "$HTTP_CURL_RC" "$HTTP_STATUS" "$HTTP_CODE")" \
+            "could not fetch metadata for: $TARGET_URL"
+    song=$(jq -c '(.songs // [])[0] // empty' "$detail" 2>/dev/null) || song=""
+    [[ -n "$song" ]] ||
+        readonly_fail "unavailable" "could not fetch metadata for: $TARGET_URL (unavailable)"
 
     case "$OUTPUT_MODE" in
     raw)
-        printf '%s\n' "$raw" | jq -c '.'
+        printf '%s\n' "$song"
         ;;
     json)
-        local detail="$SCRATCH_DIR/detail.json" song
-        ne_http_get "$detail" "$DETAIL_ENDPOINT" --data-urlencode "c=[{\"id\":$TARGET_ID}]" ||
-            readonly_fail "$(classify_ne_error "$HTTP_CURL_RC" "$HTTP_STATUS" "$HTTP_CODE")" \
-                "could not fetch metadata for: $TARGET_URL"
-        song=$(jq -c '(.songs // [])[0] // empty' "$detail" 2>/dev/null) || song=""
-        [[ -n "$song" ]] ||
-            readonly_fail "unavailable" "could not fetch metadata for: $TARGET_URL (unavailable)"
-        # `channel` falls back through `uploader` to `creator`: this extractor leaves the
-        # first two null and puts the ARTIST in the third, and the envelope's shape must not
-        # depend on which field a site happens to fill.
-        printf '%s\n' "$raw" | jq -c --arg engine "$ENGINE_NAME" \
-            --arg canon "$TARGET_URL" --argjson start "${TARGET_START:-null}" \
-            --argjson song "$song" \
-            "$JQ_PRELUDE $JQ_ACCESS"'{
+        printf '[%s]\n' "$song" | jq -c --arg engine "$ENGINE_NAME" \
+            --arg canon "$TARGET_URL" --argjson start "${TARGET_START:-null}" --argjson vip true \
+            "$JQ_PRELUDE $JQ_ACCESS $JQ_SHAPE"' | .[0] // empty | {
             status: "ok",
             engine: $engine,
             id, title,
             url: $canon,
-            channel: (.channel // .uploader // .creator // null),
-            uploader: (.uploader // .creator // null),
-            upload_date: (.upload_date // null),
-            duration, duration_fmt: (.duration | fmt_dur),
+            channel,
+            uploader: .channel,
+            upload_date: (if (.publishTime | type) == "number" and .publishTime > 0
+                          then (.publishTime / 1000 | floor | strftime("%Y%m%d")) else null end),
+            duration, duration_fmt,
             start_seconds: $start,
-            view_count: (.view_count // null),
-            like_count: (.like_count // null),
-            live_status: (.live_status // null),
-            description: (.description // null),
-            kind: "track",
-            access: ($song.fee | ne_access),
-            thumbnail: ($song | pick_thumb),
-            chapters: (if (.chapters | type) == "array"
-                       then [.chapters[] | {start_time, end_time, title}]
-                       else null end)
+            view_count: null,
+            like_count: null,
+            live_status: null,
+            description,
+            kind, access, thumbnail,
+            chapters: null
         }'
         ;;
     *)
-        printf '%s' "$raw" | jq -r --arg note "$MUSIC_CHAR" --arg canon "$TARGET_URL" "$JQ_PRELUDE"'
+        printf '[%s]\n' "$song" | jq -r --arg note "$MUSIC_CHAR" --arg canon "$TARGET_URL" \
+            --argjson vip true "$JQ_PRELUDE $JQ_ACCESS $JQ_SHAPE"' | .[0] // empty |
             (if $note == "" then "" else $note + " " end) + (.title // "(untitled)"),
-            "  - channel: \(.channel // .uploader // .creator // "?")",
-            "  - uploaded: \(.upload_date // "?")",
-            ((.duration | fmt_dur) // empty | "  - duration: \(.)"),
-            "  - views: \(.view_count // "?")   likes: \(.like_count // "?")",
-            "  - url: \($canon)",
-            (if (.description // "") != "" then "", "Description:", .description else empty end)'
+            "  - artist: \(.channel // "?")",
+            "  - album: \(if (.description // "") == "" then "?" else .description end)",
+            ((.duration_fmt // "") | select(. != "") | "  - duration: \(.)"),
+            "  - access: \(.access)",
+            "  - url: \($canon)"'
         ;;
     esac
 }
@@ -2089,15 +2050,11 @@ items)
 esac
 
 # Dependencies per verb, lazily: a machine missing one tool loses only the verbs that use it.
-# openssl is --search's alone (the weapi wrapper); --items and --transcript are plain GETs and
-# run no extractor; --info -j adds one song/detail GET to its yt-dlp call.
+# openssl is --search's alone (the weapi wrapper); --items, --transcript and --info are plain
+# GETs and run no extractor; only --stream runs yt-dlp.
 case "$ACTION" in
 search) require_deps curl jq openssl ;;
-items | transcript) require_deps curl jq ;;
-info)
-    require_deps yt-dlp jq
-    [[ "$OUTPUT_MODE" == "json" ]] && require_deps curl
-    ;;
+items | transcript | info) require_deps curl jq ;;
 *) require_deps yt-dlp jq ;;
 esac
 
