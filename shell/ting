@@ -40,13 +40,13 @@ SCRIPT_DIR=$(cd -P "$(dirname "$_self")" && pwd -P)
 # place). Read before any dependency gate, so --version answers on a machine with nothing
 # installed.
 if [[ -r "$SCRIPT_DIR/../VERSION" ]]; then
-    UT_VERSION=$(cat "$SCRIPT_DIR/../VERSION")
+    SUITE_VERSION=$(cat "$SCRIPT_DIR/../VERSION")
 else
-    UT_VERSION="unknown"
+    SUITE_VERSION="unknown"
 fi
 
 # WHAT THE ENVIRONMENT ALREADY PINS, noted BEFORE the chain below resolves — this is the one
-# fact reading the config destroys. ut_read_config skips every key that is already set (that
+# fact reading the config destroys. read_config skips every key that is already set (that
 # is what makes the environment beat a file), so once it has run, "the user exported it" and
 # "the file supplied it" are indistinguishable. The write-back path needs the difference: a
 # key the environment pins would be written to the file and then IGNORED at the next startup,
@@ -59,56 +59,15 @@ for _pk in $PREF_KEYS; do
     if eval "[[ -n \"\${$_pk+x}\" ]]"; then PREF_PINNED="$PREF_PINNED $_pk"; fi
 done
 unset _pk
-# A written key's old name pins it too: the block below reads it into the new key. These are
-# the OLD:NEW pairs of CFG_RENAMED whose new key is in PREF_KEYS.
-for _pk in UT_DEFAULT_ENGINE:TING_DEFAULT_ENGINE YT_THEME:TING_THEME UT_PLAY_MODE:TING_PLAY_MODE \
-    UT_PLAY_QUALITY:TING_PLAY_QUALITY UT_SORT_FIELD:TING_SORT_FIELD YT_LANG:TING_LANG \
-    UT_SEARCH_RESULTS:TING_SEARCH_RESULTS UT_START_RESULTS:TING_SEARCH_RESULTS UT_KEYS:TING_KEYS \
-    UT_ROW_INDEX:TING_ROW_INDEX UT_LIST_MODE:TING_LIST_MODE UT_LOOP_MODE:TING_LOOP_MODE; do
-    if eval "[[ -n \"\${${_pk%%:*}+x}\" ]]"; then PREF_PINNED="$PREF_PINNED ${_pk#*:}"; fi
-done
-unset _pk
 
 # CONFIGURATION — the chain is flag > environment > the user's config > the shipped defaults
 # in `<checkout>/config`, which is where every default value in the suite is declared once.
 # Duplicated VERBATIM in every entry point — see the same block in t-play for why, and
 # ARCH-cli-contract.md「配置面」 for the keys.
-TING_CONFIG="${TING_CONFIG:-${UT_CONFIG:-}}"
-if [[ -z "$TING_CONFIG" ]]; then
-    if [[ -r "${XDG_CONFIG_HOME:-$HOME/.config}/ting/config" ]]; then
-        TING_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/ting/config"
-    else
-        TING_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/uting/config"
-    fi
-fi
-# Renamed and merged keys, OLD:NEW. The old name still reads, one version, into the key that
-# replaced it: from the environment here (only while the new name is unset, so the new name
-# wins), from a file in ut_read_config, and ting's write-back renames the line in place. A
-# renamed name comes before a merged one, so when both are set the renamed one wins. Not a
-# knob, so not spelled TING_.
-CFG_RENAMED="UT_STATE_DIR:TING_STATE_DIR UT_ENGINE_DIR:TING_ENGINE_DIR UT_HISTORY:TING_HISTORY \
-    UT_DEFAULT_ENGINE:TING_DEFAULT_ENGINE UT_SEARCH_RESULTS:TING_SEARCH_RESULTS \
-    UT_COOKIE_BROWSER:TING_COOKIE_BROWSER UT_SORT_FIELD:TING_SORT_FIELD \
-    UT_PLAY_MODE:TING_PLAY_MODE UT_VOLUME:TING_VOLUME UT_PLAY_QUALITY:TING_PLAY_QUALITY \
-    UT_VIZ_STYLE:TING_VIZ_STYLE UT_VIZ_COLOR:TING_VIZ_COLOR UT_PAGE_ROWS:TING_PAGE_ROWS \
-    UT_FETCH_BATCH:TING_FETCH_BATCH UT_LOOP_MODE:TING_LOOP_MODE UT_RESOURCE:TING_RESOURCE \
-    UT_KEYS:TING_KEYS UT_LIST_MODE:TING_LIST_MODE UT_ROW_INDEX:TING_ROW_INDEX UT_IMAGE:TING_IMAGE \
-    UT_START_RESULTS:TING_SEARCH_RESULTS YT_COOKIE_BROWSER:TING_COOKIE_BROWSER \
-    BILI_COOKIE_BROWSER:TING_COOKIE_BROWSER NE_COOKIE_BROWSER:TING_COOKIE_BROWSER \
-    YT_THEME:TING_THEME YT_LANG:TING_LANG YT_ASCII:TING_ASCII YT_ASCII_VO:TING_ASCII_VO \
-    YT_MPV_INPUT_CONF:TING_MPV_INPUT_CONF YT_BG:TING_BG YT_SYNC:TING_SYNC \
-    YT_AMBIG_WIDE:TING_AMBIG_WIDE YT_AUDIO_FORMAT:TING_YT_AUDIO_FORMAT \
-    YT_VIDEO_FORMAT:TING_YT_VIDEO_FORMAT YT_VIDEO_FORMAT_FAST:TING_YT_VIDEO_FORMAT_FAST \
-    YT_SUB_LANG_CHAIN:TING_YT_SUB_LANG_CHAIN BILI_AUDIO_FORMAT:TING_BILI_AUDIO_FORMAT \
-    BILI_VIDEO_FORMAT:TING_BILI_VIDEO_FORMAT BILI_VIDEO_FORMAT_FAST:TING_BILI_VIDEO_FORMAT_FAST \
-    BILI_UA:TING_BILI_UA BILI_BUVID:TING_BILI_BUVID NE_AUDIO_FORMAT:TING_NE_AUDIO_FORMAT \
-    NE_UA:TING_NE_UA NE_INCLUDE_VIP:TING_NE_INCLUDE_VIP"
-for _v in $CFG_RENAMED; do
-    eval "[[ -n \"\${${_v%%:*}+x}\" && -z \"\${${_v#*:}+x}\" ]] && ${_v#*:}=\"\$${_v%%:*}\" || true"
-done
-UT_DEFAULTS="$SCRIPT_DIR/../config"
-ut_read_config() {
-    local file="$1" line key val _new
+TING_CONFIG="${TING_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/ting/config}"
+SHIPPED_CONFIG="$SCRIPT_DIR/../config"
+read_config() {
+    local file="$1" line key val
     [[ -r "$file" ]] || return 0
     while IFS= read -r line || [[ -n "$line" ]]; do
         line="${line%%#*}"
@@ -119,13 +78,6 @@ ut_read_config() {
         val="${line#*=}"
         while [[ "$key" == *[[:space:]] ]]; do key="${key%[[:space:]]}"; done
         while [[ "$val" == [[:space:]]* ]]; do val="${val#[[:space:]]}"; done
-        case " $CFG_RENAMED " in
-        *" $key:"*)
-            _new=" $CFG_RENAMED"
-            _new="${_new#* $key:}"
-            key="${_new%% *}"
-            ;;
-        esac
         [[ "$key" =~ ^TING_[A-Z0-9_]+$ ]] || continue
         case "$key" in
         TING_CONFIG | TING_ENGINE_DIR) continue ;;
@@ -144,13 +96,13 @@ ut_read_config() {
 # checkout missing part of itself is not a dependency gate (yt-dlp, jq and mpv still answer
 # --version without being installed) — it is a broken checkout, and 2 is the exit code for a
 # failure that is not the caller's usage error.
-if [[ ! -r "$UT_DEFAULTS" ]]; then
+if [[ ! -r "$SHIPPED_CONFIG" ]]; then
     printf '%s: cannot read the shipped defaults at %s — that file declares every default value in the suite and is not optional\n' \
-        "$(basename "$0")" "$UT_DEFAULTS" >&2
+        "$(basename "$0")" "$SHIPPED_CONFIG" >&2
     exit 2
 fi
-ut_read_config "$TING_CONFIG"
-ut_read_config "$UT_DEFAULTS"
+read_config "$TING_CONFIG"
+read_config "$SHIPPED_CONFIG"
 
 # ── PREFERENCE WRITE-BACK ───────────────────────────────────────────────────────────────
 # The eleven keys above are the ones this TUI changes at runtime, and they are written back to
@@ -174,7 +126,7 @@ ut_read_config "$UT_DEFAULTS"
 #               character lives in the RENDERER, and padding by bytes here would misalign
 #               every Chinese comment in a file that stays perfectly legal and reports nothing.
 #   ROUND TRIP  the only correctness test that matters: what is written must read back
-#               identically through ut_read_config. That is what pref_value_ok enforces.
+#               identically through read_config. That is what pref_value_ok enforces.
 PREF_DIRTY=""      # keys whose value has changed and is not on disk yet
 PREF_WRITE_OFF=0   # a write failed once; stop retrying at every tick
 PREF_SAID=""       # keys already refused out loud, so the notice is said once each
@@ -204,7 +156,7 @@ pref_listed() {
     return 1
 }
 
-# A value is acceptable only if ut_read_config would read it back UNCHANGED. The eleven are
+# A value is acceptable only if read_config would read it back UNCHANGED. The eleven are
 # enumerations and a number, so this never fires today; it is here so a twelfth key cannot
 # quietly write a line the loader mangles — `#` starts a comment, one matching quote pair is
 # stripped, surrounding space is trimmed and a leading ~/ becomes $HOME.
@@ -267,18 +219,6 @@ write_prefs() {
                 key="$lhs"
                 while [[ "$key" == [[:space:]]* ]]; do key="${key#[[:space:]]}"; done
                 while [[ "$key" == *[[:space:]] ]]; do key="${key%[[:space:]]}"; done
-                # An old name (CFG_RENAMED) is the same key: its line is rewritten under the
-                # new name, in place, which is the whole migration.
-                case " $CFG_RENAMED " in
-                *" $key:"*)
-                    k=" $CFG_RENAMED"
-                    k="${k#* $key:}"
-                    k="${k%% *}"
-                    lhs="${lhs%%"$key"*}$k${lhs#*"$key"}"
-                    line="$lhs=${line#*=}"
-                    key="$k"
-                    ;;
-                esac
                 # A commented-out line keeps its `#`, so its key never matches and it is
                 # carried through untouched — which is the right answer: the user disabled it.
                 if pref_listed "$key" "$keys" && ! pref_listed "$key" "$seen"; then
@@ -381,7 +321,7 @@ fi
 # The listening log, located the same way and just as optionally. HISTORY_BIN, not
 # TING_HISTORY: that name is already the player's set-once switch for whether a row is
 # written at all (ARCH-cli-contract.md「配置面」) — and like its two siblings above, an internal
-# does not wear the TING_ prefix, which ut_read_config accepts as settable.
+# does not wear the TING_ prefix, which read_config accepts as settable.
 # This file only READS it, and only when h is pressed — the writing is the player's, where
 # the fact "a track ended, and why" exists.
 HISTORY_BIN=""
@@ -436,14 +376,7 @@ engine_seen() {
     done
     return 1
 }
-if [[ -z "${TING_ENGINE_DIR:-}" ]]; then
-    if [[ -d "${XDG_DATA_HOME:-$HOME/.local/share}/uting/engines" ]] &&
-        [[ ! -d "${XDG_DATA_HOME:-$HOME/.local/share}/ting/engines" ]]; then
-        TING_ENGINE_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/uting/engines"
-    else
-        TING_ENGINE_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/ting/engines"
-    fi
-fi
+TING_ENGINE_DIR="${TING_ENGINE_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/ting/engines}"
 while IFS=$'\t' read -r _name _bin _flags; do
     [[ -n "$_name" ]] || continue
     ENGINES+=("$_name")
@@ -659,9 +592,8 @@ Keys (List View):
 Environment:
   Defaults for every knob below live in <checkout>/config, declared once for the whole
   suite. Override per user in ${XDG_CONFIG_HOME:-~/.config}/ting/config (KEY=value, one
-  per line, # comments; the pre-rename .../uting/config is read when there is no ting
-  one); TING_CONFIG relocates it (the old UT_CONFIG still does). Chain: flag >
-  environment > your config > the shipped defaults. See ARCH-cli-contract.md「配置面」.
+  per line, # comments); TING_CONFIG relocates it. Chain: flag > environment > your
+  config > the shipped defaults. See ARCH-cli-contract.md「配置面」.
   TING_ENGINE_DIR  Extra directory scanned for t-engine-<name> files, after t-play's own
                    directory and before PATH; an engine there is a source the
                    e key rotates through. A name already installed beside this file wins,
@@ -859,7 +791,7 @@ while (($#)); do
     # fork t-play and awk the last field out of its PROSE — a second command's help-line
     # format turned into a dependency, in a suite whose whole argument is that callers
     # branch on envelopes rather than parse sentences.
-    -V | --version) printf 'ting %s\n' "$UT_VERSION"; exit 0 ;;
+    -V | --version) printf 'ting %s\n' "$SUITE_VERSION"; exit 0 ;;
     --engine)
         [[ $# -ge 2 ]] || die "$1 requires a value"
         ENGINE="$2"; shift 2 ;;
@@ -928,10 +860,6 @@ refresh_engine_caps
 # The closed set, for the same reason as -s above.
 case "$PLAY_MODE" in audio | video | fast) ;; *) die "-f must be one of: audio, video, fast (ascii/viz need a terminal, which detached playback has none of)" ;; esac
 case "$COLOR_MODE" in auto | always | never) ;; *) die "--color must be one of: auto, always, never" ;; esac
-# `custom` was a theme until 0.18.0, and the t key wrote it back to user configs, so a file
-# can still name it. It reads as minimal for one version rather than locking the user out
-# over a word ting itself wrote.
-[[ "$THEME" == custom ]] && THEME=minimal
 theme_known "$THEME" || die "--theme must be one of: $THEME_NAMES_CSV"
 case "$BG_MODE" in auto | light | dark) ;; *) die "TING_BG must be one of: auto, light, dark" ;; esac
 if [[ -n "$PLAY_VOLUME" ]]; then

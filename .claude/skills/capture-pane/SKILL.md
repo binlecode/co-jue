@@ -143,6 +143,6 @@ relocates an index-based splice, and the diff looks like a doc rewrite.
   than no frame.
 - **`send-keys -l`** for literal filter text, or `n` becomes the new-search key.
 - **Version in a captured frame** comes from the `VERSION` file at the repo root (each entry
-  point reads it into its own `UT_VERSION`) — after a bump, re-capture anything showing it
+  point reads it into its own `SUITE_VERSION`) — after a bump, re-capture anything showing it
   rather than editing the number in the fence.
 - Scratch stays in `tmp/`. A cleaned frame is scratch too — the doc is where it lands.

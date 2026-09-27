@@ -529,7 +529,7 @@ JSON 开关只有一个：`-j` / `--json`。不存在第二种"更全的"JSON �
 auth 信封（`<engine>-resolve --auth -j`）—— 一行，不发包，也不跑 yt-dlp（只读本机的 cookie 文件一个字节）：
 - **`auth`** ∈ `cookie | anonymous` —— 调用方要渲染的那个摘要。
   它 `== "cookie"` 当且仅当 `cookie_browser != "none"` **且** `profile_found`。
-- **`cookie_browser`** = `<ENGINE>_COOKIE_BROWSER` 的原值（`chrome`、`safari`、`none`…），
+- **`cookie_browser`** = `TING_COOKIE_BROWSER` 的原值（`chrome`、`safari`、`none`…），
   引擎名大写就是那个变量名（「配置面」、「加一个引擎」）。
 - **`profile_found`** = 那个浏览器的 profile 目录在这台机器上在不在。
 - **`cookie_readable`** ∈ `true | false | null` —— 那份 cookie 库**这个进程读不读得出来**：
@@ -571,7 +571,7 @@ stopped_by_user | unknown | null(ok)`。**`cookies` 说的是本机，不是站�
 每个读 cookie 的动词自己就这么做（仅在分类为 `cookies` 时匿名重试一次），所以它只在匿名那次
 也失败时才会被看到的是**另一个** reason；在此之前它只能报成 `unknown`。
 **原因在信封里，怎么办在 stderr 里。** 分类为 `cookies` 时引擎往 stderr 写**一行**人话：
-丢了什么、为什么、怎么修（授权哪个终端 app、或设 `<ENGINE>_COOKIE_BROWSER=none`）。
+丢了什么、为什么、怎么修（授权哪个终端 app、或设 `TING_COOKIE_BROWSER=none`）。
 `-j` 下也写 —— 那是给人看的散文，不是契约，信封的形状一个字节不变；一次干净的调用 stderr 为空，
 所以"stderr 有字"本身就是"有件事该告诉用户"。**`network` 除了连通性之外也涵盖 HTTP 429 限流**：
 两者都是可重试的，而那是调用方在它上面唯一会走的分支，
@@ -812,10 +812,10 @@ search、resolve、`--info`、`--transcript`、`-d`、`--status`、`--stop`、`-
 一个缺了自己一部分的 checkout 不是**依赖门** —— yt-dlp / jq / mpv 没装时 `--version`
 照样答 —— 它是坏 checkout。
 
-**用户自己的文件是 `${XDG_CONFIG_HOME:-~/.config}/ting/config`**（不存在则回退到改名前的 `.../uting/config`），没有扩展名，
+**用户自己的文件是 `${XDG_CONFIG_HOME:-~/.config}/ting/config`**，没有扩展名，
 和 `yt-dlp` 自己的 `~/.config/yt-dlp/config` 同一个拼法：格式是平的 `KEY=value`，
 一个 `.toml`/`.yml` 会承诺这个套件加不了解析器（那是一条运行时依赖）的结构。
-它被**先**读，所以它压过出厂默认值。`TING_CONFIG`（或 `TING_CONFIG`）换掉这个路径，而且**只能从环境**来 ——
+它被**先**读，所以它压过出厂默认值。`TING_CONFIG` 换掉这个路径，而且**只能从环境**来 ——
 一个文件不能搬动自己，两个测试套件正是靠它从不去读用户真实的配置。
 **出厂那份没有任何命令会写。用户那份由 `ting` 写回十一个键** —— 见下面「写回」。
 
@@ -839,10 +839,8 @@ search、resolve、`--info`、`--transcript`、`-d`、`--status`、`--stop`、`-
   注释列**刻意不重排** —— 会重排的实现要去依赖那个知道一个中文注释每字两格的宽度层，
   而宽度层住在渲染路径里；按字节补齐会把中文注释全部错位，并且文件仍然合法、什么都不报。
   文件里没有的键**追加**一行到末尾；文件本身不存在就建目录、写一个三行表头再追加。
-  改名或合并掉的旧键名（`YT_THEME`、`UT_START_RESULTS`……）那一行照同样的规矩就地改成新键名，
-  不论这一次写不写它的值 —— 这就是全部迁移。
 - **值必须能原样读回来。** 唯一的正确性判据是 round-trip：写下去的东西必须能被
-  `ut_read_config` 一字不差地读回来，所以含 `#`、引号、换行、首尾空白或开头 `~/` 的值
+  `read_config` 一字不差地读回来，所以含 `#`、引号、换行、首尾空白或开头 `~/` 的值
   会被拒绝（这十一个的值域是枚举和数字，今天到不了这条闸；它为第十二个键存在）。
 - **被环境变量压住的键拒绝写，并在屏幕上说一次。** 环境每次启动都压过文件，
   所以写下去就是记一个程序下次读到、然后扔掉的值 —— 一份记着自己会被忽略的值的文件在撒谎，
@@ -869,9 +867,8 @@ search、resolve、`--info`、`--transcript`、`-d`、`--status`、`--stop`、`-
 开头的 `~/` 展开成 `$HOME`。这个文件是**当数据读的，绝不 source** ——
 一个会被执行的配置文件可以运行任何东西，而这个套件的整个安全故事就是它的输入是数据；
 `eval` 从一个变量赋值，从不从那一行赋值，所以 `TING_X=$(cmd)` 存下的就是那九个字符。
-**文件里只认 `TING_` 开头的键**（正则 `^TING_[A-Z0-9_]+$`；旧的 `UT_`/`YT_`/`BILI_`/`NE_` 键名先按改名表
-换成新名再过这道正则），于是一个文件永远够不到 `PATH`、`TMPDIR` 或 `LD_PRELOAD`，也够不到任何常量：
-`UT_VERSION`（从 `VERSION` 那一行读进来的）与 `UT_DEFAULTS`（出厂文件自己的路径）拼在命名空间之外。
+**文件里只认 `TING_` 开头的键**（正则 `^TING_[A-Z0-9_]+$`），于是一个文件永远够不到 `PATH`、`TMPDIR` 或 `LD_PRELOAD`，也够不到任何常量：
+`SUITE_VERSION`（从 `VERSION` 那一行读进来的）与 `SHIPPED_CONFIG`（出厂文件自己的路径）拼在命名空间之外。
 引擎键住在 `TING_<ENGINE>_` 之下，所以**加一个引擎不加前缀**，仓外引擎也有合法的键名可用。
 播放器为自己 detached 子进程设的那四个拼成 `_TING_*`：前导下划线把它们放在命名空间**之外**，
 一个文件级的 `_TING_IPC_SOCK`（本会把每一个播放器都指向同一个 socket）被正则本身挡掉，不必进拒收名单。
@@ -947,29 +944,11 @@ engine:bili / engine:ne），分组与名字说的是同一件事。
   一个终端而一次 Linux 移植不该需要第二套布局；播放器的 `$TMPDIR/ting-<uid>` 重启即抹。
   它不是方便旋钮：两个测试套件都设它，不设就会写进用户真实的存储。
 
-**一个前缀，`TING_`。** 从前是五套：`YT_` 最早（而且一身两义 —— `YT_THEME` 属于套件，
-`YT_AUDIO_FORMAT` 属于 YouTube 引擎），`UT_` 是套件还叫 `uting` 时的套件级前缀，`BILI_`、`NE_`
-各是一个引擎的，`TING_` 是改名之后的正名。当初不清算的理由是改名会弄坏用户的配置；
-旧名兜底一个版本、写回时就地改名之后这个代价没了，而一身两义的 `YT_` 与"加一个引擎就要给
-载入块加一个前缀"的代价一直都在。`TING_CONFIG` 不在改名表上：它决定之后要读哪个文件，
-所以在表之前手写一次（`TING_CONFIG`，没有才看旧的 `UT_CONFIG`）。
-
-**三条路径同样是两名链：新名先看，旧名兜底。** `${XDG_CONFIG_HOME:-~/.config}/ting/config`
-→ `.../uting/config`；`${XDG_STATE_HOME:-~/.local/state}/ting` → `.../uting`；
-`${XDG_DATA_HOME:-~/.local/share}/ting/engines` → `.../uting/engines`。判据是那个文件或目录
-**在不在**，不是版本号：改名前就在用的人不必搬家，新装的人也不会生在旧目录里。
-这三条平时没有任何检查会走到 —— 别的检查都把旋钮指向临时目录 —— 所以
-`tests/contract.sh` 专门造一个只放旧拼法的 XDG 根来驱动它们。
-
-**改名与合并的键，旧名兜底一个版本。** 改名：`YT_THEME` → `TING_THEME` 一类的套件键，
-`YT_AUDIO_FORMAT` → `TING_YT_AUDIO_FORMAT` 一类的引擎键；合并：`UT_START_RESULTS` 并进了
-`TING_SEARCH_RESULTS`，`YT_`/`BILI_`/`NE_COOKIE_BROWSER` 并进了 `TING_COOKIE_BROWSER`。全部旧名 → 新名
-写在载入块里的一张表上（`CFG_RENAMED`），不按前缀规则推 —— `YT_` 一半归套件一半归引擎，规则推不出来。
-载入块在文件里读到旧名就当新名收，环境里的旧名只在新名没设时补上 —— 所以写着旧名的用户配置照样生效，
-而且因为用户那份先读，它照样压过出厂默认值。**两个名字都在时新名赢**：那是本节承诺的名字。
-早先一版两名镜像只补缺失的一侧，两边都设时留下的恰好是旧名；`tests/contract.sh` 拿"两个都设"这一种
-输入把它钉死，因为那是别的检查都发现不了的输入。`ting` 写回时再把旧名那一行就地改成新名，
-不论这一次写不写它的值，第一次写回就迁完。
+**一个前缀，`TING_`，没有旧名。** 从前是五套前缀：`YT_` 最早而且一身两义（套件的主题与 YouTube
+引擎的格式都戴它），`BILI_`、`NE_` 各是一个引擎的，另有套件改名前的一套。前缀统一时连旧名兜底一起
+不要：兜底是一张要一直维护、一直测、一直写文档的改名表，而用户要做的只是把自己那份配置里的键名
+改一次（改名那天顺手改掉了）。路径同理：配置、存储、引擎目录各只有一个，不找改名前的目录。
+不认识的键就是一行不读的字，不报错 —— 与文件里任何别的未知键同一条规矩。
 
 Cookie 处理：`TING_COOKIE_BROWSER` 是按平台做存在性检查的（那个浏览器的 profile 目录在不在）；
 不在的话，抽取就不带 cookie 地跑，而不是坏掉。在浏览器还开着时读它的 cookie 数据库

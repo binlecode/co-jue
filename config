@@ -21,8 +21,7 @@
 #   literally: this file is READ AS DATA, never sourced as shell, so `TING_X=$(cmd)` stores
 #   those characters rather than running anything.
 #
-#   Only TING_ keys are read, so no config can reach PATH, TMPDIR or LD_PRELOAD. An old
-#   UT_ / YT_ / BILI_ / NE_ name still reads, one version, as the TING_ key that replaced it.
+#   Only TING_ keys are read, so no config can reach PATH, TMPDIR or LD_PRELOAD.
 #   TING_ENGINE_DIR wears an allowed prefix and would be the exception — it names a directory of
 #   programs the suite RUNS — so it is refused from both config files and read from the
 #   environment only. See the block at the end of this header.
@@ -171,8 +170,8 @@ TING_NE_INCLUDE_VIP=0               # 1 = ne's search also returns rows whose ac
 
 # ── not settable here ───────────────────────────────────────────────────────────────────
 # TING_CONFIG relocates the user config file, so it can only come from the environment, and
-# UT_DEFAULTS — this file's own path — is not settable at all: each entry point derives it
-# from its resolved location. UT_VERSION is the VERSION line read in from the root — what
+# SHIPPED_CONFIG — this file's own path — is not settable at all: each entry point derives it
+# from its resolved location. SUITE_VERSION is the VERSION line read in from the root — what
 # `--version` answers is not a setting. TING_CONFIG is refused if written here; the other two,
 # like the player's _TING_IPC_SOCK, _TING_DETACHED, _TING_PLAYER_ID and _TING_DETACHED_LOG
 # (set for its own detached child), are not keys at all: they are spelled outside TING_.

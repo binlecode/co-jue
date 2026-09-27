@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - 🔴 **bash 3.2 是硬性冻结底线**：macOS 系统自带 `/bin/bash` 是唯一运行基准。严禁使用 bash 4+ 特性（`declare -A` 关联数组、`${var,,}`/`${var^^}`、`mapfile`/`readarray`、`${arr[-1]}`、`&>>`、`|&`、`${!prefix@}`）。在 `set -u` 下展开空数组必须写为 `${arr[@]+"${arr[@]}"}` 或前置判断 `((${#arr[@]}))`；模式替换 `${var//pat/}` 存在多字节二次方耗时陷阱，严禁在热路径使用。
 - 🔴 **零新增运行时依赖**：外部依赖严格锁定为五个（`yt-dlp`、`jq`、`mpv`、带 `-U` 的 `nc`、`curl`；`openssl` 仅限 `ne-search` 引擎局部加密使用）。严禁为任何功能引入 `socat`、`chafa`、`img2sixel`、`fzf` 等新依赖。
 - 🔴 **CLI 契约本身就是产品与安全边界**：本套件不设 MCP 包装层，面向 Agent 直接暴露可执行命令；退出码严格遵循四级分类法（`0` 成功 / `1` 命令行用法错 / `2+` 外部工具透传失败 / `4` 业务语义未生效）。任何功能改动均严禁静默修改既有信封字段或退出码分配。
-- 🔴 **状态目录与临时文件严格隔离**：运行时临时目录必须收容在 `$TMPDIR/ting-<uid>/`，持久化状态仅限 `$TING_STATE_DIR`（旧名 `$UT_STATE_DIR` 仍受理；默认 `~/.local/state/ting/`，改名前的 `~/.local/state/uting/` 在没有新目录时继续沿用），脚本自测临时产物一律限在 `tmp/` 下，严禁向源码树写脏文件。
+- 🔴 **状态目录与临时文件严格隔离**：运行时临时目录必须收容在 `$TMPDIR/ting-<uid>/`，持久化状态仅限 `$TING_STATE_DIR`（默认 `~/.local/state/ting/`），脚本自测临时产物一律限在 `tmp/` 下，严禁向源码树写脏文件。
 
 ---
 
@@ -87,7 +87,7 @@ shell/ting --version                                      # 响应版本（不�
 - **站点知识与播放生命周期彻底隔离**：播放器 `t-play` 绝不直接运行 `yt-dlp`，不知道站点 Cookie 或格式代码；通过拼接命令名调用 `<engine>-resolve -j` 获取最终流媒体 URL 及 HTTP 请求头，以 `--no-ytdl` 注入 `mpv`。
 - **单视图原地重绘**：`ting` 仅拥有一套统一的滚动渲染视图，无全屏清屏闪烁；所有非搜索数据（歌单 `b`、历史 `h`、分 P `c`、章节 `i`）均作为“临时替换行源”接入该视图。
 - **多字节与 CJK 精确宽度**：按键处理以单字节累积并由 `utf8_complete` 还原字符；显示宽度由 `disp_w` 按 EAW 表准确分配，保证不同终端与语言下绝对不撕裂排版。
-- **配置继承链与偏好写回**：配置查找按 `Flag > Env > User Config (~/.config/ting/config) > Shipped Config` 顺序继承；键一律 `TING_` 前缀（引擎键 `TING_<ENGINE>_*`），改名前的旧键名兜底一个版本；`config`、`state`、`engines` 三处路径是「新目录优先、旧目录兜底」的两名链。出厂 `config` 永远只读，`ting` 退出时将 11 个偏好键写回用户个人配置文件。
+- **配置继承链与偏好写回**：配置查找按 `Flag > Env > User Config (~/.config/ting/config) > Shipped Config` 顺序继承；键一律 `TING_` 前缀（引擎键 `TING_<ENGINE>_*`），不设任何旧名或旧路径兜底。出厂 `config` 永远只读，`ting` 退出时将 11 个偏好键写回用户个人配置文件。
 
 ---
 

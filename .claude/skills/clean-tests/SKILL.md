@@ -77,13 +77,13 @@ To prevent boilerplate inflation and over-engineering, every test in `ting` must
 | 2 | 🟢 | **Delegation** | **Fixture bypassing writer** | Hand-crafted JSON string literals (e.g. `ENV_JSON='{"status":"ok",...}'`) fed into stores or player queues. | Rebuild fixture by piping output from real production writer (`t-play`, `t-playlist`, `t-history`) |
 | 3 | 🟡 | **Boundary** | **Private boundary leak** | Calling `shell/t-engine-*` directly for public verbs (`--search`, `--info`, `--items`, `--transcript`, `--auth`) instead of `t-play`. | Reroute call through `shell/t-play` public interface |
 | 4 | 🔴 | **Boundary** | **Test isolation leak** | Writes to real `~/.config/ting`, `~/.local/state/ting` outside `TMPDIR`; unisolated `drive.sh` mutating user playlists. | Enforce scratch `TMPDIR`, `TING_CONFIG`, and `TING_STATE_DIR` on all test and driver runs |
-| 5 | 🟢 | **Boundary** | **Backward-compat shim** | Testing that deleted flags stay removed (`-J`, `-l`, `-S`), or testing expired migration aliases (`YT_COOKIE_BROWSER`, `UT_START_RESULTS`). | Delete negative checks per zero-compat policy |
+| 5 | 🟢 | **Boundary** | **Backward-compat shim** | Testing that deleted flags stay removed (`-J`, `-l`, `-S`), or testing expired migration aliases (`YT_COOKIE_BROWSER`, any pre-`TING_` key name). | Delete negative checks per zero-compat policy |
 | 6 | 🟡 | **Boundary** | **Library / tool behavior** | Tests third-party tool semantics (e.g. `jq` filter syntax, `curl` HTTP codes, `bash` features) rather than `ting` contracts. | Delete or refocus on `ting` domain contract |
 | 7 | 🟡 | **Contract** | **Vacuous assertion** | Asserting exit code alone without checking stdout/stderr when multiple different errors share exit code 1 or 4. | Strengthen with `err_has` or envelope `.reason` check |
 | 8 | 🔴 | **Contract** | **Always-green flaws** | Direct piping into `grep` under `set -o pipefail` where a failing command masks the grep result; empty engine loops. | Use `err_has` helper; enforce `[ "$NENG" -ge 2 ]` and count-based report |
 | 9 | 🟡 | **Contract** | **Structural-only / weak** | Loose inequalities (`!= 1`, `.exit_code > 0`), mere field presence (`.id and .sock`), or `ok`/`bad` bypassing `<want> <got>`. | Strengthen to exact exit code (e.g. `2`), exact `.status == "started"`, and `report` diffs |
 | 10 | 🟡 | **Delegation** | **Timeout discipline** | Bare fixed `sleep` (e.g. `sleep 0.6`, `sleep 0.5`) guessing timing instead of polling real signals. | Replace with bounded `poll_until` loop checking concrete signals |
-| 11 | 🟡 | **Delegation** | **Config discipline** | Tests inheriting developer's exported `TING_*` or `UT_*` environment variables, altering execution silently. | Sweep and unset `compgen -v | grep '^(TING_\|UT_)'` in test suite prelude |
+| 11 | 🟡 | **Delegation** | **Config discipline** | Tests inheriting developer's exported `TING_*` environment variables, altering execution silently. | Sweep and unset `compgen -v | grep '^TING_'` in test suite prelude |
 | 12 | 🟢 | **Contract** | **Subsumed & fragmented** | Spawning separate subshells for 10 identical scalar invalid inputs that hit the same regex/validator branch. | Consolidate into concise parameterized or scenario flow via Graft-then-delete |
 
 > **Suppression Annotation:** A deliberate exception (e.g. background PID-holder process) must carry `# clean-tests: allow-<rule> (<reason>)` inline so the scanner skips it without false alerts.
@@ -115,10 +115,10 @@ grep -rn 'ENV_JSON=' tests/
 grep -rnE 'shell/t-engine-\w+[[:space:]]+--(search|info|items|transcript|auth)' tests/
 
 # 5. Backward-compat shims and dead aliases (Rule 5)
-grep -rnE '(YT_COOKIE_BROWSER|BILI_COOKIE_BROWSER|NE_COOKIE_BROWSER|UT_START_RESULTS)' tests/
+grep -rnE '(YT_COOKIE_BROWSER|BILI_COOKIE_BROWSER|NE_COOKIE_BROWSER)' tests/
 
 # 6. Test isolation leaks (Rule 4)
-grep -rn 'UT_STATE_DIR is deliberately NOT redirected' tests/
+grep -rn 'TING_STATE_DIR is deliberately NOT redirected' tests/
 ```
 
 ---

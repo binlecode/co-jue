@@ -26,7 +26,7 @@ RULES = {
     "R8_ALWAYS_GREEN": ("Rule 8: Always-green flaw (pipefail masking error, empty loop)", SEVERITY_BLOCKER),
     "R9_WEAK_ASSERT": ("Rule 9: Structural-only or weak assertion (loose inequalities, exit_code > 0)", SEVERITY_WARNING),
     "R10_TIMEOUT": ("Rule 10: Bare fixed sleep guessing time instead of bounded signal polling", SEVERITY_WARNING),
-    "R11_CONFIG": ("Rule 11: Missing environment sweep (inherited TING_/UT_ vars)", SEVERITY_WARNING),
+    "R11_CONFIG": ("Rule 11: Missing environment sweep (inherited TING_ vars)", SEVERITY_WARNING),
     "R12_SUBSUMED": ("Rule 12: Clustered micro-test or redundant branch check", SEVERITY_INFO),
 }
 
@@ -98,11 +98,11 @@ def audit_file(filepath: str) -> List[Finding]:
             ))
 
         # R4: Isolation leak
-        if is_drive and "UT_STATE_DIR is deliberately NOT redirected" in raw_line:
+        if is_drive and "TING_STATE_DIR is deliberately NOT redirected" in raw_line:
             rule_desc, sev = RULES["R4_ISOLATION_LEAK"]
             findings.append((
                 "R4_ISOLATION_LEAK", filepath, idx, line,
-                "UT_STATE_DIR is left unredirected; playlist-editing keys will mutate real user store.",
+                "TING_STATE_DIR is left unredirected; playlist-editing keys will mutate real user store.",
                 sev
             ))
 
@@ -112,13 +112,6 @@ def audit_file(filepath: str) -> List[Finding]:
             findings.append((
                 "R5_COMPAT_SHIM", filepath, idx, line,
                 "Testing legacy per-engine cookie browser knobs; should be retired per zero-compat policy.",
-                sev
-            ))
-        if re.search(r"\bUT_START_RESULTS\b", line):
-            rule_desc, sev = RULES["R5_COMPAT_SHIM"]
-            findings.append((
-                "R5_COMPAT_SHIM", filepath, idx, line,
-                "Testing deprecated UT_START_RESULTS alias for UT_SEARCH_RESULTS.",
                 sev
             ))
 

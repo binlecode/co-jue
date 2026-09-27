@@ -58,51 +58,19 @@ SCRIPT_DIR=$(cd -P "$(dirname "$_self")" && pwd -P)
 # any one of them would make the others ask IT for the version, which is the wrong
 # dependency direction for a player that must not know its engines. CLAUDE.md § one fact, one place.
 if [[ -r "$SCRIPT_DIR/../VERSION" ]]; then
-    UT_VERSION=$(cat "$SCRIPT_DIR/../VERSION")
+    SUITE_VERSION=$(cat "$SCRIPT_DIR/../VERSION")
 else
-    UT_VERSION="unknown"
+    SUITE_VERSION="unknown"
 fi
 
 # CONFIGURATION — the chain is flag > environment > the user's config > the shipped defaults
 # in `<checkout>/config`, which is where every default value in the suite is declared once.
 # Duplicated VERBATIM in every entry point — see the same block in t-play for why, and
 # ARCH-cli-contract.md「配置面」 for the keys.
-TING_CONFIG="${TING_CONFIG:-${UT_CONFIG:-}}"
-if [[ -z "$TING_CONFIG" ]]; then
-    if [[ -r "${XDG_CONFIG_HOME:-$HOME/.config}/ting/config" ]]; then
-        TING_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/ting/config"
-    else
-        TING_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/uting/config"
-    fi
-fi
-# Renamed and merged keys, OLD:NEW. The old name still reads, one version, into the key that
-# replaced it: from the environment here (only while the new name is unset, so the new name
-# wins), from a file in ut_read_config, and ting's write-back renames the line in place. A
-# renamed name comes before a merged one, so when both are set the renamed one wins. Not a
-# knob, so not spelled TING_.
-CFG_RENAMED="UT_STATE_DIR:TING_STATE_DIR UT_ENGINE_DIR:TING_ENGINE_DIR UT_HISTORY:TING_HISTORY \
-    UT_DEFAULT_ENGINE:TING_DEFAULT_ENGINE UT_SEARCH_RESULTS:TING_SEARCH_RESULTS \
-    UT_COOKIE_BROWSER:TING_COOKIE_BROWSER UT_SORT_FIELD:TING_SORT_FIELD \
-    UT_PLAY_MODE:TING_PLAY_MODE UT_VOLUME:TING_VOLUME UT_PLAY_QUALITY:TING_PLAY_QUALITY \
-    UT_VIZ_STYLE:TING_VIZ_STYLE UT_VIZ_COLOR:TING_VIZ_COLOR UT_PAGE_ROWS:TING_PAGE_ROWS \
-    UT_FETCH_BATCH:TING_FETCH_BATCH UT_LOOP_MODE:TING_LOOP_MODE UT_RESOURCE:TING_RESOURCE \
-    UT_KEYS:TING_KEYS UT_LIST_MODE:TING_LIST_MODE UT_ROW_INDEX:TING_ROW_INDEX UT_IMAGE:TING_IMAGE \
-    UT_START_RESULTS:TING_SEARCH_RESULTS YT_COOKIE_BROWSER:TING_COOKIE_BROWSER \
-    BILI_COOKIE_BROWSER:TING_COOKIE_BROWSER NE_COOKIE_BROWSER:TING_COOKIE_BROWSER \
-    YT_THEME:TING_THEME YT_LANG:TING_LANG YT_ASCII:TING_ASCII YT_ASCII_VO:TING_ASCII_VO \
-    YT_MPV_INPUT_CONF:TING_MPV_INPUT_CONF YT_BG:TING_BG YT_SYNC:TING_SYNC \
-    YT_AMBIG_WIDE:TING_AMBIG_WIDE YT_AUDIO_FORMAT:TING_YT_AUDIO_FORMAT \
-    YT_VIDEO_FORMAT:TING_YT_VIDEO_FORMAT YT_VIDEO_FORMAT_FAST:TING_YT_VIDEO_FORMAT_FAST \
-    YT_SUB_LANG_CHAIN:TING_YT_SUB_LANG_CHAIN BILI_AUDIO_FORMAT:TING_BILI_AUDIO_FORMAT \
-    BILI_VIDEO_FORMAT:TING_BILI_VIDEO_FORMAT BILI_VIDEO_FORMAT_FAST:TING_BILI_VIDEO_FORMAT_FAST \
-    BILI_UA:TING_BILI_UA BILI_BUVID:TING_BILI_BUVID NE_AUDIO_FORMAT:TING_NE_AUDIO_FORMAT \
-    NE_UA:TING_NE_UA NE_INCLUDE_VIP:TING_NE_INCLUDE_VIP"
-for _v in $CFG_RENAMED; do
-    eval "[[ -n \"\${${_v%%:*}+x}\" && -z \"\${${_v#*:}+x}\" ]] && ${_v#*:}=\"\$${_v%%:*}\" || true"
-done
-UT_DEFAULTS="$SCRIPT_DIR/../config"
-ut_read_config() {
-    local file="$1" line key val _new
+TING_CONFIG="${TING_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/ting/config}"
+SHIPPED_CONFIG="$SCRIPT_DIR/../config"
+read_config() {
+    local file="$1" line key val
     [[ -r "$file" ]] || return 0
     while IFS= read -r line || [[ -n "$line" ]]; do
         line="${line%%#*}"
@@ -113,13 +81,6 @@ ut_read_config() {
         val="${line#*=}"
         while [[ "$key" == *[[:space:]] ]]; do key="${key%[[:space:]]}"; done
         while [[ "$val" == [[:space:]]* ]]; do val="${val#[[:space:]]}"; done
-        case " $CFG_RENAMED " in
-        *" $key:"*)
-            _new=" $CFG_RENAMED"
-            _new="${_new#* $key:}"
-            key="${_new%% *}"
-            ;;
-        esac
         [[ "$key" =~ ^TING_[A-Z0-9_]+$ ]] || continue
         case "$key" in
         TING_CONFIG | TING_ENGINE_DIR) continue ;;
@@ -137,13 +98,13 @@ ut_read_config() {
 # clear line with `TING_ASCII_VO: unbound variable` from set -u somewhere further down. A
 # checkout missing part of itself is not a dependency gate — it is a broken checkout, and 2 is
 # the exit code for a failure that is not the caller's usage error.
-if [[ ! -r "$UT_DEFAULTS" ]]; then
+if [[ ! -r "$SHIPPED_CONFIG" ]]; then
     printf '%s: cannot read the shipped defaults at %s — that file declares every default value in the suite and is not optional\n' \
-        "$(basename "$0")" "$UT_DEFAULTS" >&2
+        "$(basename "$0")" "$SHIPPED_CONFIG" >&2
     exit 2
 fi
-ut_read_config "$TING_CONFIG"
-ut_read_config "$UT_DEFAULTS"
+read_config "$TING_CONFIG"
+read_config "$SHIPPED_CONFIG"
 
 # The engine's own name, as it appears in every envelope AND as the suffix of this file's
 # name. Name == suffix is deliberate: it lets `t-play --engine bili` find `t-engine-bili` by
@@ -157,8 +118,8 @@ PROG="t-engine-bili"
 
 # THE ENDPOINTS. Every one of them is a public web endpoint, and none takes a credential.
 #
-# UNPREFIXED, every one: the prefix IS config reachability — ut_read_config accepts every
-# TING_ name that is not in its refusal list, and every old name on CFG_RENAMED — so a
+# UNPREFIXED, every one: the prefix IS config reachability — read_config accepts every
+# TING_ name that is not in its refusal list — so a
 # TING_BILI_ spelling would be taken off disk and then silently overwritten by the line that
 # declares it. A constant must not
 # wear a settable name. ARCHITECTURE.md「两个根数据文件」.
@@ -2151,7 +2112,7 @@ while (($#)); do
     -V | --version)
         # Answered before ANY dependency gate: a version is the first thing a bug report
         # needs, and needing curl or yt-dlp installed to find out which you have is backwards.
-        printf '%s %s\n' "$PROG" "$UT_VERSION"
+        printf '%s %s\n' "$PROG" "$SUITE_VERSION"
         exit 0
         ;;
     -j | --json)

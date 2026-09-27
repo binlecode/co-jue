@@ -36,9 +36,9 @@ SCRIPT_DIR=$(cd -P "$(dirname "$_self")" && pwd -P)
 # direction for a player that must not know its engines. A one-line file each reads keeps
 # "one fact, one place" with zero code sharing. CLAUDE.md § one fact, one place.
 if [[ -r "$SCRIPT_DIR/../VERSION" ]]; then
-    UT_VERSION=$(cat "$SCRIPT_DIR/../VERSION")
+    SUITE_VERSION=$(cat "$SCRIPT_DIR/../VERSION")
 else
-    UT_VERSION="unknown"
+    SUITE_VERSION="unknown"
 fi
 
 # CONFIGURATION — TWO FILES, FOUR LAYERS. Set-once tuning arrives from a file as well as the
@@ -66,9 +66,8 @@ fi
 # stripped, a leading ~/ expanded. Deliberately NOT sourced as shell: a config file that is
 # executed can run anything, and this suite's safety story is that its inputs are DATA.
 # `eval` assigns from a variable, never from the line, so `TING_X=$(cmd)` stores those nine
-# characters. Only TING_ keys are read (an old UT_/YT_/BILI_/NE_ name is first renamed
-# through CFG_RENAMED below), so no file can reach PATH, TMPDIR or LD_PRELOAD. Nor can it reach
-# a constant: UT_VERSION (the VERSION line read in above) and UT_DEFAULTS are spelled outside
+# characters. Only TING_ keys are read, so no file can reach PATH, TMPDIR or LD_PRELOAD. Nor can it reach
+# a constant: SUITE_VERSION (the VERSION line read in above) and SHIPPED_CONFIG are spelled outside
 # the namespace, and so are the four the player sets for its own detached child — _TING_*,
 # the leading underscore is the point: a file-level _TING_IPC_SOCK would aim every player at
 # one socket. Two names inside the namespace are refused. TING_CONFIG, because a file cannot
@@ -85,42 +84,10 @@ fi
 # entry point: independent executables share no library, and a byte-for-byte copy is
 # greppable for drift where a sourced file would invert the dependency direction the VERSION
 # data file exists to keep straight.
-TING_CONFIG="${TING_CONFIG:-${UT_CONFIG:-}}"
-if [[ -z "$TING_CONFIG" ]]; then
-    if [[ -r "${XDG_CONFIG_HOME:-$HOME/.config}/ting/config" ]]; then
-        TING_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/ting/config"
-    else
-        TING_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/uting/config"
-    fi
-fi
-# Renamed and merged keys, OLD:NEW. The old name still reads, one version, into the key that
-# replaced it: from the environment here (only while the new name is unset, so the new name
-# wins), from a file in ut_read_config, and ting's write-back renames the line in place. A
-# renamed name comes before a merged one, so when both are set the renamed one wins. Not a
-# knob, so not spelled TING_.
-CFG_RENAMED="UT_STATE_DIR:TING_STATE_DIR UT_ENGINE_DIR:TING_ENGINE_DIR UT_HISTORY:TING_HISTORY \
-    UT_DEFAULT_ENGINE:TING_DEFAULT_ENGINE UT_SEARCH_RESULTS:TING_SEARCH_RESULTS \
-    UT_COOKIE_BROWSER:TING_COOKIE_BROWSER UT_SORT_FIELD:TING_SORT_FIELD \
-    UT_PLAY_MODE:TING_PLAY_MODE UT_VOLUME:TING_VOLUME UT_PLAY_QUALITY:TING_PLAY_QUALITY \
-    UT_VIZ_STYLE:TING_VIZ_STYLE UT_VIZ_COLOR:TING_VIZ_COLOR UT_PAGE_ROWS:TING_PAGE_ROWS \
-    UT_FETCH_BATCH:TING_FETCH_BATCH UT_LOOP_MODE:TING_LOOP_MODE UT_RESOURCE:TING_RESOURCE \
-    UT_KEYS:TING_KEYS UT_LIST_MODE:TING_LIST_MODE UT_ROW_INDEX:TING_ROW_INDEX UT_IMAGE:TING_IMAGE \
-    UT_START_RESULTS:TING_SEARCH_RESULTS YT_COOKIE_BROWSER:TING_COOKIE_BROWSER \
-    BILI_COOKIE_BROWSER:TING_COOKIE_BROWSER NE_COOKIE_BROWSER:TING_COOKIE_BROWSER \
-    YT_THEME:TING_THEME YT_LANG:TING_LANG YT_ASCII:TING_ASCII YT_ASCII_VO:TING_ASCII_VO \
-    YT_MPV_INPUT_CONF:TING_MPV_INPUT_CONF YT_BG:TING_BG YT_SYNC:TING_SYNC \
-    YT_AMBIG_WIDE:TING_AMBIG_WIDE YT_AUDIO_FORMAT:TING_YT_AUDIO_FORMAT \
-    YT_VIDEO_FORMAT:TING_YT_VIDEO_FORMAT YT_VIDEO_FORMAT_FAST:TING_YT_VIDEO_FORMAT_FAST \
-    YT_SUB_LANG_CHAIN:TING_YT_SUB_LANG_CHAIN BILI_AUDIO_FORMAT:TING_BILI_AUDIO_FORMAT \
-    BILI_VIDEO_FORMAT:TING_BILI_VIDEO_FORMAT BILI_VIDEO_FORMAT_FAST:TING_BILI_VIDEO_FORMAT_FAST \
-    BILI_UA:TING_BILI_UA BILI_BUVID:TING_BILI_BUVID NE_AUDIO_FORMAT:TING_NE_AUDIO_FORMAT \
-    NE_UA:TING_NE_UA NE_INCLUDE_VIP:TING_NE_INCLUDE_VIP"
-for _v in $CFG_RENAMED; do
-    eval "[[ -n \"\${${_v%%:*}+x}\" && -z \"\${${_v#*:}+x}\" ]] && ${_v#*:}=\"\$${_v%%:*}\" || true"
-done
-UT_DEFAULTS="$SCRIPT_DIR/../config"
-ut_read_config() {
-    local file="$1" line key val _new
+TING_CONFIG="${TING_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/ting/config}"
+SHIPPED_CONFIG="$SCRIPT_DIR/../config"
+read_config() {
+    local file="$1" line key val
     [[ -r "$file" ]] || return 0
     while IFS= read -r line || [[ -n "$line" ]]; do
         line="${line%%#*}"
@@ -131,13 +98,6 @@ ut_read_config() {
         val="${line#*=}"
         while [[ "$key" == *[[:space:]] ]]; do key="${key%[[:space:]]}"; done
         while [[ "$val" == [[:space:]]* ]]; do val="${val#[[:space:]]}"; done
-        case " $CFG_RENAMED " in
-        *" $key:"*)
-            _new=" $CFG_RENAMED"
-            _new="${_new#* $key:}"
-            key="${_new%% *}"
-            ;;
-        esac
         [[ "$key" =~ ^TING_[A-Z0-9_]+$ ]] || continue
         case "$key" in
         TING_CONFIG | TING_ENGINE_DIR) continue ;;
@@ -156,13 +116,13 @@ ut_read_config() {
 # checkout missing part of itself is not a dependency gate (yt-dlp, jq and mpv still answer
 # --version without being installed) — it is a broken checkout, and 2 is the exit code for a
 # failure that is not the caller's usage error.
-if [[ ! -r "$UT_DEFAULTS" ]]; then
+if [[ ! -r "$SHIPPED_CONFIG" ]]; then
     printf '%s: cannot read the shipped defaults at %s — that file declares every default value in the suite and is not optional\n' \
-        "$(basename "$0")" "$UT_DEFAULTS" >&2
+        "$(basename "$0")" "$SHIPPED_CONFIG" >&2
     exit 2
 fi
-ut_read_config "$TING_CONFIG"
-ut_read_config "$UT_DEFAULTS"
+read_config "$TING_CONFIG"
+read_config "$SHIPPED_CONFIG"
 # Path to this script, used to re-exec a detached playback child (see detach_play).
 SELF="${BASH_SOURCE[0]}"
 
@@ -427,9 +387,8 @@ Dependencies: mpv (playback) + jq; a unix-socket netcat — BSD/OpenBSD 'nc -U' 
 Environment:
   Defaults for every knob below live in <checkout>/config, declared once for the whole
   suite. Override per user in \${XDG_CONFIG_HOME:-~/.config}/ting/config (KEY=value, one
-  per line, # comments; the pre-rename .../uting/config is read when there is no ting
-  one); TING_CONFIG relocates it (the old UT_CONFIG still does). Chain: flag >
-  environment > your config > the shipped defaults. See ARCH-cli-contract.md「配置面」.
+  per line, # comments); TING_CONFIG relocates it. Chain: flag > environment > your
+  config > the shipped defaults. See ARCH-cli-contract.md「配置面」.
   TING_DEFAULT_ENGINE  Engine used when --engine is not given (default: $TING_DEFAULT_ENGINE)
   TING_ENGINE_DIR      Extra directory searched for t-engine-<name>, after this file's own
                        directory and before PATH. ENVIRONMENT ONLY — it names programs the
@@ -610,18 +569,11 @@ validate_loop_mode() {
 # the two files have to agree or the TUI offers a source the player cannot open. The default
 # chains through XDG_DATA_HOME, which is why it is inline here and not in the shipped
 # `config`: a flat KEY=value file cannot express a chain (TING_STATE_DIR is the precedent).
-# It is refused from BOTH config files — see the ut_read_config block above for why.
+# It is refused from BOTH config files — see the read_config block above for why.
 #
 # The suite writes nothing here and does not create it; a checkout with no plugin dir loses
 # one failed glob per lookup and nothing else.
-if [[ -z "${TING_ENGINE_DIR:-}" ]]; then
-    if [[ -d "${XDG_DATA_HOME:-$HOME/.local/share}/uting/engines" ]] &&
-        [[ ! -d "${XDG_DATA_HOME:-$HOME/.local/share}/ting/engines" ]]; then
-        TING_ENGINE_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/uting/engines"
-    else
-        TING_ENGINE_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/ting/engines"
-    fi
-fi
+TING_ENGINE_DIR="${TING_ENGINE_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/ting/engines}"
 
 # Checks if string looks like an HTTP/HTTPS URL or well-known shortlink
 is_url_target() {
@@ -4039,7 +3991,7 @@ while getopts ":f:djhV" opt; do
     # Answered before ANY dependency gate: a version is the first thing a bug report needs,
     # and needing yt-dlp installed to find out which version you have is backwards.
     V)
-        printf 't-play %s\n' "$UT_VERSION"
+        printf 't-play %s\n' "$SUITE_VERSION"
         exit 0
         ;;
     :)

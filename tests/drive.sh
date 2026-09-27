@@ -74,8 +74,8 @@ command -v tmux >/dev/null 2>&1 || { echo "drive.sh: tmux is required (ting need
 # playlists, exactly as it would outside tmux, and there is no undo for it. That is the price
 # of frames that show the real store; drive a playlist-editing key only against a store you
 # can lose, by exporting TING_STATE_DIR to a scratch dir for that run (it is forwarded).
-UT_TEST_TMP=$(mktemp -d "${TMPDIR:-/tmp}/ting-drive.XXXXXX") || exit 1
-export TMPDIR="$UT_TEST_TMP"
+TEST_TMP=$(mktemp -d "${TMPDIR:-/tmp}/ting-drive.XXXXXX") || exit 1
+export TMPDIR="$TEST_TMP"
 STATE_DIR="$TMPDIR/ting-$(id -u)"
 
 # The config the pane reads is a COPY of the one a human reads, in this run's own temp dir —
@@ -85,9 +85,8 @@ STATE_DIR="$TMPDIR/ting-$(id -u)"
 # file as a side effect of driving a frame. Copied rather than left empty because the read
 # side is the whole point of not redirecting TING_STATE_DIR either: a frame captured here should
 # show the theme and the chrome language a human actually has.
-DRIVE_CFG="$UT_TEST_TMP/config"
-cp "${TING_CONFIG:-${TING_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/ting/config}}" "$DRIVE_CFG" 2>/dev/null ||
-    cp "${XDG_CONFIG_HOME:-$HOME/.config}/uting/config" "$DRIVE_CFG" 2>/dev/null ||
+DRIVE_CFG="$TEST_TMP/config"
+cp "${TING_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/ting/config}" "$DRIVE_CFG" 2>/dev/null ||
     : >"$DRIVE_CFG"
 
 S="drive-$$"
@@ -113,7 +112,7 @@ cleanup() {
     else
         echo "drive.sh: this run's players stopped, no orphan mpv"
     fi
-    rm -rf "$UT_TEST_TMP"
+    rm -rf "$TEST_TMP"
     return $rc
 }
 trap 'cleanup || exit 1' EXIT
@@ -128,17 +127,16 @@ trap 'exit 130' INT TERM
 #
 # TING_SYNC=0 (tmux and DCS frame sync do not mix), TMPDIR and TING_CONFIG are placed AFTER
 # the forwarded block so the driver's own choice wins over an inherited one — TMPDIR because
-# the isolation above is not negotiable, and it is not a YT_*/UT_*/TING_* name so it is never
-# forwarded anyway; TING_CONFIG because a forwarded one would put the pane's writes back on the
-# real file, which is the one thing the copy above exists to prevent. A forwarded old UT_CONFIG
-# cannot: it is read only when TING_CONFIG is unset. An exported config name is still honoured
-# where it can do no harm: it picks WHICH file gets copied.
+# the isolation above is not negotiable, and it is not a TING_* name so it is never forwarded
+# anyway; TING_CONFIG because a forwarded one would put the pane's writes back on the real file,
+# which is the one thing the copy above exists to prevent. An exported TING_CONFIG is still
+# honoured where it can do no harm: it picks WHICH file gets copied.
 # TING_HISTORY=0 goes BEFORE it: suppressing the log write is a default, not a rule, so
 # `TING_HISTORY=1 tests/drive.sh -k Enter` still drives the writing path.
 env_prefix=""
 while IFS= read -r line; do
     case "$line" in
-    YT_*=* | UT_*=* | TING_*=*)
+    TING_*=*)
         _n=${line%%=*}
         _v=${line#*=}
         _v=$(printf '%s' "$_v" | sed "s/'/'\\\\''/g")

@@ -72,10 +72,10 @@ yt 这一对 392 行（占 `yt-search` 代码的 63%），bili、ne 各约 214 �
 - `t-play` 只认出「这是哪个引擎动词」与 `--engine`，其余参数原样 `exec` 给 `t-engine-<name>`。flag 门只有一道，在引擎里：
   `--sub-lang` 只有 yt 认，`t-play --search -d` 由引擎按未知 flag 退 1。信封与退出码一字不差地透传。
 - 内部动词（`--stream`、`--capabilities`）不在 `t-play` 的转发表里，从公开入口调它们就是未知 flag，退 1。
-- `--engine` 缺省照旧取 `UT_DEFAULT_ENGINE`（改名见 §4）。
+- `--engine` 缺省照旧取 `TING_DEFAULT_ENGINE`（改名见 §4）。
 
 **发现**：`t-play --engines -j` 改为 `{status, engines:[{name, bin, flags[]}]}`。`bin` 是找到的那一个文件（本目录 →
-`UT_ENGINE_DIR` → PATH，先到先得），供诊断「用的是哪一份」，不是给调用方执行的；`flags` 是该引擎公开动词与修饰符的
+`TING_ENGINE_DIR` → PATH，先到先得），供诊断「用的是哪一份」，不是给调用方执行的；`flags` 是该引擎公开动词与修饰符的
 平铺清单，取自 `t-engine-<name> --capabilities`。每引擎多 fork 一次，实测 `t-play` 起一次约 7 ms，`--engines` 整条约 7 ms。
 各引擎两半各自的公开 `--capabilities` 随之消失：能力是引擎的属性，归注册表回答。
 
@@ -106,10 +106,10 @@ yt 这一对 392 行（占 `yt-search` 代码的 63%），bili、ne 各约 214 �
 
 ## 4. 配置清理（KISS）
 
-扫了出厂 `config` 的全部 51 个键，加上不进文件的 6 个（`UT_STATE_DIR`、`UT_START_RESULTS`、`UT_ENGINE_DIR`、`UT_CONFIG`、
+扫了出厂 `config` 的全部 51 个键，加上不进文件的 6 个（`TING_STATE_DIR`、`START_RESULTS`、`TING_ENGINE_DIR`、`TING_CONFIG`、
 `YT_LANG`、`YT_ASCII`）。
 
-**前缀：作用域写在名字里，只有一个前缀。** 今天是 `UT_`、`YT_`、`TING_`（部分改名）、`BILI_`、`NE_` 五套，其中 `YT_` 一身两义：
+**前缀：作用域写在名字里，只有一个前缀。** 当时是五套前缀（套件改名前的一套、`YT_`、`TING_`（部分改名）、`BILI_`、`NE_`），其中 `YT_` 一身两义：
 `YT_THEME`、`YT_LANG` 属于套件，`YT_COOKIE_BROWSER`、`YT_AUDIO_FORMAT` 属于 YouTube 引擎。之后：
 
 - 套件键一律 `TING_<KEY>`：`TING_DEFAULT_ENGINE`、`TING_THEME`、`TING_LANG`……
@@ -117,22 +117,21 @@ yt 这一对 392 行（占 `yt-search` 代码的 63%），bili、ne 各约 214 �
 - 安全规矩收成一句：**文件里只读 `TING_` 键**。`TING_ENGINE_DIR` 照旧只认环境变量。
 - 播放器给自己 detached 子进程的四个私有变量（`YT_IPC_SOCK`、`YT_DETACHED`、`YT_PLAYER_ID`、`YT_DETACHED_LOG`）
   不是配置，改名 `_TING_*`，前导下划线表示私有，不进任何键表。
-- **迁移**：每个加载器按「新名 → 旧名」读一次；`ting` 写回时把旧键名原地改成新键名，注释与对齐照旧保留。
-  你本机的配置只有 10 个写回键，第一次写回就迁完。旧名兜底保留一个版本后删除。
+- **迁移**：不做（见 §8 第 5 步）。
 
 **删或并（每一条都要你签字，见 §8）**
 
 | 键 | 处理 | 理由 |
 |---|---|---|
 | `YT_ / BILI_ / NE_COOKIE_BROWSER` | 并成 `TING_COOKIE_BROWSER` | 一个人一个浏览器；三处同义 |
-| `UT_START_RESULTS` | 并入 `TING_SEARCH_RESULTS` | 「第一次取多少」与 `-n` 的缺省是同一件事，两个键说它 |
-| `UT_MAX_SEARCH_RESULTS` | 删，改为各引擎自己的常量 | 它保护的是站方请求预算（B 站 20 条一页），是站点知识，不是用户偏好 |
-| `UT_MODE_CYCLE`、`UT_SORT_CYCLE`、`UT_QUALITY_CYCLE`、`UT_LOOP_CYCLE`、`UT_THEME_CYCLE` | 删，写死在 TUI 里 | 轮转顺序是产品设计（注释里已经写了每个顺序为什么这样排），五个键调的是没人会调的东西 |
-| `UT_RESOURCE_TICKS`、`UT_DEAD_KEEP`、`BILI_RETRY_PAUSE` | 删，改为代码常量 | 实现调参，不是偏好 |
+| `START_RESULTS` | 并入 `TING_SEARCH_RESULTS` | 「第一次取多少」与 `-n` 的缺省是同一件事，两个键说它 |
+| `MAX_SEARCH_RESULTS` | 删，改为各引擎自己的常量 | 它保护的是站方请求预算（B 站 20 条一页），是站点知识，不是用户偏好 |
+| `MODE_CYCLE`、`SORT_CYCLE`、`QUALITY_CYCLE`、`LOOP_CYCLE`、`THEME_CYCLE` | 删，写死在 TUI 里 | 轮转顺序是产品设计（注释里已经写了每个顺序为什么这样排），五个键调的是没人会调的东西 |
+| `RESOURCE_TICKS`、`DEAD_KEEP`、`BILI_RETRY_PAUSE` | 删，改为代码常量 | 实现调参，不是偏好 |
 | `YT_ICON` | 删，固定 ♫ | 每次启动掷一次硬币，文档截帧还得专门钉住它 |
 | `YT_BRAND` | 删 | 纯装饰开关 |
 | `YT_TUI_ASCII` | 删 | `YT_ASCII` 的旧别名 |
-| `UT_ACCENT`、`UT_ACCENT_LIGHT` | 删，连同 `custom` 主题 | 已有 13 套主题，`custom` 只服务连一个颜色都要自己定的人 |
+| `ACCENT`、`ACCENT_LIGHT` | 删，连同 `custom` 主题 | 已有 13 套主题，`custom` 只服务连一个颜色都要自己定的人 |
 
 其余保留、只改名：`HISTORY`、`DEFAULT_ENGINE`、`SEARCH_RESULTS`、`SORT_FIELD`、`PLAY_MODE`、`VOLUME`、`PLAY_QUALITY`、
 `VIZ_STYLE`、`VIZ_COLOR`、`ASCII_VO`、`MPV_INPUT_CONF`、`PAGE_ROWS`、`FETCH_BATCH`、`LOOP_MODE`、`RESOURCE`、`KEYS`、
@@ -148,7 +147,7 @@ yt 这一对 392 行（占 `yt-search` 代码的 63%），bili、ne 各约 214 �
 - 引擎动词换了宿主（§3）；`-l`、`-S`、各半边 `--capabilities` 从公开面删除；站点原始记录只在引擎自检（`--raw`）；`-m`/`-M`/`-s` 改名；`--parts` 并入 `--items`。
 - `t-play --engines -j` 改形状（§2）。
 - `--info` 信封补齐与搜索行同形的字段。
-- 配置键全部改名，旧名兜底一个版本（§4）。
+- 配置键全部改名，不留旧名（§4）。
 - 信封里既有字段的语义不变，`engine` 字段照旧是持久化的路由键；退出码四级分类不变。
 - 仓外引擎的约定从「一对文件」变成「一个 `t-engine-<name>` 文件」。
 - 版本：见 §8。
@@ -160,7 +159,7 @@ yt 这一对 392 行（占 `yt-search` 代码的 63%），bili、ne 各约 214 �
 - **bash `ting`**：`scan_engines` 改读 `t-play --engines -j`；搜索、`c`/`i`、容器展开全部改调 `t-play` 的转发动词；
   `load_track_url` 删掉原始字段解析，改读 `--info` 信封。它在第 6 步（Go 接过名字）之前仍是在役的 TUI，必须跟着改。
 - **Go**（`PLAN-go-tui.md` 同步修订）：`verb.Search` 改为 `t-play --search`；`Engines()` 读新形状，不再持有引擎路径；
-  `internal/config` 移植新键名与旧名兜底，那张「TING_ 只认改名清单」的怪癖随之消失。
+  `internal/config` 移植新键名，那张「TING_ 只认改名清单」的怪癖随之消失。
 - **测试**：`contract.sh` 的引擎段改为经 `t-play` 驱动，另保留一段直接驱动 `t-engine-*` 的内部协议检查
   （`--stream`、`--capabilities` 与 `flags[]` 说真话）；`playback.sh` 基本不动（它本来就走 `t-play`）。
 - **文档**：`ARCHITECTURE.md`「命令拓扑」重写，推翻「为什么一个引擎是两个命令」一段，新判据写成
@@ -182,7 +181,7 @@ yt 这一对 392 行（占 `yt-search` 代码的 63%），bili、ne 各约 214 �
 3. **`t-play` 入口**：转发动词、`--engines` 新形状、`--stream` 取直链、删 `-l`/`-S`、`-m`/`-M`/`-s` 改名；
    删掉双查与旧的六个文件。
 4. **调用方**：bash `ting` 与 Go 的 `verb` 包切到新入口；`go test ./...`。
-5. **配置**：前缀统一、删并（按 §8 签过的清单）、旧名兜底、写回改键名；Go `internal/config` 同步。
+5. **配置**：前缀统一、删并（按 §8 签过的清单）；Go `internal/config` 同步。
 6. **文档与分发**：§6 的文档全部改完；tap formula 改好但不发布（发布照旧由你决定）。
 7. **bump**：独占一次 commit；本文件蒸馏进 `ARCH-*.md` 后 `git rm`。
 
@@ -195,7 +194,7 @@ yt 这一对 392 行（占 `yt-search` 代码的 63%），bili、ne 各约 214 �
 3. **过渡别名**：旧的六个命令名不留，第 3 步末尾直接删。
 4. **`--parts` 并入 `--items`**：并。
 5. **`-m`/`-M`/`-s` 改长名**：改为 `--min-duration` / `--max-duration` / `--sort`；`t-engine-*` 从第一天就只认长名。
-6. **配置删并清单（§4 表）**：照表执行；`UT_ACCENT`、`UT_ACCENT_LIGHT` 连同 `custom` 主题一起删（第 5 步定）。
+6. **配置删并清单（§4 表）**：照表执行；`ACCENT`、`ACCENT_LIGHT` 连同 `custom` 主题一起删（第 5 步定）。
 7. **版本号**：`0.18.0`。
 
 **实施中定下的两条**（第 1 步）：
@@ -238,35 +237,18 @@ yt 这一对 392 行（占 `yt-search` 代码的 63%），bili、ne 各约 214 �
 
 **实施中定下的几条**（第 5 步，2026-09-26）：
 
-- **先删并，改前缀另议**：§4 表里的删并已做完，出厂键 51 → 36。
-- **`custom` 主题随两个 accent 键一起删**：`t` 键曾把 `YT_THEME=custom` 写回用户配置，所以 `custom`
-  读成 `minimal`，保留一个版本。
-- **并出来的键先用今天的套件前缀**：`UT_COOKIE_BROWSER`（不是 `TING_COOKIE_BROWSER`）、`UT_SEARCH_RESULTS`。
-  若之后做前缀统一，它们与其余键一起改名。
-- **旧名兜底只给被并掉的四个**（`UT_START_RESULTS`、三个 `*_COOKIE_BROWSER`）：载入块读到旧名就当新名收，
-  `ting` 写回时就地改名。被删的键不兜底 —— 留在用户文件里只是一行不再被读的字。
-- **轮换顺序、`DEAD_KEEP` 8、资源采样步长 3、bili 重试间隔 1 秒、搜索上限 200** 都成了代码常量；
-  步长在 `ting` 与 `t-play` 各有一份（两个平级入口不共享库），注释互指。
-- **搜索上限不再有检查**：它原来靠把键设成 3 来测，常量 200 要真打出 200 行以上才能观察，那是十次 bili 请求。
-
-**前缀统一**（第 5 步后半，2026-09-26 重新评估后定：做，按 §4 的方案）：
-
-- **分两次提交**：先改有收益的 20 个 `YT_`/`BILI_`/`NE_` 键（`YT_` 一身两义、仓外引擎没有合法前缀，
-  这两个问题都在这 20 个上），再把 `UT_` 键机械换成 `TING_`。
-- **旧名 → 新名是一张显式的表**（载入块里的 `CFG_RENAMED`，并掉的四个也在上面），不按前缀规则推：
-  `YT_` 一半归套件（`YT_THEME` → `TING_THEME`）一半归引擎（`YT_AUDIO_FORMAT` → `TING_YT_AUDIO_FORMAT`），
-  规则推不出来。同一张表管三处：环境里旧名只在新名没设时补上、文件里读到旧名当新名收、`ting` 写回时把旧名那一行
-  就地改名 —— 不论这次写不写它的值，一次写回迁完整个文件。
-- **文件正则收成 `^(TING|UT)_`**：旧名在过正则之前先换成新名，所以不再需要 `YT_`/`BILI_`/`NE_` 前缀；
-  加一个引擎不再改载入块。
-- **播放器的四个私有变量改 `_TING_*`，不兜底**：它们不是配置，前导下划线让它们出了正则，拒收名单随之少四个。
-- **顺带发现**：`TING_THEME`、`TING_LANG`、`TING_ASCII`、`TING_SYNC` 原在环境镜像表上，被镜像进没人读的
-  `UT_THEME` 等名字，从来没生效过；现在它们就是真键，镜像表去掉这四个。
-- **旧名在环境里也钉住写回**：`ting` 在读配置之前按旧名查一遍三对写回键（`UT_START_RESULTS`、`YT_THEME`、`YT_LANG`）。
-- **第二次提交：`UT_` 键全部换成 `TING_`，文件只认 `TING_`**。20 个 `UT_` 键进同一张改名表，两名镜像循环删掉；
-  从此每个键的 `TING_` 环境名都生效（从前只有镜像表上的 11 个）。拒收名单只剩 `TING_CONFIG`、`TING_ENGINE_DIR`：
-  `UT_VERSION`、`UT_DEFAULTS` 是内部常量，照旧拼 `UT_`，正好落在命名空间之外，不必再拒。`TING_CONFIG` 不进表，
-  在表之前手写一次，没有才看 `UT_CONFIG`。
-- **测试的环境隔离跟着改**：`contract.sh` 开头连旧名 `UT_CONFIG`、`UT_STATE_DIR` 一起清掉（旧名在新名没设时会补进来）；
-  `playback.sh` 的清扫扩到 `YT_`/`BILI_`/`NE_`；各 pane 命令行只设 `TING_` 一个名字。
-
+- **删并**：§4 表里的删并已做完，出厂键 51 → 36。轮换顺序、`DEAD_KEEP` 8、资源采样步长 3、bili 重试间隔 1 秒、
+  搜索上限 200 都成了代码常量；步长在 `ting` 与 `t-play` 各有一份（两个平级入口不共享库），注释互指。
+  搜索上限不再有检查：常量 200 要真打出 200 行以上才能观察，那是十次 bili 请求。
+- **前缀统一，全部 `TING_`**：套件键 `TING_<KEY>`，引擎键 `TING_<ENGINE>_<KEY>`；文件正则 `^TING_`，加一个引擎不改载入块。
+  播放器的四个私有变量改 `_TING_*`，前导下划线让它们出了正则，不进拒收名单；拒收名单只剩 `TING_CONFIG`、
+  `TING_ENGINE_DIR`。内部常量改名 `SUITE_VERSION`、`SHIPPED_CONFIG`（读函数 `read_config`），拼在命名空间之外。
+- **不留任何兼容逻辑**（2026-09-26 你定）：没有旧键名兜底、没有旧路径（改名前的配置 / 存储 / 引擎目录）兜底、
+  写回不做旧名改名、`custom` 主题不再读成 `minimal`。中间做过一版旧名改名表，随后整个删掉。
+  你本机的配置文件由我按新键名改了一次。
+- **顺带发现**：旧的环境镜像表把 `TING_THEME`、`TING_LANG`、`TING_ASCII`、`TING_SYNC` 镜像进没人读的名字，
+  从来没生效过；现在它们就是真键。
+- **测试随之收窄**：删掉旧名、旧路径、合并键、`custom` 的检查（不写"旧名已不再生效"的检查）；
+  真实配置与存储的守卫只看新路径；`playback.sh` 的环境清扫与 `drive.sh` 的转发只认 `TING_*`。
+- **两处测试竞态查明**：TUI 撤销段的连锁失败是 `#` 与 `b` 连发被当成未加括号的粘贴 `#b`（改为等 `#` 生效）；
+  页码检查读到了 `display_menu` 两遍绘制中的第一遍（改为半秒内重读）。
