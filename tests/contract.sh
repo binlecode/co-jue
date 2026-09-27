@@ -324,7 +324,7 @@ cfg_has()    { grep -qE "$1" "$TUI_CFG"; }
 undo_pane() {
     # ── Undo replaces the confirmation: `z` ─────────────────────────────────────────────
     # d, D and X used to stop the frame for a y/N; now they act on one key and the frame
-    # offers `z` for three seconds (ARCH-tui.md「可撤销取代预先确认」). What is claimed here is
+    # offers `z` for three seconds (ARCH-tui.md「存储键与可撤销」). What is claimed here is
     # the TUI half — the offer is on the first frame and gone when `z` stops working, `z`
     # puts back what the store says it restored, and the one side effect a copy cannot restore
     # (a stopped player) is held back until the offer closes. The store's own half is proved
@@ -1389,7 +1389,7 @@ report "TING_VIZ_COLOR: silent outside -f viz" "no" "$(viz_says_color_key 'TING_
 # above hand the key over env, where `#` is just a character. In the FILE the loader cuts the
 # line at the first `#`, so a hex written that way does not arrive wrong — it does not arrive
 # at all, and the user silently gets cyan while his config plainly says red. That is the trap
-# ARCH-tui.md「值的拼法是 `0xRRGGBB` 而不是 `#RRGGBB`」named this key for, and the shipped
+# ARCH-cli-contract.md「配置面」named this key for, and the shipped
 # config's comment is the only thing standing between a user and it.
 #
 # The discriminating input is a value ILLEGAL under either spelling: written with 0x it
@@ -1544,7 +1544,7 @@ report "…one byte past it is refused"          socket "$(sock_gate "$((_sk_max
 report "…with exit 1"                          1 \
     "$(rc env TMPDIR="$(sock_tmpdir "$((_sk_max + 1))")" shell/ting-play -d -j --engine yt -- dQw4w9WgXcQ)"
 
-# ── THE ORDER OF `ting`'s TWO GATES, and ARCH-tui.md「调用面」's worked calls, which are
+# ── THE ORDER OF `ting`'s TWO GATES, and ARCH-tui.md「调用面 —— 两道门，顺序固定」's worked calls, which are
 # the same check from two sides. That doc states the order as a fact — the flag gate answers
 # first, the TTY gate second — and both gates exit 1, so the order can only be pinned by
 # feeding the SAME stdin twice and reading two different messages. The `-f viz` arm of the

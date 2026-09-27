@@ -30,13 +30,13 @@ ting-history --ls -n 20 -j             # machine: what was played, when, for how
 **Reference implementation.** This is a working shell suite that its author uses daily, published
 together with a design document that is longer than most of the code it describes. Since `v0.8.0`
 it is also tagged and installable from a tap (`brew install binlecode/actop/ting`) — what ships
-is these scripts, not a binary, so the Go rewrite stays ruled out
-(see [`docs/ROADMAP.md`](docs/ROADMAP.md) for why).
+is these scripts plus a TUI built from source; the engines and the player stay in shell, so a Go
+rewrite of those stays ruled out (see [`docs/ROADMAP.md`](docs/ROADMAP.md) for why).
 
 The document may be the more useful artifact. `docs/ARCHITECTURE.md` records things that are usually
-learned and then forgotten: East-Asian-width handling in a terminal renderer, DCS frame
-synchronisation, correlating mpv IPC replies by `request_id`, and the `set -e` traps that bash 3.2
-sets for you.
+learned and then forgotten: East-Asian-width handling in a terminal renderer, correlating mpv IPC
+replies by `request_id`, the `set -e` traps that bash 3.2 sets for you, and a CDN that never answers
+Go's post-quantum TLS handshake.
 
 ## What it is
 
@@ -88,9 +88,11 @@ sets for you.
   four fields a listening has (`played_at`, `ended_at`, `seconds`, `reason`), so
   `ting-history --ls -j` pipes straight into `ting-playlist --add` or `ting-play -d --queue -`.
   `TING_HISTORY=0` turns the writing off; optional, like the playlist store.
-- **`ting`** — the human face. One self-rendered list, live filter, pagination that
-  reflows against the measured chrome, three playback states, en/zh chrome, ASCII fallback, themes.
-  No TUI framework, no fzf.
+- **`ting`** — the human face, and the one Go binary in the suite (Bubbletea). One list with six
+  row sources, live filter, pagination that reflows against the measured chrome, three playback
+  states driven by `ting-play --watch`, en/zh chrome, ASCII fallback, themes, cover art over the
+  kitty protocol. It is one more caller of the CLI, level with an agent: it runs the public
+  commands and nothing else — no mpv, no yt-dlp, no site knowledge. No fzf.
 
 The pieces a program depends on: a **single-line JSON envelope**, an **exit-code taxonomy**
 (1 usage / 2+ propagated tool failure / 4 didn't take effect), and a **player lifecycle** that
@@ -123,15 +125,17 @@ a playlist with a fixed name. A downloader and channel subscriptions are unsched
   transport — and optional everywhere else (the YouTube engine's play-time client probe).
   **`openssl` is needed by the netease search alone**, for the encrypted search payload that
   site now insists on; without it that one verb refuses and everything else is unaffected.
-- bash 3.2 — the version macOS ships. The suite is written to that floor on purpose; see
+- bash 3.2 — the version macOS ships. The scripts are written to that floor on purpose; see
   `docs/ARCHITECTURE.md`「可移植性契约」.
+- Go, to **build** the TUI (`go build -o shell/.ting-go ./cmd/ting`; the tap builds it for you).
+  Nothing Go-related is needed at run time.
 
 Nothing is vendored. Install yt-dlp and mpv however you normally would.
 
 ## Configuration
 
 Every default value in the suite lives in one tracked file at the root of the checkout,
-`config`, declared once for all seven scripts. It is **not optional** — a checkout
+`config`, declared once for all seven commands. It is **not optional** — a checkout
 without it exits 2 and says so, rather than letting an unset variable surface 100 lines
 later.
 
@@ -195,7 +199,8 @@ chain, the write-back and the rules that span files, rather than restating the l
 ```sh
 git clone git@github.com:binlecode/ting.git
 cd ting
-./shell/ting "lofi hip hop"      # or: ./shell/ting  and type a query
+go build -o shell/.ting-go ./cmd/ting   # the TUI is Go; everything else runs as checked out
+./shell/.ting-go "lofi hip hop"         # or: ./shell/.ting-go  and type a query
 ```
 
 Or install the released version:
@@ -207,10 +212,11 @@ brew install binlecode/actop/ting
 For daily use from a checkout, symlink the four public commands onto your PATH. Each goes
 under its own name — the suite ships no second spelling for anything. The three
 `ting-engine-*` files stay where they are: `ting-play` finds them next to its own resolved path,
-and nothing else calls them:
+and nothing else calls them. The TUI is the one binary: build it once (and after each pull)
+beside the scripts, where it finds them:
 
 ```sh
-ln -s "$PWD/shell/ting"          ~/bin/ting
+ln -s "$PWD/shell/.ting-go"      ~/bin/ting
 ln -s "$PWD/shell/ting-play"     ~/bin/ting-play
 ln -s "$PWD/shell/ting-playlist" ~/bin/ting-playlist
 ln -s "$PWD/shell/ting-history"  ~/bin/ting-history
@@ -222,8 +228,8 @@ Only `ting` is strictly required: every command resolves its siblings from its o
 so a single symlink is enough to use the whole suite by hand. The rest are for calling the verbs
 directly — which is what an agent does.
 
-The human face carries the project's own name, so `~/bin/ting` is a plain symlink to
-`shell/ting` — same word at both ends, no alias in between. Want something shorter to type?
+The human face carries the project's own name, so `~/bin/ting` is a plain symlink to the
+TUI binary (`shell/.ting-go` in a checkout, `libexec/shell/ting` in an install) — no alias in between. Want something shorter to type?
 Make one — `alias ut=ting`, or a symlink of your own. Nothing reads its own `argv[0]`, so any
 name works. The suite ships no short form itself, because a second official spelling is a second
 thing to keep in sync (`docs/ARCHITECTURE.md`「平级动词，没有内核」).

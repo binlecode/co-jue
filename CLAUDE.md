@@ -6,8 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 开工前必须明确以下四条硬底线，**违反会导致脚本在受限环境当场挂死或破坏核心契约**：
 
-- 🔴 **bash 3.2 是硬性冻结底线**：macOS 系统自带 `/bin/bash` 是唯一运行基准。严禁使用 bash 4+ 特性（`declare -A` 关联数组、`${var,,}`/`${var^^}`、`mapfile`/`readarray`、`${arr[-1]}`、`&>>`、`|&`、`${!prefix@}`）。在 `set -u` 下展开空数组必须写为 `${arr[@]+"${arr[@]}"}` 或前置判断 `((${#arr[@]}))`；模式替换 `${var//pat/}` 存在多字节二次方耗时陷阱，严禁在热路径使用。
-- 🔴 **零新增运行时依赖**：外部依赖严格锁定为五个（`yt-dlp`、`jq`、`mpv`、带 `-U` 的 `nc`、`curl`；`openssl` 仅限 `ting-engine-ne` 的搜索动词局部加密使用）。严禁为任何功能引入 `socat`、`chafa`、`img2sixel`、`fzf` 等新依赖。
+- 🔴 **bash 3.2 是 `shell/` 的硬性冻结底线**：macOS 系统自带 `/bin/bash` 是唯一运行基准（TUI 是 Go，不在此列）。严禁使用 bash 4+ 特性（`declare -A` 关联数组、`${var,,}`/`${var^^}`、`mapfile`/`readarray`、`${arr[-1]}`、`&>>`、`|&`、`${!prefix@}`）。在 `set -u` 下展开空数组必须写为 `${arr[@]+"${arr[@]}"}` 或前置判断 `((${#arr[@]}))`；模式替换 `${var//pat/}` 存在多字节二次方耗时陷阱，严禁在热路径使用。
+- 🔴 **零新增运行时依赖**：外部依赖严格锁定为五个（`yt-dlp`、`jq`、`mpv`、带 `-U` 的 `nc`、`curl`；`openssl` 仅限 `ting-engine-ne` 的搜索动词局部加密使用）。严禁为任何功能引入 `socat`、`chafa`、`img2sixel`、`fzf` 等新依赖。Go 工具链只是 TUI 的**构建**依赖。
 - 🔴 **CLI 契约本身就是产品与安全边界**：本套件不设 MCP 包装层，面向 Agent 直接暴露可执行命令；退出码严格遵循四级分类法（`0` 成功 / `1` 命令行用法错 / `2+` 外部工具透传失败 / `4` 业务语义未生效）。任何功能改动均严禁静默修改既有信封字段或退出码分配。
 - 🔴 **状态目录与临时文件严格隔离**：运行时临时目录必须收容在 `$TMPDIR/ting-<uid>/`，持久化状态仅限 `$TING_STATE_DIR`（默认 `~/.local/state/ting/`），脚本自测临时产物一律限在 `tmp/` 下，严禁向源码树写脏文件。
 
@@ -24,11 +24,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目性质
 
-**ting**（听）—— 面向人机双界面的轻量级流媒体终端引擎。由 7 个独立可执行脚本组成（4 个公开命令 `ting-play` / `ting-playlist` / `ting-history` / `ting`，加 3 个只由 `ting-play` 调用的引擎文件 `ting-engine-<site>`），平级无内核。
+**ting**（听）—— 面向人机双界面的轻量级流媒体终端引擎。由 7 个独立可执行文件组成（4 个公开命令 `ting-play` / `ting-playlist` / `ting-history` / `ting`，加 3 个只由 `ting-play` 调用的引擎文件 `ting-engine-<site>`），平级无内核。其中 6 个是 `shell/` 下的 bash 3.2 脚本，`ting` 是 Go 二进制（`cmd/ting` + `internal/`，开发时构建到 `shell/.ting-go`）。
 
 - **两面 100% 自有**：
   - **Agent 优先的 CLI 契约面**：单行 JSON 信封（`-j`）、确定性退出码、脱离终端的后台播放生命周期控制（`-d` / `--status` / `--stop`）；
-  - **人机交互的终端面**：基于原生终端转义序列自绘的原地重绘单视图 TUI（`shell/ting`）。
+  - **人机交互的终端面**：Go（Bubbletea）单视图 TUI `ting`，只调这套 CLI 的公开动词，与 agent 平级 —— Go 里出现 mpv、yt-dlp、socket 路径或站点行为就是分层违规（`docs/ARCH-tui.md`「分层」）。
 - **职责彻底解耦**：音源站点知识完全关在引擎文件（`ting-engine-yt`、`ting-engine-bili`、`ting-engine-ne`）内，公开入口只有 `ting-play`，它把引擎动词原样转发；音频解码与进程生命周期完全关在播放器（`ting-play`）内；人机交互完全关在 TUI 内。
 
 ---
@@ -58,10 +58,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```sh
 # 语法与静态检查 —— 每次 commit 前必跑
 bash -n shell/*
+go vet ./... && go test -short ./...      # Go TUI（带网络的用例在 -short 下跳过；去掉 -short 跑全量）
+go build -o shell/.ting-go ./cmd/ting     # 构建 TUI（套件开头会自己构建一次）
 
 # 契约与单元测试（自动化测试）
 tests/contract.sh --offline               # 离线半边检查（约 48s，不发网络包，覆盖 TUI 启动与 CLI 门控）
-tests/contract.sh                         # 全量契约检查（约 195s，665 项检查，含真实端点探测）
+tests/contract.sh                         # 全量契约检查（约 200s，655 项检查，含真实端点探测）
 tests/contract.sh --only undo             # 只跑 TUI 撤销那一段（约 47s，真实搜索 + 真实播放器）
 tests/playback.sh                         # 真实 detached 播放器生命周期回归测试（约 110s）
 tests/drive.sh -x 62 -y 20                # tmux 窄终端 TUI 键盘自动化驱动与截屏测试
@@ -77,7 +79,7 @@ shell/ting-play --stop -j --id <player-id>                # 停止播放
 shell/ting-play --engines -j                              # 已装引擎、所用文件与各自的公开 flag
 shell/ting-playlist --ls -j                               # 查看歌单库
 shell/ting-history --ls -n 20 -j                          # 查看最近播放历史
-shell/ting --version                                      # 响应版本（不触发依赖门控）
+shell/.ting-go --version                                  # 响应版本（不触发依赖门控）
 ```
 
 ---
@@ -85,9 +87,10 @@ shell/ting --version                                      # 响应版本（不�
 ## 架构要点
 
 - **站点知识与播放生命周期彻底隔离**：播放器 `ting-play` 绝不直接运行 `yt-dlp`，不知道站点 Cookie 或格式代码；通过拼接文件名调用内部动词 `ting-engine-<engine> --stream -j` 获取最终流媒体 URL 及 HTTP 请求头，以 `--no-ytdl` 注入 `mpv`。
-- **单视图原地重绘**：`ting` 仅拥有一套统一的滚动渲染视图，无全屏清屏闪烁；所有非搜索数据（歌单 `b`、历史 `h`、分 P `c`、章节 `i`）均作为“临时替换行源”接入该视图。
-- **多字节与 CJK 精确宽度**：按键处理以单字节累积并由 `utf8_complete` 还原字符；显示宽度由 `disp_w` 按 EAW 表准确分配，保证不同终端与语言下绝对不撕裂排版。
-- **配置继承链与偏好写回**：配置查找按 `Flag > Env > User Config (~/.config/ting/config) > Shipped Config` 顺序继承；套件自己的名字一律 `TING_` 前缀（引擎键 `TING_<ENGINE>_*`），不可设的在载入块里按名字拒收；没有别名，也没有兜底路径；脚本内部的普通变量与函数不受此约束。出厂 `config` 永远只读，`ting` 退出时将 11 个偏好键写回用户个人配置文件。
+- **单视图**：`ting` 只有一个渲染器；所有非搜索数据（歌单 `b`、历史 `h`、分 P `c`、章节 `i`、队列 `u`）均作为“临时替换行源”接入该视图，由进入它的那个键退出。
+- **全二进制只有 `internal/verb` 执行子进程**：拼 argv、解信封、把退出码映射成类型化错误；横幅只由 `ting-play --watch -j` 驱动。
+- **CJK 宽度**：go-runewidth，East-Asian Ambiguous 按一格、`TING_AMBIG_WIDE=1` 才按两格；标题在量宽前去掉图形符号。
+- **配置继承链与偏好写回**：配置查找按 `Flag > Env > User Config (~/.config/ting/config) > Shipped Config` 顺序继承；套件自己的名字一律 `TING_` 前缀（引擎键 `TING_<ENGINE>_*`），不可设的在载入块里按名字拒收；没有别名，也没有兜底路径；脚本内部的普通变量与函数不受此约束。出厂 `config` 永远只读，`ting` 在最后一次改动一秒后与退出时将 11 个偏好键写回用户个人配置文件。
 
 ---
 
@@ -95,7 +98,7 @@ shell/ting --version                                      # 响应版本（不�
 
 动手改动代码前必须确认以下硬约束：
 
-1. **严禁破坏 bash 3.2 兼容性**：任何修改必须在 macOS 默认系统 bash 下通过验证。
+1. **严禁破坏 bash 3.2 兼容性**：`shell/` 下的任何修改必须在 macOS 默认系统 bash 下通过验证。
 2. **严禁引入新运行时依赖**：坚守 5 大外部依赖，严禁私自引入新工具或 C 库。
 3. **严禁单侧新增 TUI 键位**：每个新增用户面功能必须同时具备对应的 Agent 命令行动词与 `-j` JSON 信封。
 4. **严禁破坏已冻结的公共 CLI 契约**：不得私自修改公共命令参数名、退出码语义及 JSON 输出 Schema。
@@ -110,7 +113,7 @@ shell/ting --version                                      # 响应版本（不�
 - 🔴 **零 fixture / 零 mock / 零 stub —— 全部是真实功能测试**：测试必须驱动真实入口、发真实网络请求、解析真实信封、管理真实进程。严禁在 `tests/` 内自造替身，也严禁用预先捏造的数据（seed 好的存储记录、写死的信封、staged 配置键）去喂一个本该自己产出这份数据的命令。
   - **隔离不是 fixture**：`TMPDIR` / `TING_STATE_DIR` / 一个空的 `TING_CONFIG` 只是把写操作挡在用户真实文件之外，它们不预置任何行为；一旦某个文件预置了键值去驱动被测行为，那就是 fixture，必须改成由真实命令跑出来。
   - **就绪一律轮询真实信号**（socket 出现、标题回填、帧上的 ready 标记），严禁 `sleep` 猜时间。
-- **最少提交门禁**：每次 commit 前必须运行 `bash -n shell/*` 并通过 `tests/contract.sh --offline`。
+- **最少提交门禁**：每次 commit 前必须运行 `bash -n shell/*`、`go vet ./... && go test -short ./...`，并通过 `tests/contract.sh --offline`。
 
 ---
 

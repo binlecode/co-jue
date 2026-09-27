@@ -1,10 +1,10 @@
 # PLAN — 焦点行歌词窥探：details 空间内联在播歌词（Go TUI 之后）
 
-> **Status**: 草案 · 排在 [`PLAN-go-tui.md`](PLAN-go-tui.md) 之后，不在 bash TUI 上实现  
+> **Status**: 草案 · 前置的 Go TUI 已落地（`ARCH-tui.md`）  
 > **Priority**: 第一梯队 · Go TUI 落地后的第一个人机面特性  
 > **Target Branch**: main  
 > **Roadmap 关联**: [`docs/ROADMAP.md`](ROADMAP.md)「第一梯队」——焦点行歌词窥探  
-> **前置**: `PLAN-go-tui.md` 全部完成——Go `ting` 已接过名字，`ting-play --watch -j` 与 `ting-play --engines -j` 的 `flags[]` 已发布  
+> **前置**: 已满足 —— Go `ting` 已接过名字，`ting-play --watch -j` 与 `ting-play --engines -j` 的 `flags[]` 已发布  
 > **Governing Docs**: [`docs/ARCH-tui.md`](ARCH-tui.md)「重排与分页」（届时为 Go 版重写后的对应章节）、[`docs/ARCH-engine.md`](ARCH-engine.md)「字幕（`--transcript`）」、[`docs/ARCH-cli-contract.md`](ARCH-cli-contract.md)「数据契约」、[`docs/ROADMAP.md`](ROADMAP.md)「横切规范 —— 每个新功能都要过的判据」  
 > **Verification**: `go test ./...`、`tests/contract.sh --offline`、tmux 驱动段（Go 版）  
 > **Scope Boundary**: 仅当光标停在正在播放的那一行、且歌词就绪时，在它下方的 details 空间里显示当前一句。置换 Description，details 段高度不变。数据只来自两个已发布的动词：`ting-play --transcript -j --segments`（歌词）与 `ting-play --watch -j`（播放位置）。不加 CLI 选项、信封字段或依赖，不开独立歌词视图。
@@ -14,7 +14,7 @@
 ## 为什么放到 Go 之后
 
 旧稿是为 bash TUI 设计的：1 Hz 整数秒时钟、平行数组、落盘 TSV 缓存、后台子 shell 轮询。
-那一整套是在**绕开** bash 3.2 的限制，而这些限制正是 `PLAN-go-tui.md` 要删掉的负债。
+那一整套是在**绕开** bash 3.2 的限制，而这些限制正是 Go TUI 删掉的负债。
 在 bash 上做完再移植，等于把这份绕路写两遍。放到 Go 之后，同一个特性变成：
 一个 goroutine 调一次动词、内存里一个切片、一个由 `--watch` 驱动的亚秒游标。
 

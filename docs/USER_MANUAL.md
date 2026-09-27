@@ -66,12 +66,16 @@ brew install binlecode/actop/ting
 # 1. 克隆项目到本地
 git clone git@github.com:binlecode/ting.git ~/.ting
 
-# 2. 将四个公开命令加入个人命令路径（~/.local/bin 或 ~/bin）
+# 2. 构建界面 ting（它是 Go 程序，需要 Go 工具链；其余命令是脚本，不用构建）
+cd ~/.ting && go build -o shell/.ting-go ./cmd/ting
+
+# 3. 将四个公开命令加入个人命令路径（~/.local/bin 或 ~/bin）
 #    ting-engine-* 不用链：ting-play 在自己的真实目录里找到它们
 mkdir -p ~/.local/bin
-for c in ting ting-play ting-playlist ting-history; do ln -sf ~/.ting/shell/$c ~/.local/bin/; done
+ln -sf ~/.ting/shell/.ting-go ~/.local/bin/ting
+for c in ting-play ting-playlist ting-history; do ln -sf ~/.ting/shell/$c ~/.local/bin/; done
 
-# 3. 确保你的环境变量 PATH 包含了 ~/.local/bin
+# 4. 确保你的环境变量 PATH 包含了 ~/.local/bin
 # （若已包含可跳过这步；若未包含，将下行写入你的 ~/.zshrc 或 ~/.bashrc）
 export PATH="$HOME/.local/bin:$PATH"
 ```
