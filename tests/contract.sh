@@ -3928,6 +3928,13 @@ else
     # query simply went chapterless.
     chap_settled() { pane_has 'chapters=' || pane_has 'no chapters'; }
     iso_on_pane() { pane_has '(19|20)[0-9][0-9]-[0-9][0-9]-[0-9][0-9]'; }
+    # The walk counts rows from 1, so it puts the cursor there first: the empty-log check
+    # above moves it one row on purpose, and a walk that assumed row 1 then waited on a row
+    # number one short of the cursor — red exactly when row 2 had no chapters, which is
+    # today's search results deciding. Read off a trace: every key landed in milliseconds.
+    tmux send-keys -t "$TS" 1 j
+    [ "$(poll_until 5 pane_has '^[>▶▎] +1\.')" = 1 ] ||
+        { echo "contract.sh: 1j did not put the cursor on row 1 — the walk cannot count" >&2; exit 1; }
     shown=0; paid=0; row=1; walked=1; nochap=0; kept=0
     while :; do
         tmux send-keys -t "$TS" i
