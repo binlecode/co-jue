@@ -222,7 +222,7 @@ ARCH-cli-contract.md「退出码」）。
 不是便利。三个站发的东西三个样：YouTube 给的是一个带 `width`/`height` 的**数组**，
 B 站给的是**协议相对**的一条 `//i0.hdslb.com/…`，网易云给的是 `.al.picUrl` 上一条**明文 http**。
 认识 `thumbnails[]`、`pic` 或 `.al.picUrl` 中的任何一个，就是把站点知识搬进了消费者
-（`CLAUDE.md`「站点知识只住在引擎里」）—— 所以三处各写各的 `pick_thumb`，**不共享代码**，
+（`CLAUDE.md`「站点知识只住在引擎里」）—— 所以三处各写各的（yt 与 ne 的 `pick_thumb`、bili 的 `https_cover`），**不共享代码**，
 对外只有一个键。
 
 **它和 `kind`/`access` 注入在同一处，因此 `-j` 与 `--raw` 一起带着它。** 理由是那两个键

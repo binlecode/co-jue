@@ -190,7 +190,7 @@ ROADMAP 那条 Go 重写 NO 的全部账**：收益只剩"删渲染负债"，分
 - **引擎名就是文件名后缀**：`--engine yt` 靠字符串拼接找到 `ting-engine-yt`，
   加一个源不会在播放器或 TUI 的任何地方加出名单。（「命令拓扑」）
 - **一个引擎靠列出那个动词声明能力** —— 它的 `--capabilities` 是 `ting-play --engines` 里那份 `flags[]`
-  的来源；没有的动词不列、调了按未知 flag 退 1，而不是给一个永远答"没有"的动词，
+  的来源；没有的动词不列、调了退 1 并说明这个站没有它，而不是给一个永远答"没有"的动词，
   那种东西调用方分不清它与"今天不走运"。（「命令拓扑」、ARCH-cli-contract.md「命令规格」）
 - **引擎只解自己站的 host**，别的一律退 1：`engine` 字段的全部意义是路由，
   通配让它说谎。（ARCH-engine.md「解析」）
@@ -320,10 +320,10 @@ ROADMAP 那条 Go 重写 NO 的全部账**：收益只剩"删渲染负债"，分
 ```
                           PATH 上的入口（符号链接）
         ~/bin/  或  <prefix>/bin/
-        +-- ting         -> <tree>/shell/ting           人机面
-        +-- ting-play    -> <tree>/shell/ting-play      agent 面：唯一入口
-        +-- ting-playlist   -> <tree>/shell/ting-playlist  agent 面（可选）
-        +-- ting-history -> <tree>/shell/ting-history   agent 面（可选）
+        +-- ting          -> <tree>/shell/ting           人机面
+        +-- ting-play     -> <tree>/shell/ting-play      agent 面：唯一入口
+        +-- ting-playlist -> <tree>/shell/ting-playlist  agent 面（可选）
+        +-- ting-history  -> <tree>/shell/ting-history   agent 面（可选）
 
         <tree>/shell/                                   不上 PATH：ting-play 在自己的
         +-- ting-engine-yt                                 真实目录里找到它们
@@ -455,9 +455,9 @@ source 进来的库：一个共享库会让其余的反过来向持有它的那�
 
 **七个文件之间的重复是刻意的，不是漂移，而这里就是它被数的地方。** `ting_read_config` 在
 **七个文件**里各出现一次，逐字节相同 —— 配置层是一个根上的数据文件加一份复制过去的读取器，
-不是第八个文件（「两个根数据文件」）；同理 `die` 在**七个**里各一份，jq 的 `fmt_dur` 定义在**五个**里 ——
-三个引擎，加上 `ting-playlist` 与 `ting-history` 两个存储：它们同样在整形 JSON，所以一个 bash 版本存在的
-唯一意义就是每行 fork 一次 jq；`require_deps` 在**四个**里（`ting-play` 与三个引擎；两个存储与 `ting`
+不是第八个文件（「两个根数据文件」）；同理 `die` 在**七个**里各一份，jq 的 `fmt_dur` 定义在**六个**里 ——
+三个引擎、`ting-playlist` 与 `ting-history` 两个存储，加上 `ting` 给队列行拼时长的那一份：它们都在整形 JSON，
+所以一个 bash 版本存在的唯一意义就是每行 fork 一次 jq；`require_deps` 在**四个**里（`ting-play` 与三个引擎；两个存储与 `ting`
 不跑 yt-dlp/curl），`ensure_scratch` 与那些信封发射器在三个引擎里各一份。**副本自己不数自己**：
 副本的注释指回这里 —— 因为一个写在副本里的序数，会在下一个引擎落地时**无声地**过期，
 而**这里是唯一要改的地方**。一个共享库会是第八个文件，而每个引擎 —— 因而传递地，还有那个
