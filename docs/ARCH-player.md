@@ -5,7 +5,7 @@
 ## 模块功能和结构
 
 **管什么**：**播放执行、脱离终端的后台生命周期、IPC 通信与两大持久存储** —— 核心执行者 `shell/t-play`（模式映射、mpv 参数装配、错误分类、detached 进程组、状态机与墓碑记录）、播放队列消费，以及两个不认站点的持久存储：播放列表存储 `t-playlist`（JSON 文件、互斥锁、原子写入）与收听日志 `t-history`（JSONL、无锁 `O_APPEND`、防并发截断）。
-🔴 **播放器绝不接触站点知识**：不调 `yt-dlp`、不决定 Cookie、不拼音源 URL，全靠调用 `<engine>-resolve` 获得直链。
+🔴 **播放器绝不接触站点知识**：不调 `yt-dlp`、不决定 Cookie、不拼音源 URL，全靠调用引擎的内部动词 `t-engine-<engine> --stream` 获得直链。
 
 **不管什么**（边界表，走错门会得到相反的建议）：
 
@@ -25,9 +25,9 @@
         |
         v
    +-----------------------------------------------------------------------------------------+
-   | t-play（主进程：前置 reap_dead_players 墓碑清理 -> 参数校验 -> 动词路由）              |
+   | t-play（主进程：前置 reap_dead_players 墓碑清理 -> 参数校验 -> 动词路由）               |
    |   [前台/后台播放调度]                                                                   |
-   |     调用 <engine>-resolve 获取直链 -> run_mpv（唯一 mpv 接缝）                          |
+   |     调用 t-engine-<e> --stream 获取直链 -> run_mpv（唯一 mpv 接缝）                     |
    |   [生命周期控制动词]                                                                    |
    |     --status / --stop / --pause / --resume / --seek / --set-volume / --enqueue / --next  |
    |     do_* 动词实现: 读状态文件 -> UNIX Domain Socket (nc -U) 发送 JSON IPC / 发送进程信号 |
@@ -84,7 +84,7 @@ t-play --engine bili -f viz -- BV…                 # 已证 · 换引擎，同
 
 **「已证」在这里证的是 argv，不是画面。** 五行每一行 `tests/contract.sh` 都以同样的 flag、
 同样的顺序真的跑过一次，句柄换成一个**没有引擎认领的 host**：这样整条调用离线（引擎的 host
-门在 yt-dlp 之前答，量到 0.05s），而报回来的必须是**引擎**那句 `<engine>-resolve could not
+门在 yt-dlp 之前答，量到 0.05s），而报回来的必须是**引擎**那句 `t-engine-<engine> could not
 resolve` —— 也就是每个 flag 都被收下了、这个组合合法、调用一路走到了引擎。断言的是**文案**
 不是退出码：一个被拒的 flag 与一个被拒的 host 同样退 1。`--engine bili` 那行的判据是文案里
 的**引擎名**，所以它不是第一行的重复；`--start 90 --quality low` 那行是最容易腐的一条 ——
@@ -143,24 +143,23 @@ resolve` —— 也就是每个 flag 都被收下了、这个组合合法、调�
 ### 模式 → 格式 → mpv —— **模式是共享的，格式表是引擎的**
 
 `-f MODE` 是播放器的 flag，原样传给引擎；一个模式作为格式字符串**意味着什么**是站点知识，
-所以 `format_for_mode()` 住在每个 `<engine>-resolve` 里，绝不在 `t-play` 里。播放器从头到尾
+所以 `format_for_mode()` 住在每个 `t-engine-<engine>` 里，绝不在 `t-play` 里。播放器从头到尾
 没见过格式字符串，除了把它当作一个不透明的值记进播放器文件、且再也不读。
 `--quality TIER` 是同一分界线的另一面：档位在**门口**校验（bogus 档退 1），然后**原样**转发
 给引擎 —— (mode, tier) → yt-dlp sort 的那张表是引擎自己的（`quality_sort_for_tier`），
-播放器只搬运档位、从不翻译它；`auto` 不发 sort，一个显式的 `-S` 压过 `--quality`
-（两条转发路径都原样过手，覆盖关系在引擎内部裁决，ARCH-engine.md「解析」）。
+播放器只搬运档位、从不翻译它；`auto` 不发 sort（ARCH-engine.md「解析」）。yt-dlp 的 format-sort
+语法不在公开面上：档位是它唯一的抽象，要改某个模式的格式，改的是引擎的 `TING_<ENGINE>_*_FORMAT*` 配置键。
 
 这张表**跨三个文件**，所以它在这里陈述一次 —— 没有任何一个文件单独说得出它：
 
 ```
-  MODE（播放器 flag）  <engine>-resolve: format_for_mode()   t-play: mpv 选项集
+  MODE（播放器 flag）  t-engine-<e>: format_for_mode()       t-play: mpv 选项集
   ──────────────────   ─────────────────────────────────     ───────────────────────────────
   audio                TING_YT_AUDIO_FORMAT (ba/b)            --no-video（仅音频）
   video                TING_YT_VIDEO_FORMAT (bv*+ba/b)        默认 VO
   fast                 TING_YT_VIDEO_FORMAT_FAST              默认 VO（渐进式）
   ascii                TING_YT_VIDEO_FORMAT                   --vo=<TING_ASCII_VO> --profile=sw-fast
   viz                  TING_YT_AUDIO_FORMAT                   --vo=tct + 一条 lavfi 链（TING_VIZ_STYLE 选）
-                       （给了 -S SORT 时原样转发为 --format-sort）
 ```
 
 播放接缝只有一个：`shell/t-play` 的 `run_mpv()` —— 它读引擎调用填好的 `RESOLVED_*` 全局量，
@@ -261,8 +260,8 @@ user+sys）：整张表都落在单核的 5–10%，所以**取舍从来不是 C
 ### 输出模式与错误分类
 
 三条输出路径：prose（默认）、`-j`（把闲话全部压掉，只发最后一行 JSON）、`-d`（后台，报
-"started"）。**播放器没有 `--get-url`** —— 只要流 URL 而不播，那就是 `<engine>-resolve -j`
-这次调用本身，不是播放器的一个动词（ARCH-engine.md「解析」）。
+"started"）。**播放器没有 `--get-url`** —— 只要流 URL 而不播，那是引擎的内部动词 `t-engine-<engine> --stream -j`，
+不是播放器的一个动词，也不在公开面上 —— 直链会过期、请求头是站点知识，调用方拿到它也用不了（ARCH-engine.md「解析」）。
 
 **两个分类器，一份枚举，而播放器那个是小的那个。** 识别*一次抽取为什么失败*的那些措辞 ——
 视频不可用、请求的格式没有、需要登录确认 —— 只有引擎见得到，由它分类并报出 `reason`。播放器
@@ -301,7 +300,7 @@ string，就等于把站点知识重新长回播放器里 —— 正是 ARCHITEC
 （「运行时 IPC」），所以 `--start 601` 之后它自然从 601 起报。起播偏移是那个数的**成因**，
 不是一个新事实 —— 多一个只写不读的键，正是这个记录一贯拒绝的那种字段。
 
-**TUI 上没有这个功能的入口，而那不是漏了人面。** `ting` 的行来自 `<engine>-search`，而搜索
+**TUI 上没有这个功能的入口，而那不是漏了人面。** `ting` 的行来自 `t-play --search`，而搜索
 结果的 `url` 从来不带 `t=` —— 没有任何一条 TUI 里的行会**携带**一个偏移，所以没有键位可加。
 ARCHITECTURE.md「两个存储」"每个功能都要有 agent 面"在这里是满足的：agent 面就是 `--start`
 加信封的 `start_seconds`，而它本来就没有人面。（真要从 TUI 跳到某一秒，那个动作已经有词了 ——
@@ -318,7 +317,7 @@ ARCHITECTURE.md「两个存储」"每个功能都要有 agent 面"在这里是�
 
 ### 进程组模型（为什么是它，而不是 PID 树）
 
-一次 detached 播放是 `bash t-play`，加上引擎那些短命的 `<engine>-resolve`/`yt-dlp`/`curl`
+一次 detached 播放是 `bash t-play`，加上引擎那些短命的 `t-engine-<engine> --stream`/`yt-dlp`/`curl`
 子进程，再加上 `mpv` —— 在没有 curl 的机器上，还可能有**一个更晚才生出来的（重试）mpv**。
 两个事实让"朴素地杀进程树"失效：
 
@@ -335,14 +334,14 @@ ARCHITECTURE.md「两个存储」"每个功能都要有 agent 面"在这里是�
       id = new_player_id()           # mktemp token；启动前 socket 路径就已知
       set -m                         # monitor 模式：被后台化的作业成为组长
       TING_IPC_SOCK=… TING_DETACHED=1 TING_PLAYER_ID=<id> \
-        nohup bash SELF -f MODE --engine NAME [--volume N] [-S SORT] -- HANDLE \
+        nohup bash SELF --engine NAME -f MODE --loop L [--volume N] [--quality T] [--start S] -- HANDLE \
             </dev/null >mpv-<id>.log 2>&1 &     # pgid == pid（$!）；stdin 见下文
       set +m ; disown
       写下 players/<id>.json，再 rm 掉那个光秃秃的 mktemp token（状态住在 <id>.json 里）
 
    ┌─ 进程组  pgid = 57678（播放器 <id>）───────────────────────┐
    │  57678  bash t-play -f audio --engine yt HANDLE（组长）    │
-   │    ├─ <engine>-resolve（yt-dlp + curl，短命）               │
+   │    ├─ t-engine-<e> --stream（yt-dlp + curl，短命）          │
    │    └─ 57712  mpv --no-ytdl --input-ipc-server=…sock         │ ← 改挂到 init
    └──────────────────────────────────────────────────────────────┘   但 pgid 不变
 
@@ -396,8 +395,8 @@ stdin 重定向到 `/dev/null` —— 但只在作业控制**关**的时候，�
 ~2.4 MB/小时，也就是说，恰恰是 `-d` 存在的意义所在的那种长命播放器，会在 `$TMPDIR` 里无界增长。
 所以子进程的 `run_mpv` 追加 `--no-term-osd-bar --msg-level=all=error`（放在模式选项之后，
 于是它们赢），并跳过 stderr 噪声过滤。修后实测：日志 59 字节，12 秒内零增长，而真实失败仍然
-记得下（`[ytdl_hook] ERROR: …`）。`-S` 与 `--engine` 像 `--volume` 一样转发给子进程 ——
-一个不转发的 detached 路径会把 `-S` 悄悄丢掉。
+记得下（`[ytdl_hook] ERROR: …`）。`--quality`、`--start` 与 `--engine` 像 `--volume` 一样转发给子进程 ——
+一个不转发的 detached 路径会把它们悄悄丢掉。
 
 **`title` 与 `format` 由**子进程**回填，而不是由一个后台兄弟进程（`patch_player_meta`）。**
 父进程必须在毫秒级返回，因此它两个字段都不可能知道；子进程从它本来就要取的解析信封里学到这两样，
@@ -607,7 +606,7 @@ bash 3.2 的数组过不了 `$(...)` 捕获这一关，而调用方也不能把�
 先把 `-h` 的输出存进变量再匹配，绝不 `nc -h | grep -q` —— pipefail 下那条管道的状态是 nc 自己的，
 而 BSD `nc -h` 退 1，于是系统自带的 nc 在每台 Mac 上都被拒掉过；BSD 的选项行以 tab 缩进）：BSD/openbsd 的
 `nc -U -w1` 优先，没有就落 `ncat -U -w 1 -i 1`（ncat 的 `-w` 只管连接超时，空闲兜底是 `-i`），
-两个都没有，socket 动词才拒。`t-play` 与 `ting` 各带一份探测（十个对等文件不共享库）。延迟是
+两个都没有，socket 动词才拒。`t-play` 与 `ting` 各带一份探测（七个对等文件不共享库）。延迟是
 地板不是天花板（约 ≤1s/次）：mpv 把 socket 一直开着，所以回复之后若没有后续事件，读端可能一直
 坐到超时 —— 对人驱动的调节没问题，对紧循环不行。探测在分派处惰性把门，绝不进全局 `require_deps`，
 于是一次光秃秃的搜索永远不必要求它。
@@ -702,7 +701,7 @@ ncat 7.95，2026-09-26）结果是 `--watch` 停在一条死连接上：接不�
   还白得 agent 面 —— 反正队列都会搭 `--status` 的信封出去。它栽在所有权上：播放器要在播到一半时
   去读一份**它不拥有**的文件，而"谁可以写、什么时候写"就变成一条这套套件必须先发明、然后还要
   一直守住的规矩。
-- **第七个命令 `ut-queue`。** 它符合这套套件惯常的形状 —— 一个能力就是一个文件 —— 而且播放器
+- **单独一个命令 `t-queue`。** 它符合这套套件惯常的形状 —— 一个能力就是一个文件 —— 而且播放器
   一行都不用改。它从另一侧栽在同一个不变量上：那样就有**两个**进程想驱动同一个播放器，而
   "`players/` 恰好一个所有者"在这里是硬的（「状态机」）。那条路要先回答"谁回收、谁写状态文件"
   才能开工，而回答它就意味着把生命周期搬出播放器。
@@ -810,8 +809,8 @@ ncat 7.95，2026-09-26）结果是 `--watch` 停在一条死连接上：接不�
 交替的 5 项，三轮，每首都 seek 到 `duration-3` 让它自己结束（`--next` 是另一条路径，不是这里量
 的东西）。**空档的 92% 是引擎往返**（解析中位 3.8 s），所以唯一还能砍的地方是预取 —— 循环里
 没有别的东西大到值得管。方向上的不对称是真的，这也是为什么混合队列才是唯一诚实的夹具：
-**→bili 3.4 s，→yt 5.3 s**，因为 `yt-resolve` 要读浏览器 cookie，还可能花掉一次 PO-token 探测
-与一次匿名重试，而 `bili-resolve` 只要一次 yt-dlp 调用。**因此预取不进 v1**，依据是那条在数字
+**→bili 3.4 s，→yt 5.3 s**，因为 yt 的 `--stream` 要读浏览器 cookie，还可能花掉一次 PO-token 探测
+与一次匿名重试，而 bili 的只要一次 yt-dlp 调用。**因此预取不进 v1**，依据是那条在数字
 出现之前就写下、之后被遵守的触发条件：只有当 p90 越过 **8 s** 时才付这笔账，因为在第 N 首期间
 解析第 N+1 首意味着第二个后台作业加上一份会过期的缓存（流 URL 几小时就死）。这个数字挂在活站点
 上；上游一变就要重测，而触发条件不动。
@@ -911,7 +910,7 @@ ARCHITECTURE.md「站点知识的边界」，那是一个硬性的用法错误�
 过滤且重排过的，对它的下标并不是对 `.results` 的下标。
 
 行记录带着 `engine`，而这正是一个混合播放列表能被播放的原因：`play_selected` 传的是**那一行的**
-引擎，而会话级引擎会把一条 Bilibili URL 送去 `yt-resolve`。因为播放列表信封产出的是与搜索
+引擎，而会话级引擎会把一条 Bilibili URL 送去 `t-engine-yt`。因为播放列表信封产出的是与搜索
 **同样**的行，列表视图、过滤与翻页一个字都不用改 —— 唯一需要认识这个新行源的，是三个会**重新
 取数**的键（`m`、`o`、`e`，而播放列表没有查询），以及 `Esc`，它是从里面出来的路。
 
@@ -960,7 +959,7 @@ ARCHITECTURE.md「站点知识的边界」，那是一个硬性的用法错误�
 
 **播放器写，存储存。** `t-play` **按名字**调 `t-history`，与它调引擎是同一种方式，而且对 JSONL
 与按月分片一无所知；`t-history` 则从不播放。它不在 PATH 上时，什么也不记、什么也不说 ——
-**这套套件没有的能力，是靠"没有那个命令"来声明的**，同一条规矩也让 `bili-resolve` 没有
+**这套套件没有的能力，是靠"没有那个命令"来声明的**，同一条规矩也让 `t-engine-bili` 没有
 `--transcript`。这次写发生在一个**先**忽略了 INT 与 TERM 的子 shell 里，而 `SIG_IGN` 能活过
 `exec`，所以一旦它被 fork 出来，哪怕产出它的子进程一毫秒后就被杀，那一行照样落地。
 
@@ -1026,7 +1025,7 @@ ARCH-tui.md「可撤销取代预先确认」）。能撤回的东西放在哪、
   `--queue-mv` / `--queue-jump`，以及播放器自己的 `queue_advance_from` / `queue_bump`，一律不变。
   歌单的锁本来就是超时即失败（「持久状态层」）。
 - **到期是惰性的。** `--undo` 执行时比一次截止时间，没有后台定时器。`date +%s` 是整秒，实际窗口
-  2–3 秒。宽限期是两个命令里各写一份的常量 `UNDO_GRACE=3`（命令之间允许复制，与那十个入口逐字
+  2–3 秒。宽限期是两个命令里各写一份的常量 `UNDO_GRACE=3`（命令之间允许复制，与那七个文件逐字
   重复的块同理），不开放为配置。
 - **`t-history` 不纳入，记为明确的 NO**（ROADMAP.md）。无锁追加是它的设计前提（「收听日志」），
   而副本要求"读修改前 → 写副本 → 写修改后"在同一把锁里完成；`--clear` 也没有 TUI 键。重开条件：

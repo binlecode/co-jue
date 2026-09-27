@@ -57,36 +57,36 @@
 
 通用 argv、信封与退出码只认 `ARCH-cli-contract.md` 正本。本节只写 SoundCloud 的站点映射和实现分歧，不复制公共字段清单。
 
-### 3.1 引擎对与配置
+### 3.1 引擎文件与配置
 
 - 引擎标识符：`sc`
-- 可执行文件：`shell/sc-search`、`shell/sc-resolve`
+- 可执行文件：`shell/t-engine-sc`（一个文件，只由 `t-play` 调用）
 - 新增引擎级配置：
-  - `SC_COOKIE_BROWSER=chrome`：供 `--auth` 与 resolve 的 cookie 决定使用；`none` 强制匿名。
-  - `SC_AUDIO_FORMAT=ba/b`：SoundCloud 只提供音频，五种规范 `-f` 模式都落到此格式。
-- 搜索条数、上限与排序继续读套件级 `TING_SEARCH_RESULTS`、`TING_SORT_FIELD`（上限是引擎自己的常量）；不得新增 `SC_SEARCH_LIMIT` 形成第二份默认值。
-- `--quality` 必须接受 `auto|low|medium|high`。实施前以匿名格式表和可获得的 OAuth 格式表实测 (mode, tier) 到 `--format-sort` 的映射；`auto` 不发 sort，`-S` 继续压过 tier。
+  - cookie 来源读套件键 `TING_COOKIE_BROWSER`，供 `--auth` 与 `--stream` 的 cookie 决定使用；`none` 强制匿名。
+  - `TING_SC_AUDIO_FORMAT=ba/b`：SoundCloud 只提供音频，五种规范 `-f` 模式都落到此格式。
+- 搜索条数、上限与排序继续读套件级 `TING_SEARCH_RESULTS`、`TING_SORT_FIELD`（上限是引擎自己的常量）；不得新增 `TING_SC_SEARCH_LIMIT` 形成第二份默认值。
+- `--quality` 必须接受 `auto|low|medium|high`。实施前以匿名格式表和可获得的 OAuth 格式表实测 (mode, tier) 到 `--format-sort` 的映射；`auto` 不发 sort。
 
-### 3.2 `sc-search`
+### 3.2 `--search`
 
-- 完整继承 `<engine>-search` 的 flag 门、URL 拒绝、单行信封、失败信封和 2+ 外部失败分类。
-- 传输基线为 `scsearch<N>:` 的一次 yt-dlp 进程；`-m/-M` 在本地按规范化整数秒过滤，`-s` 只对已取窗口排序。
+- 完整继承引擎 `--search` 的 flag 门、URL 拒绝、单行信封、失败信封和 2+ 外部失败分类。
+- 传输基线为 `scsearch<N>:` 的一次 yt-dlp 进程；`--min-duration`/`--max-duration` 在本地按规范化整数秒过滤，`--sort` 只对已取窗口排序。
 - `id` 取数字 Track ID，`url` 取 HTTPS `webpage_url`，`channel` 取 uploader，`view_count` 取 playback count。
 - `duration` 向下取整，`duration_fmt` 由同一份 `JQ_PRELUDE` 导出；没有 duration 且没有直播理由的记录在信封前丢弃。
 - `live_status:null`、`kind:"track"`、`access:"full"` 是当前已测映射；引擎自检的 `--raw` 也必须由归一化字段覆盖原始同名键。
 - `thumbnail` 选择带数值宽度且宽度不小于 200 的最小 HTTPS 项；没有合格项时按已有跨引擎规则返回 HTTPS fallback 或 `null`，不得把无 width 的 `original` 当作已满足阈值。
 
-### 3.3 `sc-resolve`
+### 3.3 `--stream` 与只读动词
 
-- 完整继承 `<engine>-resolve` 的共享 flag，包括 `--quality`；只读动词为 `--info`、`--auth`、`--items`，并为 `--items` 实现通用 `--cursor o:<offset>` 门。
+- `--stream` 完整继承内部协议的共享 flag，包括 `--quality`；公开只读动词为 `--info`、`--auth`、`--items`，并为 `--items` 实现通用 `--cursor o:<offset>` 门；`--capabilities` 如实列出它们。
 - host 白名单为 `soundcloud.com` 及其真正的点分子域；必须拒绝 userinfo 混淆、尾点、非 HTTPS/HTTP 形状和 `evilsoundcloud.com`，不得用裸后缀匹配。
 - 单曲句柄接受：数字 Track ID、规范 SoundCloud Track URL、`on.soundcloud.com` 短链以及 extractor 已支持的 `api.soundcloud.com/tracks/<id>` 形状。Set URL 在流解析与 `--info` 主路径拒绝并指向 `--items`。
 - `start_seconds` 在任何网络请求前处理：
   - 每个引擎都必须理解套件自有 `?t=<非负秒数>`，包括 `?t=0`；
   - SoundCloud 额外理解已实测的 `#t=H:MM:SS` / `#t=M:SS`；
   - 只剥离被识别的偏移，保留媒体身份所需的其余 query；解析失败填 `null`，不报用法错误；
-  - resolve 与 `--info` 信封填写同一个值，规范 `url` 中不保留偏移。
-- resolve 信封必须原样满足公共 schema：`stream_urls`、非凭据 `http_headers`、`format`、`selected`、`selected_resolution`、`retried` 和 `start_seconds` 均按正本语义生成。外部失败只使用共享 reason：`forbidden | unavailable | format_unavailable | network | cookies | unknown`；引擎不产生退出码 4。
+  - `--stream` 与 `--info` 信封填写同一个值，规范 `url` 中不保留偏移。
+- `--stream` 信封必须原样满足内部协议的 schema：`stream_urls`、非凭据 `http_headers`、`format`、`selected`、`selected_resolution`、`retried` 和 `start_seconds` 均按正本语义生成。外部失败只使用共享 reason：`forbidden | unavailable | format_unavailable | network | cookies | unknown`；引擎不产生退出码 4。
 - `--auth` 在依赖门之前回答，不发网络、不跑 yt-dlp；它只报告 cookie 是否会发送，不宣称会话有效或一定获得 Go+ 音质。
 
 ### 3.4 `--items` 阻断实验
@@ -116,20 +116,20 @@
 - 完成小 Set、大 Set、空 Set、不存在 Set、含不可用条目的 Set、游标第二批实测。
 - 四道确认门全部通过后，才把本计划状态改为 Approved，并把 ROADMAP 项从【待决】改成【待做】。
 
-### Milestone 2：实现引擎对
+### Milestone 2：实现引擎
 
-- 先增加能复现预期失败的真实契约检查，再实现 `sc-search` 与 `sc-resolve`。
+- 先增加能复现预期失败的真实契约检查，再实现 `t-engine-sc`。
 - 严守 bash 3.2；不得使用关联数组、大小写展开、`mapfile`、负数组下标或空数组的不安全展开。
 - 临时文件全部位于 `$TMPDIR/ting-<uid>/`；不引入第六个运行时依赖。
-- 在出厂 `config` 一次声明 `TING_SC_AUDIO_FORMAT`（cookie 走套件键，载入块的前缀白名单不用动）；不增加搜索专属默认条数。
+- 在出厂 `config` 一次声明 `TING_SC_AUDIO_FORMAT`（cookie 走套件键；文件里只读 `TING_` 键，载入块不用动）；不增加搜索专属默认条数。
 
 ### Milestone 3：把测试从“三个样本”升级到“四个样本”
 
 动态跨引擎循环会自动覆盖部分门，但不能把它当作完整接入。至少补齐：
 
-- 离线内置引擎顺序期望与 `SC_*` 配置读取/拒绝；
+- 离线内置引擎顺序期望（`t-play --engines -j`）与 `TING_SC_*` 配置读取；
 - SoundCloud host 正例、子域正例及 userinfo/尾点/相似域反例；
-- `-j` 与 `--raw` 搜索行、resolve、`--info`、`--auth` 的键集与一行 JSON；
+- 经 `t-play` 的 `-j` 搜索行、`--info`、`--auth`，引擎自检的 `--raw` 与内部 `--stream` 的键集与一行 JSON；
 - `?t=601`、`?t=0`、无偏移和 `#t=1:30`；
 - Set 的完整信封、空/不存在/过滤、游标往返与两批不重叠；
 - 搜索行经 `t-play -d --engine sc` 到真实 playhead 的端到端播放；

@@ -24,15 +24,15 @@
         v
    +-----------------------------------------------------------------------------------------+
    | ting 入口编排层                                                                         |
-   |   引擎自动扫描: scan_engines（检查 <name>-search 与 <name>-resolve 成对存在）           |
-   |   配置预加载与偏好加载: ting_read_config                                                  |
+   |   引擎发现: 读 t-play --engines（引擎名与各自的 flags[]）                               |
+   |   配置预加载与偏好加载: ting_read_config                                                |
    +------------------------------------+----------------------------------------------------+
                                         | 行源切换 (按相应键切入，再按同一个键返回主列表)
         +---------------+---------------+---------------+---------------+
         |               |               |               |               |
         v               v               v               v               v
    [搜索行源]       [持久行源]                      [层级行源]      [播放器行源]
-   <engine>-search  b: t-playlist --show -j        c: --parts      u: t-play --queue-show
+   t-play --search  b: t-playlist --show -j        c: --items      u: t-play --queue-show
    -j (主搜索列表)  h: t-history --ls -j           i: --info       (在播播放器的队列)
         |                               |                               |
         +-------------------------------+-------------------------------+
@@ -68,8 +68,9 @@
 ## 接口与 API
 
 一个 TTY 上的键位面（键表由 `ting --help` 陈述、由 `tests/contract.sh` 的 tmux 段证明），
-对下组合动词：`<engine>-search -j`、`t-playlist` / `t-history`、
-`<engine>-resolve --info/--parts -j`、`t-play -d -j --engine <行自己的引擎>`。
+对下组合动词：`t-play --search -j`、`t-playlist` / `t-history`、
+`t-play --info/--items -j`、`t-play -d -j --engine <行自己的引擎>`。它只调这三个公开命令，
+从不直接调 `t-engine-*`。
 契约面在 `ARCH-cli-contract.md`。
 
 ### 调用面 —— 选项的乘积
@@ -82,7 +83,7 @@
 ```sh
 ting                                   # 已证 · 无 query，交互式问
 ting "lofi hip hop"                    # 已证 · 直接搜
-ting --engine bili -n 40 "周杰伦"       # 已证 · 转发给 bili-search
+ting --engine bili -n 40 "周杰伦"       # 已证 · 转发给 t-play --search --engine bili
 ting -f video --volume 60 "…"           # 已证 · 菜单参数：起播 mode 与起播音量
 TING_LANG=zh ting --theme nord "…"      # 已证 · chrome —— 主题是 flag，语言是键（`l` 键实时轮换）
 ```
@@ -114,18 +115,14 @@ mode 门，`ting -f video --volume 60 </dev/null` 报 TTY 门 —— 两条检�
 
 图说的是*什么*，图后面的条目说的是不显然的*为什么*。
 
-**引擎发现，以及这个文件为什么不持有源清单。** 启动时 `scan_engines` 在自己所在目录 glob
-`*-search`，且只有当 `<name>-resolve` 就在旁边且可执行时才保留这个名字 —— 装了一半的引擎
-不算引擎。**然后照样扫 `$TING_ENGINE_DIR`，再照样扫一遍 PATH**（三处的顺序与理由是
-`ARCH-cli-contract.md`「加一个引擎 —— 清单」那一条，与 `t-play` 找 resolve 半边的顺序同一条），
-同名以先看见的为准 —— 兄弟目录压插件目录压 PATH，所以插件只能加源、替不掉内置源。
-于是一个光秃秃的 checkout 不装任何东西也能跑，而一个装了自己引擎的 checkout 仍看得见
-外面那一对。PATH 看起来可以省：只在 checkout 一个都没扫到时才扫，常见情形只花一次 glob ——
-代价是**第三方引擎唯一真实的处境（旁边有内置引擎、新的那一对在 PATH 上）永远扫不到**，
-于是 `t-play --engine foo` 放得出来的源，TUI 的 `e` 键一辈子轮不到它：两个面对"有哪些源"
-这个问题给出不同答案，而 `ARCH-cli-contract.md`「加一个引擎 —— 清单」最后一条说的是同一件事。
-省下的那次 glob 抵不上这个：3.2 下扫满 44 个 PATH 目录实测 9ms，启动时一次。
-**零个引擎是致命的启动错误**，并说出缺的是哪一对。
+**引擎发现，以及这个文件为什么不持有源清单。** 启动时问一次 `t-play --engines`，一行一个
+引擎（名字、它用的文件、它公开的 flag）。去哪里找、同名谁赢（兄弟目录压 `$TING_ENGINE_DIR` 压
+PATH，所以插件只能加源、替不掉内置源）是播放器的规矩，每个引擎接受哪些 flag 是引擎自己的陈述
+（`ARCH-cli-contract.md`「加一个引擎 —— 清单」）；TUI 若自己再推一遍，就是一份会漂的第二副本，
+两个面对"有哪些源"这个问题会给出不同答案 —— `t-play --engine foo` 放得出来的源，`e` 键一辈子
+轮不到。读的是散文形态（名字 TAB 文件 TAB flags）而不是 `-j`：这一步跑在 jq 门之前，而每个字段
+都只是一个名字、一条路径或一个 flag 词。
+**零个引擎是致命的启动错误**，并说出去哪几处找过 `t-engine-<name>`。
 会话从 `TING_DEFAULT_ENGINE` 起步 —— **与 `t-play` 读的是同一个变量**，不是第二个，
 因为一个用户设过一次默认源之后，不该再按面设第二次 —— 那个名字不存在时回退到第一个已安装的引擎。
 `e` 轮换（`cycle_engine`）并重新取数，新引擎取数失败时把上一个恢复回来；
@@ -144,8 +141,8 @@ mode 门，`ting -f video --volume 60 </dev/null` 报 TTY 门 —— 两条检�
 引擎不在其中：引擎调用失败本来就会以一条提示说出来，不会留下什么在后台跑。
 
 **状态行的 `auth=` 来自引擎，不来自这个文件。** 一个源从哪个浏览器读 cookie 是站点知识，
-而 `ting` 一条也不持有 —— 所以它去问 `<engine>-resolve --auth -j`
-（`engine_resolve_bin`，与 `engine_search_bin` 同一条拼接规矩，不是第二张表），
+而 `ting` 一条也不持有 —— 所以它去问 `t-play --auth -j --engine <name>`
+（`engine_verb`，TUI 调每一个引擎动词都走这一个入口），
 取回的 `auth`/`cookie_browser` 渲染成 `auth=chrome` 或 `auth=anon`。
 `refresh_engine_auth` 在**启动时**与**每次 `e` 换源成功之后**各跑一次 ——
 跑在恢复窗口之后，不是之前，因为换源失败时 `ENGINE` 停在原处，而那个 token
@@ -154,29 +151,37 @@ mode 门，`ting -f video --volume 60 </dev/null` 报 TTY 门 —— 两条检�
 
 它**只**出现在搜索结果的状态行上。播放列表与历史的行是**混源**的
 （那一支报的是 `engine=${PLAYLIST_ENGINES}`），一个单一的 auth token 在那里
-对其中一半是假话。引擎的 resolve 半边没有 `--auth` 时它非零退出、字段直接消失 ——
+对其中一半是假话。引擎没有 `--auth` 时 `t-play --auth` 非零退出、字段直接消失 ——
 与 `--transcript` 缺失同一套"以有没有声明能力"的降级（ARCHITECTURE.md「站点知识的边界」），
 所以第三个引擎不会被这件事卡住。
 
-**`c` 与 `i` 给不给，也是问引擎要来的。** `refresh_engine_flags` 与 `refresh_engine_auth`
-同时跑、同样缓存，问的是 `<engine>-resolve --capabilities -j`：`flags[]` 里有 `--parts`
-才提供 `c`，有 `--info` 才提供 `i`。不用无句柄地调一次那个动词、再从 stderr 里分辨
-"缺句柄"还是"unknown flag"：那句文案不在契约里，Go 那一侧也不该去读。仓外引擎没有
-`--capabilities` 时退 1，两个键都不给：少一个键，比多一个答"unknown flag"的键代价小。
+**`c` 与 `i` 给不给，也是问引擎要来的。** 答案早在启动时就到手了：启动时读的
+`t-play --engines` 给每个引擎带一份 `flags[]`，`refresh_engine_flags` 在每次换源时从里面
+查，不 fork：有 `--items` 才提供 `c`，有 `--info` 才提供 `i`。不用无句柄地调一次那个动词、
+再从 stderr 里分辨"缺句柄"还是"unknown flag"：那句文案不在契约里，Go 那一侧也不该去读。
+一个什么都没声明的仓外引擎 `flags[]` 为空，两个键都不给：少一个键，比多一个答"unknown flag"
+的键代价小。
+
+**`c` 因此在三个引擎上都出现。** 视频的分 P 就是它的 `--items`，而三家都有 `--items`（歌单、
+专辑、频道），"这个引擎有分 P"不是任何引擎能声明的能力。所以在一条 YouTube 或网易云的单曲上
+按 `c`，屏上出的是引擎自己的拒绝（「not a container」），而不是静默无反应。要让 `c` 只在
+B 站出现，得有一个新的能力词 —— 那是契约改动（ROADMAP.md）。
 
 它说的是"播放会读哪个 profile 的 cookie"，**不是**"你登录着" ——
 那条界线在 ARCH-engine.md「先探后播」 量过，别在 UI 文案里把它说宽。
 
 **状态行的 `total=` 是 parts 列表特有的字段，而且它只出现在那一行上。** 它存在的理由是
 搜索行的一处不一致：B 站的搜索响应**只给聚合时长**，所以一个 100 P 视频的搜索行写着
-`10h:32m:03s`（实测：那个数字与 `--parts` 的 `total_duration_fmt` **逐字相同**），
+`10h:32m:03s`（实测：那个数字与把全部分 P 的时长加起来**逐字相同**），
 而在那一行上按 Enter 放出来的是**第 1 P**，12:07。两个数字都没错，错的是搜索屏上没有任何
 东西说它们是两个数字 —— 而这一层修不了：要在搜索行上分辨，得对每条结果多打一次
-`/x/web-interface/view`，正是 `bili-search` 最稀缺的那样东西（ARCH-engine.md）。
+`/x/web-interface/view`，正是 B 站搜索最稀缺的那样东西（ARCH-engine.md）。
 
 于是说清它的地方是 `c` 打开的部分列表，它把两个数字放在相隔一行的位置对峙：表头的
 `total=` 是集合，下面每一行是它自己那一 P。第 1 P 的时长**不**在表头里再印一遍 ——
-那一行就在下面，印了是 chrome 复读。`total=` 同样不印在搜索结果行上：那里没有任何东西
+那一行就在下面，印了是 chrome 复读。`--items` 信封不带总时长，这个数由 TUI 自己加：只在
+全部分 P 都到手（没有 `has_more`）且每一 P 都有时长时才加 —— 一个半截的和印成 `total=`
+就是一个错数，所以宁可不印。`total=` 同样不印在搜索结果行上：那里没有任何东西
 说"这是集合时长"，印了就是把两种数字混进一个字段。parts 列表的来源标签是 `parts=`
 （与 `playlist=` / `history=` 同一条规矩）。
 
@@ -237,7 +242,7 @@ ncmpcpp、ncspot 都是），所以它是唯一一个不用教的选择；`R` **
 
 状态行上它遵守 `quality=` 那条规矩：默认态 `off` 不占一格。
 
-**单 P 不开视图。** 引擎答 `count: 1` 不是错（ARCH-cli-contract.md 的 `--parts` 一节），
+**单 P 不开视图。** 引擎答 `total: 1` 不是错（ARCH-cli-contract.md 的 `--items` 一节），
 但在 TUI 里开一个单行列表是拿一次按键和一次重绘换一句废话 —— 屏幕上那一行**本来就是**
 那唯一的 P。所以 `c` 在那里出的是提示（`分P: 这个视频只有一 P`），回答的正是这个键真正
 在问的"这条还有别的吗"。
@@ -246,14 +251,14 @@ ncmpcpp、ncspot 都是），所以它是唯一一个不用教的选择；`R` **
    ting "lofi" -n 40
         │  解析：SEARCH_ARGS=(-n 40)；PLAY_MODE=audio；拒绝交叉 flag
         │  发现引擎；ENGINE ← --engine | TING_DEFAULT_ENGINE | ENGINES[0]
-        │  ENGINE_SEARCH ← engine_search_bin(ENGINE)   # "<name>-search"，拼出来的
+        │  搜索 ← engine_verb(ENGINE) --search         # 即 t-play --engine <name> --search
         │  要求：jq + 那些动词；stdin 与 stdout **都**要是 TTY（既读键又画屏）
         │  argv 上没有查询 → 用 read_query_input 提示 "❯ Search: "
         │  （提示语是 "Search" 而不是 "Search YouTube" —— UI 里不留一条站点相关的字符串）
         │  （Esc / 空行 / 空行上的 Ctrl-D 都取消并退 0）—— 与 `n` 提示用的是**同一个**读取器，
         │  所以 Esc 在第一个提示处的含义与别处一致；这也是为什么这个提示排在输入层定义之后
         ▼
-   SEARCH  fetch_json:  json = "$ENGINE_SEARCH" -j -n "$RESULT_N" "${SEARCH_ARGS[@]}" -- "lofi"
+   SEARCH  fetch_json:  json = engine_verb "$ENGINE" --search -j -n "$RESULT_N" --sort "$SORT_FIELD" "${SEARCH_ARGS[@]}" -- "lofi"
         │  **唯一**的搜索路径 —— 首次取数、`n` 新搜索、`→` 越过末页要更多结果全走它，
         │  然后同样经 build_all_rows → load_rows，于是它们不可能漂移
         │  spin_start/spin_stop 夹住这次调用，于是四条取数路径（启动、n、→、o）
@@ -490,7 +495,7 @@ ncmpcpp、ncspot 都是），所以它是唯一一个不用教的选择；`R` **
     - 队列的**位置**有槽位，因为它是 `+` 在屏上唯一的回执：状态行在队列长于 1 时印
       `queue=pos/len`（`CURRENT_QUEUE_POS`/`_LEN`）。队列的**尾巴**（`upcoming`）没有 ——
       这一面不读它。
-  - **`i` 是第五个行源：把章节变成行。** 一次 `<engine>-resolve --info`，按 `engine:url` **单槽**
+  - **`i` 是第五个行源：把章节变成行。** 一次 `t-play --info`，按 `engine:url` **单槽**
     缓存（`INFO_CACHE_KEY`/`INFO_CACHE_JSON`，会话内有效、不落盘）；`chapters[]` 经
     `build_chapter_rows` 变成一个 `{items:[…]}` 信封，再交给**歌单那个同一个** `build_playlist_rows`
     走完。`i` 读的是**那一行自己的** engine，与 `Enter`、`c` 同一条规矩。
@@ -535,7 +540,7 @@ ncmpcpp、ncspot 都是），所以它是唯一一个不用教的选择；`R` **
     （一个平行数组会）。
   - **`Enter` 在章节行上的两个分支，是同一件事。** `play_chapter`：播放器手上已经是**这一条**
     （engine 与去掉 `t=` 的句柄都相等）就走 `t-play --seek-to <秒>` —— 章节是**已经打开的那个
-    文件里的一个偏移**，所以是一次 seek，永远不是一次 re-resolve（这正是这条轴与 `--parts`、
+    文件里的一个偏移**，所以是一次 seek，永远不是一次 re-resolve（这正是这条轴与 `--items`、
     `--quality` 的分界，ARCH-cli-contract.md「命令规格」）；否则照常 `play_selected`，偏移在 url 里。
   - **`u` 是第六个行源：把在播播放器的队列变成行 —— 也是唯一一个能写的行源。** 一次
     `t-play --queue-show -j`，信封与歌单同形，于是行由 `build_queue_rows` 走完
@@ -569,11 +574,11 @@ ncmpcpp、ncspot 都是），所以它是唯一一个不用教的选择；`R` **
       补的是同一个事实的同一个来源（`CURRENT_PLAY_TITLE` / `CURRENT_PLAY_DUR_WIRE`），不是第二
       份真相；`--queue-show` 那一侧的同一个缺口记在 ROADMAP.md 上。
   - **URL 直贴与外部容器接入：单视图的原生承接。**
-    用户从浏览器复制 URL 进入 `ting` 时，系统在三处入口统一前置分流（终端 Bracketed Paste、`n` 搜索输入框、CLI 冷启动 `ting <URL>`），绕开 `<engine>-search` 对 URL 的阻断门，由 `load_url` 完成原地解析：
+    用户从浏览器复制 URL 进入 `ting` 时，系统在三处入口统一前置分流（终端 Bracketed Paste、`n` 搜索输入框、CLI 冷启动 `ting <URL>`），绕开 `t-play --search` 对 URL 的阻断门，由 `load_url` 完成原地解析：
     - **单曲 URL：非破坏性聚焦，不中断当前收听。**
-      通过 `<engine>-resolve --info -j` 获取元数据并投影为单条搜索记录置于 `ALL_ROWS`，光标高亮停留在该条目上。用户可按 `Enter` 立即起播、按 `+` 静默入队、按 `a` 收藏至歌单、按 `c`/`i` 查看分 P 与章节。坚决不走“贴上即粗暴切歌”的侵入式设计。
+      通过 `t-play --info -j` 获取元数据并投影为单条搜索记录置于 `ALL_ROWS`，光标高亮停留在该条目上。用户可按 `Enter` 立即起播、按 `+` 静默入队、按 `a` 收藏至歌单、按 `c`/`i` 查看分 P 与章节。坚决不走“贴上即粗暴切歌”的侵入式设计。
     - **容器 URL：复用播放列表视图展开全量曲目。**
-      对歌单、专辑、合集等容器链接，调用 `<engine>-resolve --items -j` 获取条目列表，通过 `stash_search` 暂存前序搜索状态，将清单全量展开并复用 `build_playlist_rows` 载入单视图（`LIST_SOURCE="playlist"`）。用户可自由上下翻阅收听，并通过 `b` 键（`back_to_search`）一键原路返回前序搜索视图，彻底打通人机界面直达外部容器的闭环。
+      对歌单、专辑、合集等容器链接，调用 `t-play --items -j` 获取条目列表，通过 `stash_search` 暂存前序搜索状态，将清单全量展开并复用 `build_playlist_rows` 载入单视图（`LIST_SOURCE="playlist"`）。用户可自由上下翻阅收听，并通过 `b` 键（`back_to_search`）一键原路返回前序搜索视图，彻底打通人机界面直达外部容器的闭环。
     - **双向互降兜底**：单曲解析若遇容器报错（如 B 站音频歌单或网易云非 song 路径），自动回退至 `--items`；反之容器解析若遇单曲，自动回退至 `--info`，消除边界形态的误判。
   - **mini player 也不是第二个渲染器的理由。** 一个 "mini player" —— 用三行渲染同样那几个事实 ——
     会是一个状态两个渲染器，也就是会漂移的重复。渲染器只有**一个**。
@@ -738,8 +743,8 @@ ncmpcpp、ncspot 都是），所以它是唯一一个不用教的选择；`R` **
     - **粘贴在列表里分流：URL 直解，文本预填。**
       通过 `extract_url_target` 自动剔除两端引号、空白以及 B 站/网易云移动端复制出来的分享文本外壳（`【视频标题】`、`分享...单曲:`）。
       若内容是合法 HTTP(S) 或已知站点 URL（`is_url_target`），直接调 `load_url` 完成原地解析：
-      单曲调 `<engine>-resolve --info -j` 暂存前序搜索（`stash_search`）并投影为高亮单行结果（光标就位，按 `Enter` 播、按 `+` 入队、按 `a` 收藏、按 `b` 返回原搜索，不粗暴中断当前播放）；
-      容器调 `<engine>-resolve --items -j` 暂存前序搜索（`stash_search`）并全量展开为多行列表（按 `b` 原路返回）。
+      单曲调 `t-play --info -j` 暂存前序搜索（`stash_search`）并投影为高亮单行结果（光标就位，按 `Enter` 播、按 `+` 入队、按 `a` 收藏、按 `b` 返回原搜索，不粗暴中断当前播放）；
+      容器调 `t-play --items -j` 暂存前序搜索（`stash_search`）并全量展开为多行列表（按 `b` 原路返回）。
       若内容是普通文本，则依然打开 `n` 提示符并预填，保留用户删改意图的空间。
       在 `/` 实时过滤模式下，若检测到粘贴或敲入完整 URL 并回车，同样自动退出过滤模式并直通 `load_url`，杜绝过滤模式下粘贴死锁。
   - **终端尺寸来自 `stty size </dev/tty`，不是 `$(tput cols)`。** 在命令替换里，
@@ -943,7 +948,7 @@ ncmpcpp、ncspot 都是），所以它是唯一一个不用教的选择；`R` **
     `wrap_print` 是按**词**量的（每个词各自吃到快路径），所以整条链上再没有第二处没上界的遍历。
   - **chrome 自己的字形按它们真实的一格入表**，这正是让版式**精确**而不只是**安全**的原因。
     这一点之所以站得住，是因为这套套件的字形库存刻意是**非图形**的 —— 文本呈现，
-    `t-play` / `yt-search` / `yt-resolve` / `bili-*` / `ting` 里没有任何 emoji ——
+    `t-play` / `t-engine-*` / `ting` 里没有任何 emoji ——
     所以这些字符都不可能背着表带上一个 U+FE0F 变成 2 格的 emoji 字形。
     全部 17 个都量到一格（`tmux display-message -p '#{cursor_x}'`）：
 

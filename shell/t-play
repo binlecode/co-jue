@@ -677,7 +677,7 @@ engines_scan_dir() {
 # skipped rather than escaped (no real install has one).
 #
 # CAPABILITIES ARE THE ENGINE'S TO STATE, asked with one fork each (`--capabilities -j`,
-# about 7 ms). The answer is copied, not interpreted: its flags array is taken only when every
+# about 25 ms). The answer is copied, not interpreted: its flags array is taken only when every
 # member is a quoted flag word, so a malformed answer cannot put text of its own into this
 # envelope. An engine that does not answer lists with flags [] — installed, claiming nothing.
 json_path() {

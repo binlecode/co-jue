@@ -150,7 +150,7 @@
 
 - **【最高优先级 · 待做】TUI 改用 Go，CLI 契约成为唯一接缝。**
   **收益**：高。bash 3.2 给不了的人机脸（亚秒时钟、动效、事件循环）；同时关掉 TUI 直读 mpv socket 等绕过契约的洞。
-  **成本**：高。先加 `t-play --watch -j` 与 `--capabilities -j` 两项契约，再做对齐与测试迁移，直接在 main 上替换。
+  **成本**：高。`t-play --watch -j` 与 `t-play --engines -j` 的 `flags[]` 两项契约已就位，剩下对齐与测试迁移，直接在 main 上替换。
   **计划**：[`docs/PLAN-go-tui.md`](PLAN-go-tui.md)。
 
 - **【高 ROI · 待做 · 前置 Go TUI】焦点行歌词窥探。**
@@ -161,7 +161,7 @@
 - **【最高优先级 · TUI Design / 视觉排版】付费权限徽章（`access`）要不要上屏，以及上在哪一行。**
   **收益**：高。优化单行视觉设计与信息密度。`ne` 的信封已经免费带着 `fee → access`（`full` / `preview` / `paywalled`），一枚设计精炼的 `30s 试听` / `VIP` 徽章能让用户在按 Enter 之前一眼预判单曲可用性。
   **成本**：中。`load_rows` 现在建的是 `R_TITLE/R_DUR/R_VIEWS/R_CHAN/R_LIVE/R_ENGINE/R_RAIL`，多一个 `R_ACCESS` 是跨引擎的数据模型改动，不是一处渲染改动。
-  **待决问题一（信息量）**：`ne-search` 与 `ne-resolve` 默认就 `select(.access == "full")`，所以默认配置下屏上每一行都是 `full` —— 徽章会是一枚贴在每行、什么都不说的常量，只有 `TING_NE_INCLUDE_VIP=1` 时才携带信息。
+  **待决问题一（信息量）**：网易云引擎的搜索与容器默认就 `select(.access == "full")`，所以默认配置下屏上每一行都是 `full` —— 徽章会是一枚贴在每行、什么都不说的常量，只有 `TING_NE_INCLUDE_VIP=1` 时才携带信息。
   **待决问题二（归谁）**：`access` 是行级事实，而 `yt` / `bili` 没有对位字段。放状态行对其余行是假陈述；放行尾需改变行预算；放焦点行的 details meta 行不动行预算，但只说得出一行。
 
 ---
@@ -174,6 +174,13 @@
   **待决核心**：SoundCloud 能否在不复制私有 API、不新增依赖且不触发请求风暴的前提下，产出完整、可分页的容器信封？失败则转为 `$TING_ENGINE_DIR` 的仓外候选，第四内置源继续开放。
   **评审草案**：当前建议优先 SoundCloud，但只有容器完整性、请求预算、冻结契约与内置源五项判据全部通过后才确认；开放播客仍是后续候选，不预先命名为第五内置源。详见 [`docs/PLAN-fourth-media-source-selection.md`](PLAN-fourth-media-source-selection.md)。
   **前置问题**：已定 —— 进仓判据住在 `ARCHITECTURE.md`「站点知识的边界」，仓外那条路由 `$TING_ENGINE_DIR` 接住。
+
+- **【低 ROI · 待决 · 契约改动】`c` 键要不要只在有分 P 的引擎上出现。**
+  **现状**：视频的分 P 就是它的 `--items`，而三个引擎都有 `--items`，所以 `c` 在 yt / ne 上也出现，
+  按下时显示引擎自己的拒绝（「not a container」），不是静默无反应（ARCH-tui.md「`ting` 编排」）。
+  **成本**：低，但它是契约改动：要一个新的能力词进 `t-play --engines -j` 的 `flags[]`，说"这个引擎的
+  单条媒体可能有分 P"。
+  **待决核心**：这枚键省下的一次无用按键，值不值得在公开契约里多一个词。
 
 - **【中 ROI · 待做】队列条目的标题回填 —— `--queue-show` 会对在播的那一条报 `title:null`。**
   **收益**：中。一个从裸句柄起的播放器（在搜索行上按 `Enter` 就是）写下的队列条目只有 url；

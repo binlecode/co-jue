@@ -4,17 +4,18 @@
 
 Search a source, play it through mpv detached from your terminal, and keep controlling it — from
 a TUI if you are a human, from a single-line JSON contract if you are a program. Three sources
-ship (YouTube, Bilibili, NetEase Cloud Music); a fourth is a new pair of scripts and no change
+ship (YouTube, Bilibili, NetEase Cloud Music); a fourth is one new engine file and no change
 anywhere else — the third one was.
 
 ```sh
 ting                                   # interactive: search, browse, play, control
-yt-search -j -n 25 -- "lofi hip hop"   # machine: one line of JSON out
-bili-search -j -n 25 -- "周杰伦"        # machine: the second source, the same envelope
-ne-search -j -n 25 -- "钢琴"            # machine: the third; rows carry a real `access`
+t-play --search -j -n 25 -- "lofi hip hop"               # machine: one line of JSON out
+t-play --search --engine bili -j -n 25 -- "周杰伦"        # machine: the second source, the same envelope
+t-play --search --engine ne -j -n 25 -- "钢琴"            # machine: the third; rows carry a real `access`
 t-play -d -j -- "<url>"                # machine: launch detached, get {id, pid, sock}
 t-play -d --start 601 -- "<url>"       # machine: open at 601s (a link's own &t= does this too)
-yt-resolve --transcript -j -- "<url>"  # machine: captions as clean text + timed segments
+t-play --transcript -j -- "<url>"      # machine: captions as clean text (--segments: timed cues)
+t-play --engines -j                    # machine: which engines, and the flags each accepts
 t-play --status -j                     # machine: what is playing, where, how loud
 t-play --pause --id <id> -j            # machine: also --resume, --seek ±N, --seek-to N
 t-playlist --show chill -j | t-play -d --queue -     # machine: play a list, one player
@@ -39,38 +40,41 @@ sets for you.
 
 ## What it is
 
-- **`t-play`** — the player. Source-agnostic: it drives mpv, owns the detached player lifecycle
+- **`t-play`** — the one command-line entry, and the player. Source-agnostic: it drives mpv, owns the detached player lifecycle
   (id / pid / socket / lock / state dir / reap) and the **queue** a player consumes — a lone
   handle is a queue of one, each item resolved when it is reached because a stream URL expires —
   and defines the contract. It EXECUTES a start offset (`--start SEC`, or the one a link carried)
   without knowing any site's spelling for it: `?t=601s` is YouTube grammar, and reading it is the
   engine's job — the player only ever sees a number. It never searches and
-  never extracts, so it knows nothing about YouTube. Deliberately single-purpose, with mutually
-  exclusive flags rejected up front and a flag that moved to an engine answered by naming that
-  engine — because that is what makes it safe for a small model to call.
-- **`yt-search` + `yt-resolve`** — the YouTube *engine*, a pair. Search turns a query into results;
-  resolve turns a result id (or a URL) into a direct stream URL plus the HTTP headers it must be
-  fetched with, and also answers `--info` and `--transcript`. Everything site-specific lives here:
-  the yt-dlp calls, the cookie decision, the format-per-mode table, and the ten spellings of a
-  timestamp that all become one `start_seconds`. Adding a source is adding a pair.
-- **`bili-search` + `bili-resolve`** — the Bilibili *engine*, the second pair, and the proof that
-  the sentence above is true: neither the player nor the TUI changed a line to admit it. Its two
-  halves use **different primitives** — search talks HTTP through `curl` because yt-dlp's Bilibili
-  search returns no metadata at all, resolve shells out to `yt-dlp` because reimplementing this
-  site's request signing and stream selection would be a thousand lines to redo what a dependency
-  already maintains. The seam between an engine and the player is the **envelope**, never the tool
-  behind it. There is no `--transcript` here: the site has no captions, and an engine says what it
-  cannot do by not having the verb.
-- **`ne-search` + `ne-resolve`** — the NetEase Cloud Music *engine*, the third pair, and the one
-  that pays the sentence off twice. Nothing outside these two files changed to admit it: the
-  player found it by name, the TUI's `e` key offered it, and the test suite's cross-engine
-  invariants covered it the moment the pair landed. And it is the first engine whose search rows
-  carry a **real `access`** — this site publishes a `fee` per track, so a row says whether it is
-  fully playable, a 30-second sample, or an album purchase, in the page already fetched. The two
-  halves use different primitives again, and for a blunter reason than Bilibili's: the site's
-  plaintext search endpoint is gone, so `ne-search` speaks the browser's encrypted `weapi` — two
-  AES passes through `openssl`, which is a dependency of that **one file** and of nothing else in
-  the suite. Its `--transcript` is the song's lyrics.
+  never extracts, so it knows nothing about YouTube: the engine verbs (`--search`, `--info`,
+  `--items`, `--transcript`, `--auth`) are forwarded unchanged to the engine `--engine` names,
+  and `--engines -j` says which engines are installed and which flags each accepts. Mutually
+  exclusive flags are rejected up front — because that is what makes it safe for a small model
+  to call.
+- **`t-engine-yt`** — the YouTube *engine*, one file, called only by `t-play`. It answers the
+  engine verbs, and turns a result id (or a URL) into a direct stream URL plus the HTTP headers
+  it must be fetched with. Everything site-specific lives here: the yt-dlp calls, the cookie
+  decision, the format-per-mode table, and the ten spellings of a timestamp that all become one
+  `start_seconds`. Adding a source is adding a file. Its argv is internal: the contract is
+  `t-play`'s.
+- **`t-engine-bili`** — the Bilibili *engine*, and the proof that the sentence above is true:
+  neither the player nor the TUI changed a line to admit it. Its verbs use **different
+  primitives** — search and containers talk HTTP through `curl` because yt-dlp's Bilibili search
+  returns no metadata at all, the stream shells out to `yt-dlp` because reimplementing this site's
+  request signing and stream selection would be a thousand lines to redo what a dependency already
+  maintains. The seam between an engine and the player is the **envelope**, never the tool behind
+  it. There is no `--transcript` here: the site has no captions, and an engine says what it cannot
+  do by not having the verb. A multi-part video is a container, so its parts come from `--items`.
+- **`t-engine-ne`** — the NetEase Cloud Music *engine*, and the one that pays the sentence off
+  twice. Nothing outside this file changed to admit it: the player found it by name, the TUI's
+  `e` key offered it, and the test suite's cross-engine invariants covered it the moment it
+  landed. And it is the first engine whose search rows carry a **real `access`** — this site
+  publishes a `fee` per track, so a row says whether it is fully playable, a 30-second sample, or
+  an album purchase, in the page already fetched. Its verbs use different primitives again, and
+  for a blunter reason than Bilibili's: the site's plaintext search endpoint is gone, so its
+  search speaks the browser's encrypted `weapi` — two AES passes through `openssl`, which is a
+  dependency of that **one verb** and of nothing else in the suite. Its `--transcript` is the
+  song's lyrics.
 - **`t-playlist`** — the playlist store, and the first piece of state the suite keeps *after* a
   reboot. Durable, user-level, engine-agnostic: it holds `{engine, url, title, …}` records under
   `${XDG_STATE_HOME:-~/.local/state}/ting/playlists/`, one file per list, written atomically
@@ -114,10 +118,11 @@ a playlist with a fixed name. A downloader and channel subscriptions are unsched
   refuse.
 - `yt-dlp`, `jq`, `mpv`, a unix-socket netcat (BSD `nc` ships with macOS), `curl`.
   They are not all needed by all of it: `yt-dlp` belongs to the engines, `mpv` and the netcat
-  to the player, `jq` to both. **`curl` is required by `bili-search` and by the netease pair** —
-  it IS their transport — and optional everywhere else (the YouTube engine's play-time client
-  probe). **`openssl` is needed by `ne-search` alone**, for the encrypted search payload that
-  site now insists on; without it that one command refuses and the other nine are unaffected.
+  to the player, `jq` to both. **`curl` is required by the Bilibili engine's search and
+  containers and by the netease engine's search, containers and lyrics** — it IS their
+  transport — and optional everywhere else (the YouTube engine's play-time client probe).
+  **`openssl` is needed by the netease search alone**, for the encrypted search payload that
+  site now insists on; without it that one verb refuses and everything else is unaffected.
 - bash 3.2 — the version macOS ships. The suite is written to that floor on purpose; see
   `docs/ARCHITECTURE.md`「可移植性契约」.
 
@@ -126,7 +131,7 @@ Nothing is vendored. Install yt-dlp and mpv however you normally would.
 ## Configuration
 
 Every default value in the suite lives in one tracked file at the root of the checkout,
-`config`, declared once for all ten entry points. It is **not optional** — a checkout
+`config`, declared once for all seven scripts. It is **not optional** — a checkout
 without it exits 2 and says so, rather than letting an unset variable surface 100 lines
 later.
 
@@ -174,13 +179,12 @@ value would defeat: `TING_LANG` (zh under a zh\* locale), `TING_ASCII` (on under
 locale) and `TING_STATE_DIR` (its default chains through `XDG_STATE_HOME`). Set those in your
 own config or the environment.
 
-**A source that does not ship with the suite** is still just a `<name>-search` +
-`<name>-resolve` pair. Three places are scanned for one, in this order: next to the suite's
-own scripts, then `$TING_ENGINE_DIR` (default
-`${XDG_DATA_HOME:-~/.local/share}/ting/engines`), then `PATH`. A name already installed
-beside the suite wins, so a pair you drop in that directory can add a source but never
-replace a built-in one. `docs/ARCH-cli-contract.md`「加一个引擎 —— 清单」 is what such a pair
-has to satisfy.
+**A source that does not ship with the suite** is still just one `t-engine-<name>` file.
+Three places are scanned for one, in this order: next to the suite's own scripts, then
+`$TING_ENGINE_DIR` (default `${XDG_DATA_HOME:-~/.local/share}/ting/engines`), then `PATH`. A
+name already installed beside the suite wins, so a file you drop in that directory can add a
+source but never replace a built-in one. `docs/ARCH-cli-contract.md`「加一个引擎 —— 清单」 is
+what such a file has to satisfy.
 
 The shipped `config` enumerates every key, with its default and a comment saying what it
 does — read that file to see them all. `docs/ARCH-cli-contract.md`「配置面」 explains the
@@ -200,18 +204,14 @@ Or install the released version:
 brew install binlecode/actop/ting
 ```
 
-For daily use from a checkout, symlink onto your PATH. Each command goes under its own name —
-the suite ships no second spelling for anything:
+For daily use from a checkout, symlink the four public commands onto your PATH. Each goes
+under its own name — the suite ships no second spelling for anything. The three
+`t-engine-*` files stay where they are: `t-play` finds them next to its own resolved path,
+and nothing else calls them:
 
 ```sh
 ln -s "$PWD/shell/ting"         ~/bin/ting
 ln -s "$PWD/shell/t-play"       ~/bin/t-play
-ln -s "$PWD/shell/yt-search"    ~/bin/yt-search
-ln -s "$PWD/shell/yt-resolve"   ~/bin/yt-resolve
-ln -s "$PWD/shell/bili-search"  ~/bin/bili-search
-ln -s "$PWD/shell/bili-resolve" ~/bin/bili-resolve
-ln -s "$PWD/shell/ne-search"    ~/bin/ne-search
-ln -s "$PWD/shell/ne-resolve"   ~/bin/ne-resolve
 ln -s "$PWD/shell/t-playlist"   ~/bin/t-playlist
 ln -s "$PWD/shell/t-history"    ~/bin/t-history
 ```
@@ -286,12 +286,13 @@ than doing it — `s` stops it and `>` skips it. `u` opens from the search rows 
 one stash slot, so a queue opened on top of a playlist would lose the way back to it), and only
 when the queue holds more than the one track being played.
 
-`e` is drawn only when a second engine is installed — the TUI discovers engines by looking for
-`<name>-search` and `<name>-resolve` pairs, so it holds no list of sources. `a` and `b` are
+`e` is drawn only when a second engine is installed — the TUI discovers engines by asking
+`t-play --engines -j`, so it holds no list of sources. `a` and `b` are
 drawn only when `t-playlist` is installed and `h` only when `t-history` is, by the same rule.
-`c` and `i` follow the same rule off a CAPABILITY rather than an install: `c` is drawn only
-when the session's engine has `--parts`, which YouTube never will — one id there is one file —
-and `i` only when it has `--info`. Three of them go one step further and read the VIEW as well:
+`c` and `i` follow the same rule off a CAPABILITY rather than an install, read from that
+envelope's `flags[]`: `c` is drawn when the session's engine has `--items` — all three do, so
+on a YouTube or NetEase row, where one id is one file, `c` shows the engine's own refusal
+("not a container") rather than doing nothing — and `i` when it has `--info`. Three of them go one step further and read the VIEW as well:
 `o`, `e` and `c` re-sort or re-fetch a SEARCH, so on a playlist, the history or a parts list
 their only effect would be a notice saying they do not apply — and a measured block does not
 spend a cell to say no.
@@ -340,7 +341,7 @@ either one directly.
 
 | Suite | What it is for |
 |---|---|
-| `tests/contract.sh` | The CLI contract, asserted by running it: the search and resolve envelopes, the player's engine seam (an unknown engine is usage, a dead media id is a propagated failure that still carries a reason), every documented rejection, the host gate stated as an invariant over every **discovered** engine (a real URL is claimed by exactly one; a confusable is refused by all), `--transcript` both ways, the idle lifecycle verbs (including the queue verbs, where a
+| `tests/contract.sh` | The CLI contract, asserted by running it: the engine verbs' envelopes through `t-play`, the engine's internal `--stream` / `--capabilities` protocol, the player's engine seam (an unknown engine is usage, a dead media id is a propagated failure that still carries a reason), every documented rejection, the host gate stated as an invariant over every **discovered** engine (a real URL is claimed by exactly one; a confusable is refused by all), `--transcript` both ways, the idle lifecycle verbs (including the queue verbs, where a
 payload this process cannot use is a usage error and a well-formed one with nothing playing is
 "did not take effect"), the tombstone record for a player that died unasked, the exit-code taxonomy, the playlist store (driven under a disposable `TING_STATE_DIR`, including eight concurrent writers against the lock), the listening log's own contract in the same disposable store (an 8 KB title truncated and MEASURED, because "every line under 4096 bytes" is the premise its lock-free append rests on), and the TUI booting / surviving a resize / leaving on `q` under tmux — and leaving no player behind when it goes, because `ting` stops its playback on exit, so a TUI that did not leave is a TUI still holding one. It also runs three of the four pipelines `docs/ARCH-cli-contract.md`「调用面」 prints, rather than leaving them as prose nothing executes — the fourth launches a player and belongs below. Under two minutes in full; **`--offline` runs the hermetic prefix** — every gate, both stores, the lifecycle and the death record, in ~30s with no packet sent, which is what makes "run it before every commit" a rule and not a wish. The check total is deliberately not quoted here: it moves with every check that lands, it was already stale in this sentence twice over, and the suite prints its own — **`0 failed` is the number that means passing**.  |
 | `tests/playback.sh` | The detached-player lifecycle, whose bugs are **processes**: detach returns before mpv is up, two players, an ambiguous mutation → exit 4 *and* `status:"ambiguous"` (4 alone is also what an idle call answers, so the field is the half that separates them), a targeted one moves only its target, and zero orphan mpv at the end. It also owns the **live read** — the `--status` fields off a real mpv socket, `paused:false` distinguished from `paused:null`, and a really-running player whose socket is really removed degrading to nulls with volume off the record — because the peer has no stand-in and never will. It drives a **queue** end to end for the same reason — a mock engine would skip the
@@ -406,7 +407,7 @@ surface.
   transport, the login / PO-token probe, handle grammar, `--info` / `--transcript`.
 - [`docs/ARCH-player.md`](docs/ARCH-player.md) — the player, the queue and the two durable
   stores: the detached lifecycle, runtime IPC, `t-playlist` and `t-history`.
-- [`docs/ARCH-tui.md`](docs/ARCH-tui.md) — the human face: one view with five row sources, in-place rendering,
+- [`docs/ARCH-tui.md`](docs/ARCH-tui.md) — the human face: one view with six row sources, in-place rendering,
   the width layer, the reflow and the three play states.
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — the recorded NOs with their reopen conditions, the
   reopen triggers for settled decisions, and what is not built yet. No changelog, no survey

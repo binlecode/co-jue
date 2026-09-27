@@ -1,163 +1,190 @@
-# ARCH-engine —— 什么是一个引擎：`<name>-search` + `<name>-resolve`
+# ARCH-engine —— 什么是一个引擎：一个站点一个 `t-engine-<site>`
 
 **这份属于 `ARCH-*` 系列**，入口和全文档路由在 [`ARCHITECTURE.md`](ARCHITECTURE.md)。
 
 ## 模块功能和结构
 
-**管什么**：**所有与音源站点相关的专门知识** —— 3 对音源引擎（YouTube: `yt-*`, Bilibili: `bili-*`, 网易云: `ne-*`）的双半边实现。前半边为搜索（`query -> search 信封`），后半边为解析（`handle -> resolve 信封`，提取直链、HTTP 头与元数据），以及起播偏移、分 P（`--parts`）、歌词字幕（`--transcript`）与登录探测（`--auth`）。
-🔴 **站点知识唯一容身处**：套件内除引擎对之外的任何文件如果出现特定音源站点的字段或逻辑，即判定为分层违规。
+**管什么**：**所有与音源站点相关的专门知识** —— 三个引擎文件（`t-engine-yt`、`t-engine-bili`、`t-engine-ne`），
+一个站点一个文件。每个文件实现该站的公开动词 —— 搜索（`--search`：查询 → 结果信封）、元数据（`--info`）、
+容器与分 P（`--items`）、字幕或歌词（`--transcript`）、登录探测（`--auth`）—— 外加两个内部动词：
+`--stream`（句柄 → 直链 + HTTP 头，只给播放器）与 `--capabilities`（本引擎接受哪些公开 flag，只给注册表）。
+公开动词由 `t-play` 原样转发进来，调用方从不直接面对引擎文件。
+🔴 **站点知识唯一容身处**：套件内除引擎文件之外的任何文件如果出现特定音源站点的字段或逻辑，即判定为分层违规。
 
 **不管什么**（边界表，走错门会得到相反的建议）：
 
 | 事项 | 归哪 |
 |---|---|
 | 音频解码、mpv 进程组拉起、生命周期管理与 IPC 控制 | [`ARCH-player.md`](ARCH-player.md) |
+| 公开入口：动词转发、`--engine` 解析、`--engines` 注册表 | [`ARCH-cli-contract.md`](ARCH-cli-contract.md)「命令规格」 |
 | CLI 信封标准定义、退出码分配与全局命令行契约 | [`ARCH-cli-contract.md`](ARCH-cli-contract.md) |
+| 为什么一个站点一个文件、入口只有一个（命令拓扑） | [`ARCHITECTURE.md`](ARCHITECTURE.md)「命令拓扑」 |
 | 结果在终端的交互呈现、封面渲染与按键映射 | [`ARCH-tui.md`](ARCH-tui.md) |
 | 喜马拉雅等已否决音源路线、跨引擎聚合动词提案 | [`ROADMAP.md`](ROADMAP.md) |
 
-### 一张图：音源引擎双半边架构与数据流
+### 一张图：一个入口，一个站点一个引擎文件
 
 ```
-          query（搜索词）                               handle（URL / ID / BV号 / 纯数字）
-              |                                                      |
-   +----------v--------------------------+        +------------------v-----------------------+
-   | <name>-search（搜索前半边）         |        | <name>-resolve（解析后半边）             |
-   |   门控校验 -> 执行抽取 -> 标准化封包|        |   门控校验 -> 句柄规范化 -> 域名白名单   |
-   |   kind / access 计算收敛于此        |        |   dump_once 抽取媒体 -> 生成播放直链     |
-   |   yt:   yt-dlp (flat 模式)          |        |   只读动词: --info / --auth              |
-   |   bili: curl + jq (网页端接口)      |        |   bili 专有: --parts（多分P单次提取）    |
-   |   ne:   curl + openssl (weapi 双AES)|        |   yt/ne 专有: --transcript（字幕/歌词） |
-   +----------+--------------------------+        +------------------+-----------------------+
-              |                                                      |
-              v                                                      v
-   +-------------------------------------+        +------------------------------------------+
-   | search 信封 (JSON)                  |        | resolve 信封 (JSON)                      |
-   |   {status: "ok", engine, results[]} |        |   {status: "ok", stream_urls[],          |
-   |   results: [{engine, url, title...}]|        |    http_headers{}, format, duration...}  |
-   +----------+--------------------------+        +------------------+-----------------------+
-              |                                                      ^
-              v                                                      | 名字拼接: <engine>-resolve
-   ting 视图渲染 / t-playlist --add 入库        t-play 调度播放（播放器完全不含站点细节）
+   agent / ting
+        |
+        |  t-play --search | --info | --items | --transcript | --auth  [--engine E] ...
+        v
+   +------------------------------------------------------------------+
+   | t-play   picks E (flag > URL host > TING_DEFAULT_ENGINE),        |
+   |          refuses --raw, exec's t-engine-E with the rest of argv  |
+   |          plays: calls  t-engine-E --stream -j -f MODE -- HANDLE  |
+   |          --engines: calls  t-engine-E --capabilities -j          |
+   +--------------------------------+---------------------------------+
+                                    |  internal protocol, not the contract
+                                    v
+   +------------------------------------------------------------------+
+   | t-engine-yt   | t-engine-bili   | t-engine-ne   | out-of-tree ...  |
+   |   flag gate -> handle grammar -> host allowlist -> one verb      |
+   |   public:   --search --info --items --transcript --auth          |
+   |   internal: --stream  --capabilities   self-check: --raw         |
+   +--------------------------------+---------------------------------+
+                                    v
+          yt-dlp / curl / openssl (each engine's own primitives)
 ```
 
-**这套套件里每一个与站点相关的事实，要么住在一对引擎里，要么就是一次分层违规** ——
+图里的动词是**并集**：`t-engine-bili` 没有 `--transcript`，一个站有哪些动词由它自己的 flag 门说了算
+（下文「接口与 API」）。
+
+**这套套件里每一个与站点相关的事实，要么住在一个引擎文件里，要么就是一次分层违规** ——
 播放器与站点无关，TUI 是纯编排。引擎刻意**不**拥有：播放、生命周期、`players/`。
 一件被划走的事：`-f MODE` 作为格式字符串*意味着什么*是引擎知识（`format_for_mode()`
-住在每个 `<engine>-resolve` 里），但模式→格式→mpv 那张表只陈述一次，放在播放器的
+住在每个引擎文件里），但模式→格式→mpv 那张表只陈述一次，放在播放器的
 mpv 选项集旁边（`ARCH-player.md`「模式 → 格式 → mpv」）。
+
+**切分跟着知识走，不跟着操作走。** 同一个站的 User-Agent、Referer、cookie 来源、域名清单、
+id 形状与报错码是**一个**站点的事实；按「搜索 / 解析」把一个站切成两个文件，就得把这些事实
+各写一份，每修一次风控都要改两处。所以一个站点一个文件，文件里的动词共享同一份站点事实。
 
 每个引擎**各自带一份副本** —— 同一段 jq 前奏、同一套时长规矩、同一份 reason 枚举 ——
 这是有意的：一个与另一个引擎共享库的引擎，那个库最终会变成播放器不得不知道的东西
-（`ARCHITECTURE.md`「命令拓扑」，份数与理由都在那儿，这里不复述一个会过期的数字）。
+（`ARCHITECTURE.md`「命令拓扑」）。
 
 ## 接口与 API
 
-一个引擎 = `<name>-search`（查询 → 结果信封）+ `<name>-resolve`（句柄 → 解析信封 +
-该站点自己的只读动词）。argv、信封字段与退出码由各命令的 `--help` 陈述、由
-`tests/contract.sh` 证明；形状的 why 与 semver 边界在 `ARCH-cli-contract.md`。
+一个引擎 = 一个 `t-engine-<name>` 文件，一次调用一个动词。仓外引擎也是这样一个文件：`t-play` 按
+本目录 → `TING_ENGINE_DIR` → `PATH` 的顺序找它，名字就是 `--engine` 的值（清单：ARCH-cli-contract.md
+「加一个引擎 —— 清单」）。**公开面只有 `t-play`**：它认出是哪个
+引擎动词、是哪个引擎，把其余 argv 原样 `exec` 给引擎文件，信封与退出码一字不差地透传
+（ARCH-cli-contract.md「命令规格」）。所以引擎文件的 argv 是**套件内部两份文件之间的协议**，
+不受公开契约保护；公开的是经 `t-play` 能问到的那几个动词与它们的修饰符，形状的 why 与 semver 边界在
+`ARCH-cli-contract.md`。
 
-**能力靠"有没有那个动词"声明。** `--parts` 只在 `bili-resolve` 有，`--transcript` 在
-`yt-resolve` 与 `ne-resolve` 有而 `bili-resolve` 没有（同一个动词底下是两种东西：一条字幕轨，
-一份歌词 ——「字幕」）；一个永远答"没有"的动词会让调用方分不清"这个站没有"与"今天不走运/被限流了"。
-调用方要知道一个引擎有哪些动词，就问 `--capabilities -j`（下文「探一个引擎有哪些动词」）。
+**flag 门只有一道，在引擎里。** `t-play` 不持有任何引擎的 flag 清单，只自己拒一个 `--raw`（下文）；
+`--sub-lang` 给一个没有字幕轨的引擎、`--search` 旁边的 `-d`、一次给两个动词 —— 都是引擎自己的拒绝，退 1。
+**一个修饰符只属于一个动词**，给错动词就拒（`-f applies only to --stream`），而不是收下之后什么也不做；
+动词住在同一个文件里，才让这道门只需要写一次。
+
+**三种动词，三种读者：**
+
+| 动词 | 读者 | 为什么在这一层 |
+|---|---|---|
+| `--search` `--info` `--items` `--transcript` `--auth` | 调用方，经 `t-play` | 站点无关的词描述调用方要的东西；实现是站点知识 |
+| `--stream` | 只有播放器 | 句柄 → 直链 + 请求头是底层管道：它随每一次站点风控而变，不该上契约 |
+| `--capabilities` | 只有注册表（`t-play --engines`） | 能力是引擎的属性，由注册表一次答完，不是每个调用方各问一遍 |
+
+`--raw`（站点原始记录，不投影）是**引擎自检**，不是输出格式：站点字段无法版本化，所以 `t-play`
+拒转发它，它也不进任何 flag 清单。公开面上要"更多"时，用站点无关的长名说清楚要什么 ——
+`--transcript -j --segments` 是字幕的完整形态（ARCH-cli-contract.md「数据契约」）。
+
+**能力靠"有没有那个动词"声明。** `--transcript` 在 `t-engine-yt` 与 `t-engine-ne` 有而 `t-engine-bili`
+没有（同一个动词底下是两种东西：一条字幕轨，一份歌词 ——「字幕」）；一个永远答"没有"的动词会让调用方
+分不清"这个站没有"与"今天不走运/被限流了"。修饰符也一样：`--sub-lang` 只有 yt 列出，因为一首歌一条
+歌词，没有可挑的东西。
 
 ### 调用面 —— 选项的乘积
 
 `usage()` 逐个说明每个 flag，对**它们的乘积**没有说：哪些能同时给、哪些在门口就被拒。
-下面这些行不是示意：标**「已证」**的每一条，`tests/contract.sh` 都以同样的 flag、同样的顺序真的
-跑过一遍（句柄与查询词是检查自己的）—— 所以 flag 拼错、参数换序、某个组合以后不再合法，都会先红。标**「实测」**的三条要一次真解析，
-套件不测网络路径，它们是手跑验过的（2026-09-01），没有检查兜着。
+下面是公开面上的形状（句柄与查询词是示意的），后两行是只给套件自己用的内部动词：
 
 ```sh
-yt-search   -j -n 5 -- "lofi hip hop"              # 已证 · 查询 → 结果信封
-bili-search -j -n 5 -- "周杰伦"                     # 已证 · 同一个信封，底下是 curl 不是 yt-dlp
-yt-resolve  -j -f audio -- <11 位 id | URL>         # 实测 · 句柄 → 流 URL + headers
-yt-resolve  -j -f video --quality high -- URL      # 实测 · (mode, tier) → format-sort 在这里翻译
-yt-resolve  -j -f video -S 'res:720,fps' -- URL    # 实测 · -S 覆盖 tier
-yt-resolve  -j --info -- URL                       # 已证 · 只要元数据，什么都不解析
-yt-resolve  -j --transcript --sub-lang zh-Hans -- URL   # 已证 · yt 独有
-bili-resolve -j --parts -- BV1…                    # 已证 · bili 独有，一次 HTTP，不经 yt-dlp
-yt-resolve  -j --items -- PL…                      # 已证 · 三个引擎都有；容器 → 条目清单
-yt-resolve  -j --items -- "…/@handle/videos"       # 已证 · 频道投稿；满批时带 next_cursor
-yt-resolve  -j --items --cursor o:500 -- "…"       # 已证 · 续批，与上一批不重叠
-bili-resolve -j --items -- am10624                 # 已证 · 音频歌单，纯 HTTP
-bili-resolve -j --items -- ml148005847             # 已证 · 视频收藏夹，失效稿件与番剧被判据丢掉
-bili-resolve -j --items -- "…/<uid>/lists/<sid>?type=season"  # 已证 · 创作者合集
-ne-resolve  -j --items -- <album?id=N 的 URL>      # 已证 · 专辑一次请求，歌单两次以上
-ne-search   -j -n 20 -- 周杰伦                      # 已证 · 第三个信封；行带真的 access
-TING_NE_INCLUDE_VIP=1 ne-search -j -n 20 -- 周杰伦  # 已证 · 连非 full 的行一起返回
-ne-resolve  --transcript -j -- <歌曲 id>            # 已证 · 同一个动词，底下是歌词
-ne-resolve  -j -- <歌曲 id | song?id=N 的 URL>      # 已证 · 四种拼法归一到同一个 url
-yt-resolve  --auth -j                              # 已证 · cookie 决策：无句柄、无请求、无 yt-dlp
-bili-resolve --capabilities -j                     # 已证 · 这一半接受哪些 flag：什么依赖都不要
+t-play --search -j -n 5 -- "lofi hip hop"                   # 查询 → 结果信封（缺省引擎）
+t-play --search --engine bili -j -n 5 -- "周杰伦"           # 同一个信封，底下是 curl 不是 yt-dlp
+t-play --search --engine bili -j --max-duration 600 -- 周杰伦  # 界整个落进站点的一个时长桶，由站点筛
+t-play --info -j -- <11 位 id | URL>                        # 只要元数据，什么都不解析；URL 自己选引擎
+t-play --transcript --sub-lang zh-Hans -j -- URL            # yt 的字幕轨，按语言链挑
+t-play --transcript -j --segments -- URL                    # 同上，带时间轴
+t-play --items --engine bili -j -- BV1…                     # 一个视频的分 P，一次 HTTP，不经 yt-dlp
+t-play --items -j -- "…/playlist?list=PL…"                  # 容器 → 条目清单
+t-play --items -j -- "…/@handle"                            # 频道投稿；满批时带 next_cursor
+t-play --items -j --cursor o:500 -- "…/@handle"             # 续批，与上一批不重叠
+t-play --items --engine bili -j -- am10624                  # 音频歌单，纯 HTTP
+t-play --items --engine bili -j -- ml148005847              # 视频收藏夹，失效稿件与番剧被判据丢掉
+t-play --items -j -- "…/<uid>/lists/<sid>?type=season"      # 创作者合集
+t-play --items -j -- <album?id=N 的 URL>                    # 网易云专辑一次请求，歌单两次以上
+TING_NE_INCLUDE_VIP=1 t-play --search --engine ne -j -n 20 -- 周杰伦  # 连非 full 的行一起返回
+t-play --transcript --engine ne -j -- <歌曲 id>             # 同一个动词，底下是歌词
+t-play --auth --engine yt -j                                # cookie 决策：无句柄、无请求、无 yt-dlp
+t-engine-yt --stream -j -f video --quality high -- URL      # 内部 · (mode, tier) → format-sort 在这里翻译
+t-engine-bili --capabilities -j                             # 内部 · 这个引擎接受哪些公开 flag：什么依赖都不要
 ```
 
 守着那几条只读动词的是 `every read-only verb reaches the host gate`：给一个没有引擎认领的句柄，
 报回来的必须是 host 门那句话，不是 `unknown flag` —— 两种错法退的都是 1，所以钉的是**文案**。
-`--sub-lang` 跟着 `--transcript` 一起给，因为上面那行就是这么写的 —— 但**只对声明了它的引擎**：
-一条字幕轨和一次语言选择是两件能力，第二个长出 `--transcript` 的引擎只有前一件，
-所以那条检查改成从引擎自己的 flag 清单里发现这个伴随参数，而不是把它写死成动词的一部分。
+`--sub-lang` 跟着 `--transcript` 一起给 —— 但**只对声明了它的引擎**：一条字幕轨和一次语言选择是
+两件能力，所以那条检查从引擎自己的 flag 清单里发现这个伴随参数，而不是把它写死成动词的一部分。
 
-**被拒的组合**，全部退 1（用法错误），而且**都在网络之前**——flag 门比 host 门先答，所以
+**被拒的组合**，全部退 1（用法错误），而且**都在网络之前** —— flag 门比 host 门先答，所以
 这些检查一个包都不发：
 
 | 组合 | 为什么 |
 |---|---|
-| `<engine>-search` + `-f` / `-S` / `--quality` | 搜索半边不解析任何格式，这些值它无从作用 |
-| `<engine>-search` + `-d` / `--detach` | 引擎不播放 |
-| `<engine>-resolve` + `-d` / `-n` | 同上；`-n` 是搜索半边的 |
-| `--info` / `--transcript` / `--parts` / `--items` + `-f` / `-S` / `--quality` | 这四个动词都不解析流 |
-| `--items` + 另一个动词 | 两个动词就是没说要哪个（老动词之间的"后者赢"是已发布行为，不动） |
+| 两个动词 | 两个动词就是没说要哪个 |
+| 一个修饰符配了别的动词（`--search -f`、`--info --cursor`、`--auth --quality`……） | 修饰符只属于一个动词；收下却什么也不做是静默失败 |
+| `-d` / `--detach` 配任何引擎动词 | 引擎不播放；`t-play` 转发之前不看它，由引擎按未知 flag 拒 |
+| `--raw` 经 `t-play` | 站点原始记录不上公开面 |
+| `--raw` 配 `--auth` / `--capabilities` / `--transcript` | 前两个不取站点记录；字幕的完整形态是 `-j --segments` |
+| `--segments` 不配 `-j` | 它往 `-j` 信封里加时间轴，散文里没有地方放 |
 | `--items` + 零个或两个句柄 | 一次一个容器 |
 | `--items` + `RD…` | Mix 每次现生成，两次调用不是一张表的两页（下文「容器」）；`UU…` 与频道已收 |
-| `--cursor` 不配 `--items` / 不是 `o:<偏移>` | 游标是这套件自己签发的，形状在 argv 上就判得完 |
-| `bili-resolve --items -- <?type=series 的 URL>` | 系列与合集是两个端点，拿错端点会读出别人的视频 |
-| `ne-resolve --items -- <裸数字>` | 一个裸数字说不出自己是专辑、歌单还是歌 |
-| `--auth` + 句柄 / `-f` / `--raw` | 它不接句柄也不发请求 |
-| `--capabilities` + 句柄或查询 / `-f` / `-n` / `--raw` / 另一个动词 | 它问的是引擎，不解析也不搜索；两个动词就是没说要哪个 |
-| `--parts` + 两个句柄 | 一次一个 |
+| `--cursor` 不是 `o:<偏移>` | 游标是这套件自己签发的，形状在 argv 上就判得完 |
+| bili `--items` + `?type=series` 的 URL | 系列与合集是两个端点，拿错端点会读出别人的视频 |
+| bili `--items` + b23.tv 短链 | 分 P 端点只收 `bvid=` / `aid=`，一条短链是重定向不是 id |
+| ne `--items` + 裸数字 | 一个裸数字说不出自己是专辑、歌单还是歌 |
+| `--auth` / `--capabilities` + 句柄或查询 | 它问的是引擎，不解析也不搜索 |
+| `--search` + 一个 URL | URL 是拿来播或 `--info` 的，不是拿来搜的 |
 | 句柄属于**别的**站点 | host allowlist：一个引擎一个站，否则 `engine` 字段会说谎 |
-| `bili-resolve --transcript` / `ne-resolve --parts` | 能力靠「没有那个动词」声明 |
-| `bili-resolve --items -- BV…` / `yt-resolve --items -- <11 位 id>` | 一个单曲句柄不是一个容器 |
-| `bili-resolve -- <am/ml 裸号或容器 URL>` | 容器不是单曲，流解析与元数据动词拒收并指路 `--items` |
-| `ne-resolve --sub-lang` | 一首歌一条歌词，没有可挑的东西（「字幕」） |
-| `ne-resolve -- <非 song 路径的本站 URL>` | 这个站每一种资源都是 `?id=N`，只读 query 会把 `/artist?id=6452` 解成**歌曲** 6452 |
+| bili `--transcript` / ne `--sub-lang` | 能力靠「没有那个动词」声明 |
+| yt `--items -- <11 位 id>` | 一个单曲句柄不是一个容器 |
+| bili 流解析或 `--info` + am/ml 裸号或容器 URL | 容器不是单曲，拒收并指路 `--items` |
+| ne 非 song 路径的本站 URL | 这个站每一种资源都是 `?id=N`，只读 query 会把 `/artist?id=6452` 解成**歌曲** 6452 |
 
-**探一个引擎有哪些动词，问 `--capabilities -j`，别读 `-h`，也别嗅 stderr。** 两个半边都有这个动词，
-答的是这一半接受的全部 flag（每个命令都有的 `-l --color -h -V` 除外）：
+**探一个引擎有哪些动词，问注册表，别读 `-h`，也别嗅 stderr。** `t-play --engines -j` 对每个引擎各
+fork 一次 `--capabilities -j`，答的是它接受的全部公开动词与修饰符：
 
 ```
 $ t-engine-bili --capabilities -j
 {"status":"ok","engine":"bili","flags":["--search","-n","--min-duration","--max-duration","--sort","--info","--items","--cursor","--auth"]}
 ```
 
-**清单只写一次。** 每个脚本里一个数组，unknown-flag 那句拒绝印给人看，`--capabilities` 答给调用方，
-两边读的是同一个数组，所以不会各说各的。这句拒绝以前就是唯一权威的枚举，`ting` 和套件都从 stderr
-里读它。现在它仍然照印，只是没有调用方再去解析它。
+**清单只写一次。** 每个引擎文件里一个数组，unknown-flag 那句拒绝印给人看，`--capabilities` 答给注册表，
+两边读的是同一个数组，所以不会各说各的。`--stream`、`--capabilities`、`--raw` 刻意不在里面：播放器的管道、
+注册表的问题与一次自检，都不是 `t-play` 的调用方能问的东西。
 
-**它在一切依赖门之前作答，连 jq 都不要**：调用方靠它决定问什么，所以在一台什么都还没装的机器上
+**它在一切依赖门之前作答，连 jq 都不要**：注册表靠它决定问什么，所以在一台什么都还没装的机器上
 也得答得出来。flag 都是固定的 ASCII 词，信封直接印，不用 jq 拼。
 
-两条更近的路都骗过人（2026-09-01），这也是这个动词存在的原因。**错误文案**：缺失的动词有两种报法
-（`yt-resolve --parts` 说 unknown flag，`bili-resolve --transcript` 说这个站没有字幕轨），按任一种
-去判，都会对另一个引擎得出相反的结论。**`-h`**：`bili-resolve -h` 里写着「There is no --transcript」，
-靠缺席声明能力的这句说明，本身就会让朴素的 grep 命中它**没有**的动词。两种错法的下场一样：
-把「动词不存在导致的退 1」当成「flag 被拒」的证据。
+**为什么不靠错误文案或 `-h` 推断。** 缺失的动词可以有两种报法（未知 flag，或一句具名的「这个站没有
+字幕轨」），按任一种去判，都会对另一个引擎得出相反的结论；而帮助文本里一句靠缺席声明能力的说明
+（「There is no --transcript」），本身就会让朴素的 grep 命中它**没有**的动词。
 
 套件证它说的是真话，证据取自解析器的**行为**，不取自那份清单（两边同一个数组，拿来比只能证明数组等于自己）。
-列出的 flag 单独给出时，不能落进 unknown-flag 分支；别的引擎同一半列出而本引擎没列的 flag，必须在
-host 门之前被拒。允许用一句更友好的具名拒绝来拒（`ne-resolve --sub-lang` 就是这样），所以检查看的是
-"被拒"，不看"unknown flag"这几个字。
+列出的 flag 单独给出时，不能落进 unknown-flag 分支；别的引擎列出而本引擎没列的 flag，必须在
+host 门之前被拒；两个内部动词能用但不被列出。允许用一句更友好的具名拒绝来拒（`t-engine-bili --transcript`
+就是这样），所以检查看的是"被拒"，不看"unknown flag"这几个字。
 
 ---
 
 ## 搜索子系统 —— 引擎的一个动词
 
-搜索是一个引擎的一半（`ARCHITECTURE.md`「命令拓扑」）。下面的规矩是**两半都要实现**的，
-`yt-search` 用 yt-dlp、`bili-search` 用 curl（「Bilibili 的传输」）—— 传输不同，信封相同。
+`--search` 是每个引擎都有的动词。下面的规矩是**每个引擎都要实现**的：`t-engine-yt` 用 yt-dlp，
+`t-engine-bili` 与 `t-engine-ne` 用手工拼的 HTTP 请求（「Bilibili 的传输」「网易云的传输」）—— 传输不同，信封相同。
 
-**`engine` 在信封里，是因为一个拿着结果的调用方必须能把它路由回懂它的那个 resolver** ——
+**`engine` 在信封里，是因为一个拿着结果的调用方必须能把它路由回懂它的那个引擎** ——
 `t-play --engine <那个值>`（ARCH-cli-contract.md「数据契约」）。它正是 host 白名单（「解析」）
 存在要保其诚实的那个字段。
 
@@ -175,16 +202,18 @@ host 门之前被拒。允许用一句更友好的具名拒绝来拒（`ne-resol
 **`null`** 而不是假的 `00h:00m:00s`，再由每个面自己决定怎么渲染它（`print_list` 对直播打
 `LIVE`、其余打 `--`，`ting` 显示 `● LIVE`）—— **一个原始的 `null` 不进人类输出**。
 
-**时长上下界（`-m`/`-M`）在客户端执行，就在同一次 jq 里。** 服务端预过滤只是省钱的那一半，
+**时长上下界（`--min-duration`/`--max-duration`）在客户端执行，就在同一次 jq 里。** 服务端预过滤只是省钱的那一半，
 而且**只有真的要求了某个界时才发** —— 一个永远开着的 `duration > 0` 什么都过滤不掉。
 理由（yt 侧实测）：`--flat-playlist` 下 yt-dlp 把条目标记为"不完整"，于是一个作用在
 "扁平条目并不携带的字段"上的过滤器 —— 一条直播没有 duration —— **判定不了，于是保留该条目**，
-`-m 999999` 仍会返回一条直播。客户端那一遍按 flag 的字面意思排除掉时长未知的条目。
+`--min-duration 999999` 仍会返回一条直播。客户端那一遍按 flag 的字面意思排除掉时长未知的条目。
 
 **搜索像其他每一个面一样有错误契约。** 没有它，一次工具失败会在 `set -e` 上带着原始 stderr
 中止 —— 哪怕在 `-j` 下，交给 agent 的也是一个 jq 解析错误。所以捕获 stderr、用引擎自己的
-分类器（`classify_yt_dlp_error` / `classify_http_error` —— **枚举是共享的，分类器不是**）
-判 reason，发出 `status:"error"` 的信封，退 **2+ 而绝不是 1**（1 归用法/校验，
+分类器判 reason —— **枚举是共享的，分类器不是**：每个引擎给 yt-dlp 的 stderr 一个分类器，
+给自己手写的 HTTP 请求再一个（`classify_http_error`、`classify_ne_error`）。后者**一个站一张表**，因为
+HTTP 状态与响应体 `code` 在这个站的每个地址上意思相同；一个站的两份表迟早各说各的（同一个 `-404`
+在搜索里判 `unknown`、在容器里判 `unavailable`）。然后发出 `status:"error"` 的信封，退 **2+ 而绝不是 1**（1 归用法/校验，
 ARCH-cli-contract.md「退出码」）。
 
 ### 封面（`thumbnail`）—— 站点字段名到此为止
@@ -193,7 +222,7 @@ ARCH-cli-contract.md「退出码」）。
 不是便利。三个站发的东西三个样：YouTube 给的是一个带 `width`/`height` 的**数组**，
 B 站给的是**协议相对**的一条 `//i0.hdslb.com/…`，网易云给的是 `.al.picUrl` 上一条**明文 http**。
 认识 `thumbnails[]`、`pic` 或 `.al.picUrl` 中的任何一个，就是把站点知识搬进了消费者
-（`CLAUDE.md`「站点知识只住在引擎对里」）—— 所以三处各写各的 `pick_thumb`，**不共享代码**，
+（`CLAUDE.md`「站点知识只住在引擎里」）—— 所以三处各写各的 `pick_thumb`，**不共享代码**，
 对外只有一个键。
 
 **它和 `kind`/`access` 注入在同一处，因此 `-j` 与 `--raw` 一起带着它。** 理由是那两个键
@@ -217,22 +246,22 @@ B 站给的是**协议相对**的一条 `//i0.hdslb.com/…`，网易云给的�
 
 ### Bilibili 的传输 —— 同一个信封，架在一个手工拼出来的请求上
 
-`bili-search` 用 `curl` + `jq` 而不是 yt-dlp。这不是偏好，它是**唯一**行得通的组合（实测）：
+B 站的 `--search` 用 `curl` + `jq` 而不是 yt-dlp。这不是偏好，它是**唯一**行得通的组合（实测）：
 yt-dlp 的 `--flat-playlist` 用 0.9s 作答却**一个元数据都没有**（`BiliBiliSearchIE` 产出
 `url_result(arcurl, aid)`，把它刚解析出来的标题/作者/时长/播放量全丢掉），而一次完整抽取会
 递归进**每一个合集的每一个分 P** —— 这个站点的音乐结果压倒性是多 P 的 —— 于是
 `bilisearch10:` 在 120s 内根本跑不完。**一个手工拼的请求 0.71s 就答出信封需要的每一个字段。**
 
-`fetch_page_once` 是**全套件手工构造 HTTP 请求的四处之一** —— 另三处是 `bili-resolve` 的多 P
-传输（「多 P」）、`ne-search` 的同名函数（「网易云的传输」）与 `ne-resolve` 的歌词取数
+`search_page_once` 是**两个引擎手工构造 HTTP 请求的那一类**的范本 —— 同一类还有 B 站的分 P 与容器取数
+（「分 P」「容器」）、网易云的搜索、容器、歌词与 `--info` 的 `song/detail`（「网易云的传输」「字幕」）
 （`ARCHITECTURE.md`「原语与接缝」）。
 参数以**数组**到达 curl，查询值经 `--data-urlencode` 送出，于是一条含 `&`、空格或引号的查询
 是一个**值**，绝不会变成第二个参数：
 
 ```
    GET <search/type>  search_type=video · keyword=<QUERY> · page=<N>
-       [duration=<1|2|3|4>]      # 仅当 -m/-M 整个落进站点自己那四个粗桶之一
-       [order=click]             # 仅 -s view_count；relevance 是站点默认，不发
+       [duration=<1|2|3|4>]      # 仅当两个时长界整个落进站点自己那四个粗桶之一
+       [order=click]             # 仅 --sort view_count；relevance 是站点默认，不发
        -H User-Agent / Referer / [Cookie: buvid3]
 ```
 
@@ -240,9 +269,9 @@ yt-dlp 的 `--flat-playlist` 用 0.9s 作答却**一个元数据都没有**（`B
 
 - **`Referer` 是必需的，而且是唯一必需的东西。** 带上它端点答 `code:0`，不带就是 412
   （2026-08-23 实测）。它是一个公开常量，不是一种认证机制 —— yt-dlp 里每一个 Bilibili
-  extractor 发的都是同一个。所以它在代码里叫 `SEARCH_REFERER` 而**不带** `TING_BILI_` 前缀：
-  ARCHITECTURE.md「两个根数据文件」之后前缀**就是** config 可达性，而一个常量顶着一个可设置
-  的名字，会让用户在 config 里写的那个值被静默覆盖。
+  extractor 发的都是同一个。所以它在代码里叫 `SITE_REFERER` 而**不带** `TING_BILI_` 前缀：
+  配置文件只读 `TING_` 键，前缀**就是** config 可达性（ARCH-cli-contract.md「配置面」），而一个常量
+  顶着一个可设置的名字，会让用户在 config 里写的那个值被静默覆盖。
 - **`buvid3` 是一个设备标识，不是凭据**：没有账号、没有 token、不从任何浏览器 profile 读东西
   —— 引擎自己生成一个随机的（`uuidgen` + `infoc`，正是 yt-dlp 用的那个形状），进程退出就扔掉。
   它是**正确性，不是优化**：匿名连搜六次是 200 200 412 412 412 200，带一个稳定 buvid3
@@ -258,8 +287,8 @@ yt-dlp 的 `--flat-playlist` 用 0.9s 作答却**一个元数据都没有**（`B
 一天即可；哈希是 md5）—— 但那是届时的工作。
 
 **这条手写的 HTTP 路径从不碰任何凭据**，这就是穿过这个引擎中间的那条线：登录状态只到达
-yt-dlp、只在解析那一半、只经由 `--cookies-from-browser`。正是它让"为什么不做一个完整客户端"
-的回答（"那整块归 yt-dlp"）对搜索这一半也同样为真。
+yt-dlp、只在跑 yt-dlp 的那两个动词（`--stream`、`--info`）、只经由 `--cookies-from-browser`。
+正是它让"为什么不做一个完整客户端"的回答（"那整块归 yt-dlp"）对手写的那几个动词也同样为真。
 
 **能让站点筛的就让站点筛 —— 这是请求数的问题，不是一个功能。** 这个端点每页固定 20 条、
 **没有** page size 旋钮，于是一次带筛选的搜索唯一省得下来的请求，就是让每页那 20 行是本地那
@@ -273,12 +302,12 @@ yt-dlp、只在解析那一半、只经由 `--cookies-from-browser`。正是它�
 留下的行，所以 `-n` 恒定花 `ceil(-n / 20)` 个请求，且**不会**为了凑满 `-n` 而多翻页（对这个
 主机，请求才是稀缺的那一样）。同一条查询实测（2026-08-26）：一次请求（`-n 20`）进桶回来
 **20** 行可用、跨桶 **1** 行；两次请求（`-n 25`）进桶 **25** 行、跨桶 **6** 行，都是 1.4–1.8s。
-这也是它在 `contract.sh` 里被 `-M 600`/`-M 601` 那对判别性输入钉住的原因。
+这也是它在 `contract.sh` 里被 `--max-duration 600`/`601` 那对判别性输入钉住的原因。
 
-**`order` 同理，但只有一个字段对得上。** `-s view_count` 要的是播放最多的那些，而站点有
+**`order` 同理，但只有一个字段对得上。** `--sort view_count` 要的是播放最多的那些，而站点有
 `order=click`：**问它**意味着到手的 20 行是整个结果集里播放最多的，而不是最相关的 20 行在本地
 重排一遍 —— 同样的代价，一次正确性的收益。`relevance` 就是站点自己的默认（totalrank），所以
-什么都不发。`-s duration` **没有**服务端对应物，于是它只把**已取回的那一组**重排 —— 这是一个
+什么都不发。`--sort duration` **没有**服务端对应物，于是它只把**已取回的那一组**重排 —— 这是一个
 站点不提供的排序所能诚实做到的极限。即使站点已经排过，本地那一遍照排：本引擎**发布**的字段是
 `.play`，而发出的行必须按那个字段降序、未知在最后，这是只有那一遍守得住的承诺。
 请求计划在**第一页之前只算一次**：一次搜索的每一页问的必须是同一个问题，一个中途变了的筛选会
@@ -287,31 +316,32 @@ yt-dlp、只在解析那一半、只经由 `--cookies-from-browser`。正是它�
 **这个主机会在三个不同的地方说"不"，三层都查。** 一个 HTTP 状态；一个装在 HTTP 200 响应体里
 的 `.code`；以及最安静的那一个 —— HTTP 200 **且** `code:0`，但 `data` 里装的是一张风控券
 （`v_voucher`，一张验证码票；2026-08-26 对着 wbi 端点不签名实测）。只读第一层会把一次限流报成
-一次零结果的**成功**，只读前两层会把一次验证码挑战报成同样的东西。`fetch_page_once` 趁响应体
+一次零结果的**成功**，只读前两层会把一次验证码挑战报成同样的东西。`search_page_once` 趁响应体
 还在手上就地判它，而且**两个条件都要**：一张券**加上**没有可用的 `result` 数组 —— 因为一次
 耗尽的翻页也会省略 `result`，而那不是一次拒绝。它落在 `network` 那一类，因为它就是 412 那同一
 个突发限流器换了身成功的衣服，因而同样**可重试**。
 
-**重试是分类过的，不是一刀切。** **只有** `network` 那一类值得在停一秒之后再试一次；
-一个 `forbidden` 或 `unavailable` 的回答一秒之后还会说同样的话，而再问一次是对着一个**会计数**
-的主机多发一次请求。**翻页在两个条件之一成立时停**：只有当调用方**还想要**更多行**且**站点
-**还在给**时才请求下一页（`MAX_PAGES` 给其余部分封顶），于是一条短尾巴不必付 `MAX_PAGES` 次
-往返。一次耗尽的或空的搜索会**整个省略** `data.result` 而不是送一个 `[]`，这正是那次读要写成
+**重试是分类过的，不是一刀切。** **只有** `network` 那一类值得在停一秒之后再试一次（一秒是代码常量：
+它是对这个限流器突发宽度的判断，不是用户偏好）；一个 `forbidden` 或 `unavailable` 的回答一秒之后还会
+说同样的话，而再问一次是对着一个**会计数**的主机多发一次请求。**翻页在两个条件之一成立时停**：只有当
+调用方**还想要**更多行**且**站点**还在给**时才请求下一页，于是一条短尾巴不必付满页数的往返。`-n` 的上限
+200 同样是引擎内常量，超过就静默取上限：它保护的是站方的请求预算（每页 20 条，200 就是十次请求），
+是站点知识，不是偏好。一次耗尽的或空的搜索会**整个省略** `data.result` 而不是送一个 `[]`，这正是那次读要写成
 `.data.result // []` 的原因。
 
 **整形用的是同一个 jq 程序** —— 只多一份归一化，因为这条传输返回的是一个*搜索 API 的*记录而
 不是一个 extractor 的。归一化后的字段被合并**盖在**原始记录之上，于是 `--raw`（引擎自检）保留站点发来的每
-一个字段，而 `-j` 投影出与 `yt-search` 同样的字段，且 `title`/`duration` 在**两者**里都是清洗
+一个字段，而 `-j` 投影出与 yt 的搜索同样的字段，且 `title`/`duration` 在**两者**里都是清洗
 过、类型正确的值 —— 没有任何一个面会拿到那段 HTML 或那个 `"MM:SS"` 字符串。两处值得点名的
 归一化：`url` 是**从 `bvid` 构造**的而不是取自 `arcurl`（后者是 `av` 拼法、走 `http://`），因为
-规范的 BV URL 才是调用方要交回给 `bili-resolve` 的东西；以及 `live_status` 是 **`null`，不是
+规范的 BV URL 才是调用方要交回给这个引擎的东西；以及 `live_status` 是 **`null`，不是
 那个原始的 `0`** —— 在 `search_type=video` 下那个字段根本不是这套套件 is_live/was_live 的概念，
 把那个 0 带过去会让某个渲染器画出一个站点从没声称过的直播状态。**一个引擎不知道的字段是
 null，而那个键仍然在**（ARCH-cli-contract.md「数据契约」）。
 
-### 网易云的传输 —— 站方把明文那扇门关了，于是这一半自己加密
+### 网易云的传输 —— 站方把明文那扇门关了，于是搜索自己加密
 
-`ne-search` 用 `curl` + `openssl` + `jq`。前半个理由和 B 站一样（一个手工拼的请求一次就带回信封
+网易云的 `--search` 用 `curl` + `openssl` + `jq`。前半个理由和 B 站一样（一个手工拼的请求一次就带回信封
 要的每个字段），后半个是这个站独有的，而且不是偏好问题 —— **2026-09-02 实测**：
 
 | 端点 | 答什么 |
@@ -332,17 +362,18 @@ null，而那个键仍然在**（ARCH-cli-contract.md「数据契约」）。
 **不校验它的随机性** —— 所以这个引擎把它钉死成 `presetKey`，`encSecKey` 随之从"每请求一次
 模幂"塌缩成一个 256 字符的十六进制常量。这就是运行时一次 RSA 都不跑的全部原因，也是
 `openssl` 的用量能压到"两次 `enc -aes-128-cbc`"的原因。那个常量怎么算出来的（112 个零字节 +
-反转过的 key，无 padding，站方公开的公钥），逐行记在 `ne-search` 的注释里 —— 因为**配错它
+反转过的 key，无 padding，站方公开的公钥），逐行记在 `t-engine-ne` 的注释里 —— 因为**配错它
 的唯一症状是端点答一个通用错误码**，看上去和网络故障一模一样。
 
 **`openssl` 因此是一个引擎局部依赖，而这是一次显式的例外。** `CLAUDE.md` 写的是"永不新增运行时
-依赖"；这里划的范围是：只有 `ne-search` 调它（`ne-resolve` 走 yt-dlp，歌词是明文 GET），探测不到
-就走既有的 `require_cmd` 门死在这一个命令里，另外九个照常工作。被否掉的替代方案是"提升为套件
-必需依赖"：那会让不用这个站的人也背上它。**依赖随引擎对进出，正是"加一个源就是加一对脚本"
+依赖"；这里划的范围是：只有 `t-engine-ne --search` 调它（`--stream` 与 `--info` 走 yt-dlp，容器与歌词是
+明文 GET）。依赖按**动词**懒检查：探测不到就走既有的 `require_cmd` 门死在这一个动词上，这个引擎的其余
+动词与另外两个引擎照常工作 —— 一个站一个文件并不意味着依赖要整文件地门。被否掉的替代方案是"提升为套件
+必需依赖"：那会让不用这个站的人也背上它。**依赖随引擎文件进出，正是"加一个源就是加一个文件"
 这句话真正的兑现方式**；macOS 自带的 LibreSSL 3.3.6 就够，不需要 Homebrew 的 OpenSSL。
 
-**这一半同样一个凭据都不发**（实测：只有 `Referer`、一个浏览器 UA 和 `Cookie: os=pc`），
-和 B 站那一半划的是同一条线：登录只到达 `ne-resolve`，只经由 yt-dlp。
+**手写的请求同样一个凭据都不发**（实测：只有 `Referer`、一个浏览器 UA 和 `Cookie: os=pc`），
+和 B 站划的是同一条线：登录只到达跑 yt-dlp 的那两个动词，只经由 `--cookies-from-browser`。
 
 **翻页是为了补过滤掉的行，不是为了翻页。** 端点单次上限 100 条，而默认过滤会丢掉非 `full`
 的行（「`kind` 与 `access`」），所以每次请求要**两倍**于还差的行数，最多**三个**请求 ——
@@ -357,7 +388,7 @@ null，而那个键仍然在**（ARCH-cli-contract.md「数据契约」）。
 是 `tests/contract.sh` 那条不变式要跨**两种形状**断言的原因。
 
 **`kind` 今天三个引擎都印恒定的 `track`，而这是行模型的结果，不是占位。** 行模型是
-**一行结果就是一次可播调用**（2026-09-03 定下，容器那一半的答案在本文「容器（`--items`）」）：不是一次可播调用的记录
+**一行结果就是一次可播调用**（容器的答案在本文「容器（`--items`）」）：不是一次可播调用的记录
 在信封之前就被丢掉，所以留在信封里的行**没有别的值可印**。`access` 上 YouTube 也印恒定值，
 理由是站点事实：匿名抽取要么拿到完整时间轴要么什么都拿不到 —— 没有试听这种形态。
 B 站这一侧曾以为
@@ -377,18 +408,26 @@ B 站这一侧曾以为
 
 **而 `access` 上，第三个引擎就是那个条件本身。** 网易云的 `cloudsearch` 响应里逐行带着站方
 自己的 `fee`，在已经取回的那一页里 —— 零额外请求，正是上面那段说 B 站付不起的东西。所以
-`ne-search` 真的算这个字段，映射与它各自的依据（2026-09-02 实测）：
+网易云的 `--search` 真的算这个字段，映射与它各自的依据（2026-09-02 实测）：
 
 | `fee` | `access` | 依据 |
 |---|---|---|
 | 0、8 | `full` | id 5257138（`fee:8`）解出 `size:12764517` / `br:320001` / 整首 319 秒 —— 完整音轨，不是样本 |
-| 1 | `preview` | 两条路径给的不是同一个答案，而**以播放器真正会走的那条为准**：weapi 答 `size:0 / br:0 / level:null`（根本解不出流），而 `ne-resolve` 走的 eapi 路径答一段**可播但被截断的 30 秒**。行里承诺的就是那 30 秒 |
+| 1 | `preview` | 两条路径给的不是同一个答案，而**以播放器真正会走的那条为准**：weapi 答 `size:0 / br:0 / level:null`（根本解不出流），而 `--stream` 走的 eapi 路径答一段**可播但被截断的 30 秒**。行里承诺的就是那 30 秒 |
 | 4 | `paywalled` | 需购专辑。500 行里实测 0 条，按站点语义填而不是让它落到默认值 |
 | 缺失 / 其他 | `full` | 没见过的取值不降级 —— 同一句「说它知道的，不猜它没有的」 |
 
 `fee:1` 选 `preview` 而不是 `paywalled`，是为了让这个字段保持一个**下界**：一个大会员账号解出
 整首歌不算违约，而这个字段也因此**不随登录状态变** —— 它报的是站点事实，不是登录裁决
 （ARCH-cli-contract.md「数据契约」）。
+
+**`--info -j` 带着与搜索行同一套判断，所以一个手里只有 URL 的调用方拼得出同一行。** `kind`、`access`、
+`thumbnail` 三个键在每个引擎的 `--info` 信封里都有，取值与搜索同一套规矩。前两个引擎靠已有的记录就够；
+网易云不够：`--info` 走的 yt-dlp 记录里没有 `fee`，也没有站方的封面字段，所以 `-j` 多打一次
+`api/v3/song/detail`（`--items` 已经在用的同一个 GET），取回的记录与搜索行同形，`access` 与 `thumbnail`
+走的就是搜索那两个函数。**这次请求失败时 `--info -j` 整体失败**（错误信封，退 1，与 yt-dlp 失败同一条路）：
+`access` 是闭集，没有「不知道」可印，一个答不出它的信封没有诚实的值可填。散文与 `--raw` 不印这两个字段，
+也就不花这一次请求。
 
 **默认还会把非 `full` 的行滤掉**（`TING_NE_INCLUDE_VIP=0`），理由是同一条判据：**一条记录就是一次
 可执行调用**，存进 `t-playlist` 的行必须能跑，而不是一个可能被拒的引用。这是**配置键而不是
@@ -399,16 +438,15 @@ flag** —— 有没有大会员是 set-once 属性，不是每次请求的选�
 被否掉的替代方案是「全返回 + 由 TUI 灰显」：那是把引擎的判断挪进 UI，而 `access` 本来就是
 agent 面的答案，再加一个 TUI 标记是重复而不是补充。
 
-**`ketang` 行不进信封。** 同一次实测发现的现役缺陷：`search_type=video` 会混进课堂记录，它们
-**没有 `bvid`**，而**空串在 jq 里为真** —— 于是 `select(.id != null)` 把它们放了过去，发出去的
-是 `id:""` / `url:null`，一条 `t-play` 不可能消费的行（实测"钢琴" 20 行里 3 条）。判据因此改为
-**`select(.url != null)`：一行结果是一次调用，否则不是一行**。这条判据同时覆盖将来任何
-"handle 建不出来"的形状，而不只是今天漏进来的这一种；代价是 `-n 20` 可能答 17 行 —— 与
-`-m`/`-M` 早已如此，`-n` 说的是取多少，从来不是保证发多少。
+**`ketang` 行不进信封。** `search_type=video` 会混进课堂记录，它们**没有 `bvid`**，而**空串在 jq 里
+为真** —— 所以按 `select(.id != null)` 判会把它们放过去，发出 `id:""` / `url:null`，一条 `t-play` 不可能
+消费的行（实测"钢琴" 20 行里 3 条）。判据是 **`select(.url != null)`：一行结果是一次调用，否则不是一行**。
+这条判据同时覆盖将来任何"handle 建不出来"的形状；代价是 `-n 20` 可能答 17 行 —— 与两个时长界同理，
+`-n` 说的是取多少，从来不是保证发多少。
 
 **频道行不进信封 —— 同一条判据，另一种漏法。** `url` 建得出来的记录也可以不是一次可播调用：
-**YouTube 是唯一混装的搜索面**。另外两个引擎是靠**选定范围**躲开这件事的（`bili-search` 发
-`search_type=video`，`ne-search` 发 `type:1`），两个站其实都有容器（网易云的专辑 / 歌单 / 艺人
+**YouTube 是唯一混装的搜索面**。另外两个引擎是靠**选定范围**躲开这件事的（B 站发
+`search_type=video`，网易云发 `type:1`），两个站其实都有容器（网易云的专辑 / 歌单 / 艺人
 是另外的 type，B 站有合集与 UP 主页），只是引擎从不去问；而 `ytsearch` **没有 scope 选择器**，
 它的结果集里就混着频道与播放列表。实测 2026-09-03：搜"周杰伦"第 15 条是周杰倫的**频道**，
 `duration` 为 `null`，而信封上写着 `kind:"track"` —— `t-play --engine yt -- <那条 url>` 不会
@@ -425,14 +463,13 @@ agent 面的答案，再加一个 TUI 标记是重复而不是补充。
 **代价照旧是行数**：`-n 15` 可能答 14 行，与上面 `ketang` 那条同一句话。**刻意不多取**补偿
 （网易云的 `OVERFETCH` 是为它 57% 的可听率付的，那是双峰分布下的常态；容器行是少数查询才有的
 个例，为它给每一次搜索加一次请求，代价与收益不成比例）。
-**而容器不是被丢弃，是无人认领**：它要的是自己的动词与信封 —— 那个动词现在有了，见本文
-「容器（`--items`）」。
+**而容器不是被丢弃，是无人认领**：它要的是自己的动词与信封，见本文「容器（`--items`）」。
 
-## 先探后播 —— 登录、PO token 与客户端选择（**只在 `yt-resolve` 里**）
+## 先探后播 —— 登录、PO token 与客户端选择（**只在 `t-engine-yt --stream` 里**）
 
 整个这一章都是 YouTube 引擎的知识。它是解析信封为什么要带 `retried` 的原因，也让"先探**后**播"
-如今是字面意义上的真：探测发生在 mpv 启动**之前的一个进程**里、在引擎里，播放器只是把裁决转述
-出去。`bili-resolve` 没有探测 —— 该站没有 PO token 的对应物 —— 这正是"第二个引擎可以干脆没有
+是字面意义上的真：探测发生在 mpv 启动**之前的一个进程**里、在引擎里，播放器只是把裁决转述
+出去。B 站的 `--stream` 没有探测 —— 该站没有 PO token 的对应物 —— 这正是"第二个引擎可以干脆没有
 某样东西"的范本。
 
 **登录默认是开的（`TING_COOKIE_BROWSER=chrome`）** —— 这是只有**引擎**才读的设置 —— 所以
@@ -452,22 +489,22 @@ ranged 请求**（`curl -I -r 0-`）：206/200 ⇒ 有权；403 ⇒ 缺 PO token
 请求上 403。
 
 ```
-   resolve_stream()                          # shell/yt-resolve —— 真正的形状在这里
+   stream_run()                              # shell/t-engine-yt —— 真正的形状在这里
       有 cookie 时：
          raw_c = dump_once(带 cookie)
-         probe_raw(raw_c) 通过 ─────────────► emit_stream(raw_c, retried=0)   # 例如登录门后的视频
+         probe_raw(raw_c) 通过 --------------> emit_stream(raw_c, retried=0)   # 例如登录门后的视频
          否则 raw_a = dump_once(匿名 + android client)
-              probe_raw(raw_a) 通过 ────────► emit_stream(raw_a, retried=1)
-         两边都取不到，但带 cookie 那次解析成功 ► emit_stream(raw_c, 0)
+              probe_raw(raw_a) 通过 ---------> emit_stream(raw_a, retried=1)
+         两边都取不到，但带 cookie 那次解析成功 -> emit_stream(raw_c, 0)
                                                  # 保留 cookie，让 mpv 去吐真错误与真退出码
-         都不成 ────────────────────────────► resolve_fail(rc)
+         都不成 -----------------------------> stream_fail(rc)
       无 cookie（TING_COOKIE_BROWSER=none，或本机没有该 profile）：
-         无从权衡，所以也不探 —— dump_once(匿名) → emit_stream(raw_a, 0) 或 resolve_fail
+         无从权衡，所以也不探 —— dump_once(匿名) -> emit_stream(raw_a, 0) 或 stream_fail
 ```
 
 裁决以 `retried` 出现在**解析**信封里，`t-play` 把它**转述**进播放信封，而不是自己去观察。
 代价：每次播放多一次解析 + 一个 1 字节 GET（cookie-403 的视频是两次）。`curl` 是软依赖 ——
-没有它就跳过探测、走回老的"播-失败-重播"（错误糊屏的回归也只在那条路上出现）。
+没有它就跳过探测、退回"播-失败-重播"（错误糊屏也只在那条路上出现）。
 `TING_COOKIE_BROWSER=none` 强制只走匿名（不读钥匙串、不探测）；配了浏览器但本机没有 profile 时
 自动降级为匿名，而不是报错。
 
@@ -479,8 +516,8 @@ app 就好了。它和"从没用过这个浏览器"是**同一句话**，所以�
   "could not find / copy … cookies database"、钥匙串与解密失败，以及落在 cookie 文件路径上的
   原始 OS 错误（`[Errno 13] Permission denied: '…/Cookies'`）。请求根本没发出去。
 - **回退**：每个读 cookie 的 yt-dlp 调用都经 `ytdlp_cookied`，**只在分类为 `cookies` 时**去掉
-  cookie 重问一次 —— 只认这一个原因，是为了不让一次网络错误花两遍时间；`resolve_stream` 本来
-  就有的匿名回退保持原样，只是多说一句为什么。于是一份读不出来的库永远不会让一个动词失败，
+  cookie 重问一次 —— 只认这一个原因，是为了不让一次网络错误花两遍时间；`stream_run` 本来
+  就有匿名回退，那里只多说一句为什么。于是一份读不出来的库永远不会让一个动词失败，
   代价只是登录才看得见的内容。
 - **诊断**：`cookie_probe` 做 yt-dlp 做的事 —— 列浏览器目录、找最新的 cookie 文件、读它一个字节
   —— 得出 `readable | blocked | denied | missing | unknown`。它必须真去读：`[ -r ]` 看的是 Unix
@@ -498,9 +535,9 @@ app 就好了。它和"从没用过这个浏览器"是**同一句话**，所以�
 被送出去，取决于**两个**条件 —— 变量不是 `none`，**并且**那个 profile 目录真的在这台机器上。
 降级是静默的（那是对的：一个公开视频照样能放），于是"我以为我登录着"和"这次是匿名的"在外面长
 得一模一样。`--auth` 就是把这两个条件的合成结果印出来的那个动词，不吃句柄、不发包、不跑
-yt-dlp。这个动词归 resolve 半边，也**只**归它 —— cookie 决定本来就住在那儿。被否掉的另一个位置
-是给搜索信封加 `auth` 字段：搜索半边彼此不对称（`bili-search` 与 `ne-search` 一个凭据都不发），要报出 `chrome` 就
-得在搜索半边再抄一份 profile 判断副本。
+yt-dlp。它是一个自己的动词而不是别的信封上的一个字段：被否掉的另一个位置是给搜索信封加 `auth` 字段，
+而搜索彼此不对称（B 站与网易云的搜索一个凭据都不发），一个只在某些引擎的搜索上才有意义的字段会让
+信封形状取决于引擎。每个引擎都有 `--auth`，答的是**本引擎**跑 yt-dlp 的那两个动词会不会带 cookie。
 
 **它报的是"发不发"，此外什么都不报 —— 而"此外"是两件事。** `auth:"cookie"` 之后还有两个独立的
 问号：站点**认不认**这份会话（过期登录照样报 `cookie`），以及认了之后这个账号**够到什么**。
@@ -512,16 +549,18 @@ cookie、profile 经浏览器确认是登录状态，而 B 站给出的音视频
 不能用来预测音质。**第一个问号（过期会话）是真实的设计关切，但那组数字**没有量到它** —— 量到
 它需要一次鉴权往返，这个套件刻意不做。
 
-## 解析 —— 引擎的第二半
+## 解析 —— 句柄到直链（`--stream`）
 
-`<engine>-resolve` 把一个**句柄**变成播放它所需的一切，并承载该站点的只读动词。它从不播放：
-没有 mpv、没有生命周期、没有 `players/`。
+`--stream` 把一个**句柄**变成播放它所需的一切：直链、HTTP 头、格式与元数据。它是**内部动词**：
+唯一的调用方是 `t-play`，`t-play` 不转发它。理由是它随每一次站点风控而变 —— 格式码、CDN、PO token、
+请求头 —— 放上公开契约，每修一次风控都可能碰到契约。它从不播放：没有 mpv、没有生命周期、没有 `players/`。
 
 **`--quality TIER` 是档位，不是一串格式。** 播放器或调用方**从不**自己把档位翻译成 yt-dlp 的
 sort —— 那张 (mode, tier) → `--format-sort` 的表（`quality_sort_for_tier`）是这个引擎自己的：
 `audio` 模式下档位映射成 `abr` 排序（`res:` 对纯音频轨毫无意义），`video` 模式下映射成 `res`
-排序，`auto` 不发 sort（出厂行为），而一个显式的 `-S` **压过** `--quality`（一次具体的覆盖赢过
-一档抽象）。它是流格式选择器，撞上只读动词就退 1 —— 门语直说它不适用于那些动词。
+排序，`auto` 不发 sort（出厂行为）。公开面上没有一个直接写 yt-dlp format-sort 的 flag：那是把 yt-dlp 的
+语法放进契约，而档位抽象就是 `--quality`，按模式的格式覆盖另有配置键 `TING_<ENGINE>_*_FORMAT*`。
+它与 `-f` 都是 `--stream` 的修饰符，撞上别的动词就退 1 —— 门语直说它只适用于 `--stream`。
 
 **句柄文法是每引擎自己的，host 白名单也是。** `normalize_target` 接受**本**引擎某个 host 上的
 URL，或本引擎自己的媒体 id 形状，用的是**显式清单，不是子串匹配**：`*.youtube.com` 命中
@@ -529,52 +568,54 @@ URL，或本引擎自己的媒体 id 形状，用的是**显式清单，不是�
 
 **输入句柄统一收敛至 Canonical URL，剔除所有追踪参数。** 任何进入 `normalize_target` 的合法句柄，
 均被剥除外部平台注入的追踪参数（YouTube 的 `feature`、`si`、`pp`、`ab_channel` 等，Bilibili 的 `spm_id_from`、
-`vd_source`、`share_*` 等），统一折叠为该引擎的标准规范短链（`ne-resolve` 的 `song?id=N`、`yt-resolve` 的 `watch?v=ID`、
-`bili-resolve` 的 `video/BV...`，仅在 B 站多 P 视频且 `p > 1` 时保留合法分 P 参数 `?p=N`）。
+`vd_source`、`share_*` 等），统一折叠为该引擎的标准规范短链（网易云的 `song?id=N`、YouTube 的 `watch?v=ID`、
+B 站的 `video/BV...`，仅在 B 站多 P 视频且 `p > 1` 时保留合法分 P 参数 `?p=N`）。
 这保障了从浏览器复制粘贴的链接与从搜索结果导出的条目具备完全逐字节一致的 URL，彻底消除了持久化歌单库与
 收听历史在跨调用存储时的污染与查重幂等断裂。
 
 **来自另一个站点的 URL 是用法错误（1），不是抽取失败（2+）。** 什么都还没试、也没有什么可重试
 的 —— 调用方点错了引擎，这与 `--engine nope` 是同一个错误，因此记同样的分。这堵上了一个**能用**
 的洞，而"能用"正是这一类洞难被看见的原因：没有白名单，任何 http(s) URL 都会被交给 yt-dlp
-（1700+ 个支持站点），于是一条 Bilibili URL 经 `yt-resolve` 也解得好好的，回来时贴着
+（1700+ 个支持站点），于是一条 Bilibili URL 经 YouTube 引擎也解得好好的，回来时贴着
 `engine:"yt"` —— 在那个整份工作就是"把结果路由回懂它的解析器"的字段上撒谎。代价如实记下：那些
 "只靠 URL"的源（Bandcamp、Apple Podcasts）放不了 —— 它们**意外**能播过 —— 而它们的修法是给它们
-写一对自己的引擎，绝不是放松 host 校验。
+写一个自己的引擎，绝不是放松 host 校验。
 
 **信封里的两组值分工不同。** `stream_urls` 是**视频在前**：元素 0 是播放器要打开的那个，元素 1
 —— 只有当选中的格式合并了两条流时才有 —— 是它单独的音轨；`http_headers` 是**必需的，但可以是
 `{}`**。`format` 是发出去的那个选择串（`format_for_mode()` 的产物）也就是**问**，
 `selected`/`selected_resolution` 是同一次调用**答**的那一半 —— 直接取自那份原始记录，所以
-**不多花一次网络**：这两个值一直都在，从前被丢掉。完整 schema：ARCH-cli-contract.md「数据契约」。
+**不多花一次网络**。完整 schema：ARCH-cli-contract.md「数据契约」。
 
 ### 只要元数据（`--info`）
 
-只读、不阻塞、无副作用；要 yt-dlp+jq，但永远不要 mpv。**每个引擎都有它。** 它存在的理由：没有
+只读、不阻塞、无副作用；要 yt-dlp+jq（网易云的 `-j` 另要 curl，「`kind` 与 `access`」），但永远不要 mpv。**每个引擎都有它。** 它存在的理由：没有
 它的话，一个想知道某个视频*是什么*（描述、章节、上传者、日期、点赞数）的 agent，就得离开这套
 生态、掉回原始的 `yt-dlp --dump-json` —— 与 JSON 搜索面当初消除的是同一种"逃生口"失败。这是
 LLM 优先而不是人体工学（对照被否掉的 `--url-only`，那个是**剥掉**接地信号）：`--info` 是**增加**
 agent 推理所依据的接地。`-j` 的投影守的是与搜索同一条字段纪律（原始记录里那 ~40 个
 formats/thumbnails/fragments 字段对一个 headless 调用方是纯 token 压舱物）。原始记录不上公开面：引擎文件上的 `--raw` 是自检，`t-play` 不转发。
 
-`bili-resolve --info` 用 `.channel // .uploader` 来填 `channel`，因为那个 extractor 按记录只填
+B 站的 `--info` 用 `.channel // .uploader` 来填 `channel`，因为那个 extractor 按记录只填
 其中之一 —— **信封的形状不得取决于是哪一个**。这是对一个引擎的通则：**归一化到契约，绝不把
-extractor 的方差原样发布出去。**
+extractor 的方差原样发布出去。**网易云同理，它的 extractor 把艺人放在 `creator` 里，
+`channel` 于是沿 `.channel // .uploader // .creator` 取。
 
-### 字幕（`--transcript`）—— 一个动词，两种"字幕"，一个 `bili-resolve` 没有
+### 字幕（`--transcript`）—— 一个动词，两种"字幕"，B 站没有
 
-`yt-resolve --transcript` 取一条字幕轨，并把它清洗成可以直接丢进 prompt 的文本。信封、
+YouTube 的 `--transcript` 取一条字幕轨，并把它清洗成可以直接丢进 prompt 的文本。信封、
 `-j` 与 `--segments` 的分工，以及"只许一次 yt-dlp 调用"的约束：ARCH-cli-contract.md「数据契约」，
 `no_subtitles_available` 这个 reason 也规定在那里。Bilibili 不供字幕，所以这个 flag 在
-`bili-resolve` 上不被接受、帮助里也不列 —— 「接口」那条能力规矩的一个实例。
+`t-engine-bili` 上不被接受、flag 清单里也不列 —— 「接口」那条能力规矩的一个实例；拒绝用的是一句具名的
+「这个站没有字幕轨」，因为向它要字幕的调用方持有一个合理的期待（别的引擎有）。
 
-**`ne-resolve` 也有这个动词，而它底下是另一样东西：歌词。** 这是这个动词跨引擎最值得看的一处 ——
+**网易云也有这个动词，而它底下是另一样东西：歌词。** 这是这个动词跨引擎最值得看的一处 ——
 同一个信封，同一个 reason，两种完全不同的取数，中间那道缝还是信封而不是工具。差别与它们各自的
 理由：
 
 - **不走 yt-dlp**：`netease:song` 这个 extractor 根本不取歌词，所以没有东西可问它。取数是一次
-  明文 `GET /api/song/lyric`（`fetch_lyric_once`），零加密、零凭据 —— 也正是 `openssl` 是**兄弟
-  那一半**的依赖而不是这个文件的依赖的原因。
+  明文 `GET /api/song/lyric`，零加密、零凭据 —— 也正是 `openssl` 只是 `--search` 的依赖、
+  而不是这个动词的依赖的原因。
 - **`lang` 恒为 `null`，这是诚实而不是缺功能。** 站方不给任何一条歌词打语言标签，而这个库不是
   单一语言的 —— 第一条被实测的记录就是一首日语歌。YouTube 那边 `lang` 是字幕轨自带的标签，
   这边填任何一个常量都是**把猜测装成事实**。两种拼法都合法，`tests/contract.sh` 把 null 这一侧
@@ -587,21 +628,27 @@ extractor 的方差原样发布出去。**
   文案、不是谁写的歌词，所以认它正是这个文件该拥有的站点知识。三种形态（标志、哨兵、歌词从未
   被投稿过）都收敛到同一个答案：**miss，不是空的成功**。
 
-### 多 P（`--parts`）—— 只有 `bili-resolve` 有的动词
+### 分 P —— 一个多 P 视频就是一个容器（B 站的 `--items`）
 
-`bili-resolve --parts` 列出多 P 视频的各 P（`?p=N`）—— **一次 HTTP 请求，没有 yt-dlp**（首选端点
-被拒时才有第二次，见下）。它有自己的取数，不与 `--info` 共用：`--info` 走的是 yt-dlp。`parts[]`
-的元素**就是条目记录**，所以 `--parts -j | jq '{items:.parts}'` 原样管进 `t-playlist --add` 与
-`t-play --queue`。
+给 B 站的 `--items` 一个视频（BV / av id 或视频 URL），答的是它的各 P（`?p=N`）—— **一次 HTTP 请求，
+没有 yt-dlp**（首选端点被拒时才有第二次，见下）。它不是一个单独的动词，因为它不是一件单独的事：
+多 P 视频就是一个装着分 P 的容器，各 P 与容器条目同形，所以信封就是容器信封（`total` = 分 P 数，
+`has_more`/`next_cursor` 照常按游标切片），`items[]` 原样管进 `t-playlist --add` 与 `t-play --queue`。
+两个动词说同一件事，就是让调用方去记哪个站用哪个名字。单 P 视频不是错误：它列出 count 1，说这就是那一个 P。
+信封不带总时长：它不是条目的属性，要的调用方在拿到全部分 P 之后自己加总。
 
-**为什么这一个动词有两个端点。** 首选 `x/web-interface/view`，回落 `x/player/pagelist`，而这不是
+**每一 P 的 `id` 是解析它时 yt-dlp 给的那个**，这样从清单存下去的记录和直接解析它的信封指的是同一条：
+多 P 视频一律 `<BV>_p<N>`（连第 1 P 都是 `_p1`），单 P 视频就是裸 BV（2026-09-26 实测）。
+yt-dlp 自己也列得出分 P，却不用它：`--flat-playlist` 给分 P 不带标题也不带时长。
+
+**为什么这一件事有两个端点。** 首选 `x/web-interface/view`，回落 `x/player/pagelist`，而这不是
 冗余设计，是被一次站点变更逼出来的。**2026-09-01 实测，两个不同网络同样的答案**：
 
 | 请求 | 结果 |
 |---|---|
 | `view`，裸 / 带随机 buvid3 / 带 spi 现发的 buvid3+buvid4 / 带整套浏览器头 / 换 Referer / 换 av 号 | **412，无一例外** |
 | `player/pagelist`，裸 | **200，code 0，全部分 P** |
-| `search/type`，裸 → 412，带 buvid3 → 200 | 兄弟那一半不受影响 |
+| `search/type`，裸 → 412，带 buvid3 → 200 | 搜索不受影响 |
 
 也就是说 `view` 开始整个拒绝这个客户端 —— 距 **2026-08-29** 那次「裸请求答 200」的实测只有三天。
 两个网络答案一致，所以这是端点自己的变化，不是某个地址被标记。
@@ -609,51 +656,43 @@ extractor 的方差原样发布出去。**
 **救了 `search/type` 的那个 buvid3 救不了 `view`**，而这正是决定**不**在这里发设备标识的那次测量：
 不然就是凭直觉加一个头，而上面那一行就是直觉被验证之后的样子。
 
-**`view` 仍然先打，没有退役。** 它是答案更好的那个 —— 只有它带 `.data.bvid`、`.data.title` 和
-`.data.duration` —— 而 412 是站点此刻的姿态，不是一条定律；`view` 还答得动的机器应当继续拿到更
-完整的信封。第二次请求只花在第一次已经被拒之后。
+**`view` 仍然先打。** 它是答案更好的那个 —— 只有它带 `.data.bvid` 与 `.data.title` —— 而 412 是站点此刻
+的姿态，不是一条定律；`view` 还答得动的机器应当继续拿到更完整的信封。第二次请求只花在第一次已经被拒之后。
 
-**回落时信封少三样，且都不是这个动词存在的理由**：顶层 `title` 变 `null`（这本来就是该字段的合法
-取值，TUI 早就用行自己的标题兜底，所以人眼看不出区别）；av 句柄保持 av 拼写而不再被规范成 BV；
-总时长改由各 P 相加得出（`view` 缺这个键时本来就走这条路）。**每一 P 的序号、标题、时长和自己的
-可播 URL 一个不少。**
+**回落时信封少两样，且都不是这个动词存在的理由**：顶层 `title` 变 `null`（这本来就是该字段的合法
+取值，TUI 用行自己的标题兜底，所以人眼看不出区别）；av 句柄保持 av 拼写而不再被规范成 BV。
+**每一 P 的序号、标题、时长和自己的可播 URL 一个不少。**
 
-**一个判决优先于另一个：`unavailable`。** `view` 现在什么都答 412，而 412 是 `network` —— 可重试。
+**一个判决优先于另一个：`unavailable`。** `view` 什么都答 412，而 412 是 `network` —— 可重试。
 所以若照搬首选端点的判决，一个根本不存在的 id 会被报成「稍后再试」，agent 就会永远问下去。规矩
 因此是：`view` 说 `unavailable` 就当场结束（不存在的视频在哪个端点都一样，第二次请求买不到东西，
 与本文件「不重试」是同一条论证）；`view` 说别的、而 `pagelist` 说得出 `unavailable`（它对坏 id 答
 200/-404），就让后者赢 —— `unavailable` 是关于**句柄**的陈述，压过一次对**请求**的笼统拒绝。
 
-**YouTube 没有这个动词。** 一个 yt id 恰好就是一个文件；它"多条目"的形态（播放列表）是一份自有
-URL 的集合，不是这一个动词。
+**这里的输入文法比流解析更窄：它要求一个 id。** 两个端点只收 `bvid=` / `aid=`，而一条 b23.tv
+短链是重定向不是 id —— 拒绝（1），并告诉调用方先打开一次或直接传 `--search` 返回的 BV id。
 
-**这个动词的输入文法比流解析更窄：它要求一个 id。** `?p=N` 只能挂在 BV/av id 上，而一条 b23.tv
-短链是重定向不是 id —— 拒绝（1），并告诉调用方先打开一次或直接传 `bili-search` 返回的 BV id。
-
-**失败分类与 `--info` 相反：取数失败退 2。** `--parts` 的失败来自它**发起**的那次请求（网络 /
-一次 200 里没有 parts 记录）—— 一次工具失败，与抽取同类；而 `--info` 的"取数失败"是引擎对**已有**
-取数的再解释。单 P 视频不是错误：它列出 count 1，说这就是那一个 P。
+**YouTube 与网易云没有分 P。** 一个 yt id 恰好就是一个文件，给 `--items` 一个单曲句柄是用法错误；
+它"多条目"的形态（播放列表）是一份自有 URL 的集合，照常走 `--items`。
 
 ### 容器（`--items`）—— 三个引擎都有的动词
 
-`<engine>-resolve --items` 把一个**容器**展开成条目清单：YouTube 的播放列表、专辑与频道投稿、
-B 站的音频歌单（`am`）、视频收藏夹（`ml`）与创作者合集、网易云的专辑与歌单。`items[]` 的元素**就是条目记录**，键名也就叫 `items` —— 所以
+`--items` 把一个**容器**展开成条目清单：YouTube 的播放列表、专辑与频道投稿、
+B 站的多 P 视频（上一节）、音频歌单（`am`）、视频收藏夹（`ml`）与创作者合集、网易云的专辑与歌单。`items[]` 的元素**就是条目记录**，键名也就叫 `items` —— 所以
 `--items -j | t-playlist --add NAME` 和 `| t-play -d --queue -` 原样管进去，存储端与播放器
-**一行没改**。`--parts` 还需要 `jq '{items:.parts}'` 那层垫片，这个动词不需要；键名就是从这条缝
-上取的。
+**一行没改**，中间不需要任何垫片；键名就是从这条缝上取的。
 
-**为什么这个动词长在解析端。** 三条路都摆过：
+**为什么这是引擎的一个动词。** 三条路都摆过：
 
 | 备选 | 裁决 |
 |---|---|
 | 搜索端加分类参数（`--albums`） | 否。搜索是 query → 粗排摘要；展开容器是 handle → 深度提取，那是解析的职责 |
 | 存储端自己认 URL（`t-playlist --import`） | 否。`t-playlist` 是纯持久化，一点站点知识都不持有（ARCH-player.md「持久状态层」）   |
-| 解析端加动词（`--items`，采纳） | 站点知识归引擎对（ARCHITECTURE.md「站点知识的边界」），而输出经 UNIX 管道直通存储与队列，两者零改动 |
+| 引擎加动词（`--items`，采纳） | 站点知识归引擎（ARCHITECTURE.md「站点知识的边界」），而输出经 UNIX 管道直通存储与队列，两者零改动 |
 
-**URL 不变队列，动词才变。** 一条单曲 URL 上夹带的 `list=` 在流解析里继续被忽略（`yt-resolve` 的
-`dump_once` 一直带 `--no-playlist`）—— URL 自己不会变成一个队列。要整张清单，调用方**显式**调
-`--items`，那时 `list=` 才被读，因为这一次是它开口要的。（这条原是 ROADMAP 的「`list=` NO」，
-这个动词就是它那个"重开条件"的答案：所有权与数据契约都在本节。）这也定义了调用方（如 `ting` 嗅探器）
+**URL 不变队列，动词才变。** 一条单曲 URL 上夹带的 `list=` 在流解析里被忽略（YouTube 引擎的
+`dump_once` 带 `--no-playlist`）—— URL 自己不会变成一个队列。要整张清单，调用方**显式**调
+`--items`，那时 `list=` 才被读，因为这一次是它开口要的。这也定义了调用方（如 `ting` 嗅探器）
 对混合链接的分类判据：携带播放实体（如 `watch?v=`）的链接始终按单曲（`--info`）承接，只有纯容器路径
 （如 `.../playlist?list=`、`.../album?id=`、`am/ml`）才按容器（`--items`）展开。
 
@@ -663,11 +702,11 @@ B 站的音频歌单（`am`）、视频收藏夹（`ml`）与创作者合集、�
 **`count` 与 `total` 是两个数，差额同时覆盖两件事**：被上限截断，和被判据或访问过滤丢掉的行。
 信封**不为区分这两者加键** —— 两种情况下调用方能做的是同一件事（要个小一点的容器，或者接受少一些）。
 
-**上限是引擎内常量，不给 flag —— 但"取不完"这件事后来有了第二个答案。** `-n` 在三个 resolve 里都是
-被拒的搜索标志，给它第二个含义就是动冻结面；起一个新 flag 名，则是为一个边角情况加一条契约。所以
-`ITEMS_MAX=500` 至今不是参数。变的是另一半：`count < total` 只说得出"没取全"，说不出"从哪儿接着
-取"，而创作者侧的容器（频道投稿、上千条的收藏夹）正是靠这后半句才进得来。于是信封多了两个键，命令
-多了一个 `--cursor`，**批量大小仍然没有旋钮**。
+**上限是引擎内常量，不给 flag；"取不完"靠游标回答。** `-n` 是 `--search` 的修饰符，配 `--items` 就被拒，
+给它第二个含义就是让一个 flag 按动词换意思；起一个新 flag 名，则是为一个边角情况加一条契约。所以
+`ITEMS_MAX=500` 不是参数。`count < total` 只说得出"没取全"，说不出"从哪儿接着取"，而创作者侧的容器
+（频道投稿、上千条的收藏夹）正是靠这后半句才进得来 —— 所以信封带两个游标键，动词带一个 `--cursor`，
+**批量大小没有旋钮**。
 
 **`has_more` 与 `next_cursor` —— 两个必需键，允许 `null`**（与 `start_seconds` 同一先例）：
 `has_more` 只回答**容器还有没有没取的原始条目**，`next_cursor` 是取它们的凭据，`has_more` 为假时
@@ -675,7 +714,7 @@ B 站的音频歌单（`am`）、视频收藏夹（`ml`）与创作者合集、�
 `total` 的差额表达 —— 一张全是 VIP 的专辑列出 0 条时 `has_more` 是 `false`，因为确实没有下一批。
 
 **游标是偏移，而且三个引擎同一形状**（`o:<条目偏移>`）。理由不是审美：形状不统一的话，把 yt 的游标
-喂给 `bili-resolve` 只能发一次包才发现错，而统一之后 argv 阶段就判完（`--cursor` 不配 `--items`
+喂给 B 站引擎只能发一次包才发现错，而统一之后 argv 阶段就判完（`--cursor` 不配 `--items`
 也一样退 1）。站点各自的页算术关在引擎内 —— 收藏夹 40 一页、合集与音频歌单 100 一页、YouTube 走
 `--playlist-items <off+1>:<off+500>` —— 调用方一律只看见偏移。**批量按整页向下取整**（收藏夹因此是
 480 而不是 500），这样每一个发出去的游标都落在页边界上，续取不重读也不重叠；调用方拿着一个旧的、不
@@ -716,10 +755,10 @@ VIP 专辑导进歌单就是一排 30 秒试听，等于把搜索端已经挡掉
 专辑 32311 九首全是 `fee: 1`，所以默认列出 **0** 条并在 `count` 里说清楚，这比九条听三十秒就停的
 行诚实。条目记录**不加 `access` 键**：留下来的行全是 `full`，键上没有信息。
 
-**YouTube 现在只拒一种形状，而拒它的理由是稳定性，不是长度。** `PL…`（歌单）、`OLAK5uy_…`（专辑）、
+**YouTube 只拒一种形状，而拒它的理由是稳定性，不是长度。** `PL…`（歌单）、`OLAK5uy_…`（专辑）、
 `UU…`（频道全部上传）与频道本身都收；`RD…`（Mix 电台）退 1。分界线是**两次调用是不是同一张表**：
 Mix 每次请求现生成，游标对它给不出"页与页不重叠"的承诺；频道投稿实测分段枚举同序幂等，那正是翻页
-唯一需要的性质。`LL`/`FL…`（赞过、收藏）不再被点名 —— 它们要登录态，而一个照着名字拒收它们的引擎
+唯一需要的性质。`LL`/`FL…`（赞过、收藏）不被点名 —— 它们要登录态，而一个照着名字拒收它们的引擎
 是在替自己看得见的 cookie 做判断：有 cookie 就读得到，没有就是 yt-dlp 报错，那是上游失败（退 2）
 而不是用法错。
 
@@ -736,7 +775,7 @@ Mix 每次请求现生成，游标对它给不出"页与页不重叠"的承诺�
 长度不是这个站的不变量。
 
 **网易云只认 URL，裸数字退 1**：这个站每一种资源都是 `?id=N`，`song`/`album`/`playlist` 的 id 空间
-互不区分，一个裸数字说不出自己是谁 —— `ne-resolve` 拒非 song 路径 URL 用的就是这条理由。单曲动词
+互不区分，一个裸数字说不出自己是谁 —— 单曲动词拒非 song 路径 URL 用的就是这条理由。单曲动词
 收裸数字，只因为**那个**动词已经先决定了它是一首歌。
 
 **B 站三种容器，一条取数路，两种条目**。音频歌单（`am`）的条目 URL 拼成
@@ -764,8 +803,8 @@ Mix 每次请求现生成，游标对它给不出"页与页不重叠"的承诺�
 信封的 `url` 得是人点得开的地址，所以句柄文法收带 uid 的那两种 space URL。系列（`?type=series`）与
 合集是两个端点，所以它被**按名字拒收**（退 1）而不是拿合集端点去读出别人的视频。
 
-**音频歌单（`am`）句柄在主文法中显式拒收**：`am` 裸号或 `/audio/am<id>` 链接在流解析、`--info` 与
-`--parts` 门控中退 1，并提示改用 `--items`。这杜绝了上游 `yt-dlp` 对专辑 URL 输出 `status:"ok"` 但
+**音频歌单（`am`）句柄在单曲文法中显式拒收**：`am` 裸号或 `/audio/am<id>` 链接给 `--stream` 与 `--info`
+退 1，并提示改用 `--items`。这杜绝了上游 `yt-dlp` 对专辑 URL 输出 `status:"ok"` 但
 `stream_urls: []` 的无用空信封，将单曲解析与容器展开的边界彻底锁死。
 
 **不可播的条目在信封之前就丢掉**，判据与搜索行同一句（ARCH-cli-contract.md「数据契约」）：`url`/`id`
@@ -801,9 +840,9 @@ mpv 的一个 flag，所以那半在播放器里**（ARCH-player.md「起播偏�
 
 | 引擎 | 值从哪来 | 在哪个函数 | 在哪一步 | 解析代码 |
 |---|---|---|---|---|
-| `yt-resolve` | `dump_once` 那份记录的 `.start_time` | 已有的信封 jq（`start_secs`） | 网络请求**之后** | **零行** |
-| `bili-resolve` | 原始句柄 query 里的 `t=` | `normalize_target` | 任何网络请求**之前** | 全部 |
-| `ne-resolve` | 同上 | 同上 | 同上 | 同上 |
+| `t-engine-yt` | `dump_once` 那份记录的 `.start_time` | 已有的信封 jq（`start_secs`） | 网络请求**之后** | **零行** |
+| `t-engine-bili` | 原始句柄 query 里的 `t=` | `normalize_target` | 任何网络请求**之前** | 全部 |
+| `t-engine-ne` | 同上 | 同上 | 同上 | 同上 |
 
 **第三个引擎落在 B 站那一侧，而它的理由更干脆：这个站根本不写起播偏移，一条网易云链接里就没有
 `t=`。** 那为什么还要解？因为 `?t=` 是**套件自己**的"从这里开始"的拼法，不是某个站的：
@@ -811,28 +850,29 @@ mpv 的一个 flag，所以那半在播放器里**（ARCH-player.md「起播偏�
 且分得清 `t=0` 与没有 `t=`"这条不变式**对每一个被发现的引擎**都断言一遍。一个引擎因为"我们站
 没有这种链接"就不实现它，会在第一次 `--start` 上把整条链断掉。
 
-**YouTube 那一半一行解析代码都没写**，因为 yt-dlp 的 extractor 已经把这个站的每一种写法读完了，
+**YouTube 引擎一行解析代码都没写**（规范化句柄时只把 `t=` / `start=` / `#t=` 的原值原样带进
+规范 URL，从不解读它），因为 yt-dlp 的 extractor 已经把这个站的每一种写法读完了，
 实测十种全中：`?t=601` · `?t=601s` · `?t=10m1s` · `?t=1h2m3s`（→ 3723）· `youtu.be/ID?t=601` ·
 `embed/ID?start=601` · **锚点 `#t=601`** · `?t=0`（→ `0`，不是 `null`）· `?t=601.5`（→ 浮点）·
 `?t=banana`（→ `null`）；不带时间戳时**键根本不存在**。在这一层重写一遍 query 解析，就是给一个
 依赖的 extractor 写一份更差的副本。所以 `start_secs` 只做归一化：非数字或负数 → `null`，小数
 向下取整。
 
-**Bilibili 那一半必须自己解**，因为同一个 yt-dlp 对这个站**任何形态都不给这个键**（`?t=601`、
+**Bilibili 引擎必须自己解**，因为同一个 yt-dlp 对这个站**任何形态都不给这个键**（`?t=601`、
 `?t=601.5`、`?p=2&t=60` 全部无 `start_time`）。`parse_start_seconds` 在 `normalize_target` 里读
 query，且**只认 `?t=`** —— 这个站没有任何实测证据支持锚点写法，而一种没人能产出的写法不该凭猜测
 进实现。按 bash 3.2 的规矩：手工切分而不是 `for p in $q`（未加引号的展开会 glob，而 query 值真
 的可以带 `*`），每一次展开都是**锚定**的（`%%` / `#`），不用 `${var//pat/}`（3.2 上 O(n²)，
 CLAUDE.md）。
 
-**`url` 里不带偏移，而 B 站这一半是动手剥出来的。** `webpage_url` 在 YouTube 那边本来就规范化掉
+**`url` 里不带偏移，而 B 站这边是动手剥出来的。** `webpage_url` 在 YouTube 那边本来就规范化掉
 了 `t`；B 站那边**保留整个 query，因为 `?p=N` 就在里面** —— 那是"哪一分 P"的唯一凭据。所以
-`bili-resolve` 在信封的 jq 里剥掉 `t=`，**只剥它**（`strip_t`，三段锚定 `gsub`：非首参、首参且
+B 站引擎在信封的 jq 里剥掉 `t=`，**只剥它**（`strip_t`，三段锚定 `gsub`：非首参、首参且
 后面还有、首参且到结尾或到锚点）。剥不干净或剥过头都有具体代价：`t-playlist --add` 存的正是这
 个 `url`，带着偏移就意味着一首收藏曲子从此每次从 10:01 开始，而连 `?p=` 一起剥掉就把一条记录悄
-悄指向了第 1 P。`--parts` 不受影响 —— 它的 base 是从 `.data.bvid`（回落时是 `target_id` 摘出来的裸 id）拼出来
+悄指向了第 1 P。分 P 清单不受影响 —— 它的 base 是从 `.data.bvid`（回落时是句柄里摘出来的裸 id）拼出来
 的，从不经过 `TARGET_URL`。
 
-**推论给第三个引擎作者**：先跑 `yt-dlp --dump-single-json '<带时间戳的本站 URL>' | jq .start_time`。有值就白拿，
+**推论给下一个引擎作者**：先跑 `yt-dlp --dump-single-json '<带时间戳的本站 URL>' | jq .start_time`。有值就白拿，
 没有就照 bili 那样自己解，站点根本没有这种语法就恒填 `null` —— 与 `kind`/`access` 恒填默认值是
 合法状态同理（「`kind` 与 `access`」）。清单：ARCH-cli-contract.md「加一个引擎」。

@@ -1063,7 +1063,7 @@ normalize_target() {
 # --items' OWN handle grammar. It takes TWO kinds of thing, because on this site one video
 # number can be MANY playable files (`?p=N`), and a multi-part video is a container of parts
 # in every way a caller cares about — so its parts are listed by the same verb, in the same
-# envelope, as a menu's tracks (docs/PLAN-single-entry.md §3: one thing, one spelling).
+# envelope, as a menu's tracks (ARCH-engine.md, "分 P": one thing, one spelling).
 #
 # The HOST gate fires first: an off-site URL is the same usage error at every verb and must be
 # reported before this engine's opinion about what a container looks like. A container is

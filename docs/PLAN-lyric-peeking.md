@@ -4,7 +4,7 @@
 > **Priority**: 第一梯队 · Go TUI 落地后的第一个人机面特性  
 > **Target Branch**: main  
 > **Roadmap 关联**: [`docs/ROADMAP.md`](ROADMAP.md)「第一梯队」——焦点行歌词窥探  
-> **前置**: `PLAN-go-tui.md` 全部完成——Go `ting` 已接过名字，`t-play --watch -j` 与 `<engine>-resolve --capabilities -j` 已发布  
+> **前置**: `PLAN-go-tui.md` 全部完成——Go `ting` 已接过名字，`t-play --watch -j` 与 `t-play --engines -j` 的 `flags[]` 已发布  
 > **Governing Docs**: [`docs/ARCH-tui.md`](ARCH-tui.md)「重排与分页」（届时为 Go 版重写后的对应章节）、[`docs/ARCH-engine.md`](ARCH-engine.md)「字幕（`--transcript`）」、[`docs/ARCH-cli-contract.md`](ARCH-cli-contract.md)「数据契约」、[`docs/ROADMAP.md`](ROADMAP.md)「横切规范 —— 每个新功能都要过的判据」  
 > **Verification**: `go test ./...`、`tests/contract.sh --offline`、tmux 驱动段（Go 版）  
 > **Scope Boundary**: 仅当光标停在正在播放的那一行、且歌词就绪时，在它下方的 details 空间里显示当前一句。置换 Description，details 段高度不变。数据只来自两个已发布的动词：`t-play --transcript -j --segments`（歌词）与 `t-play --watch -j`（播放位置）。不加 CLI 选项、信封字段或依赖，不开独立歌词视图。
@@ -68,7 +68,7 @@ details 段的行数与置换前相同，上方结果行数不变。
   Enter / 换曲事件 (--watch)
           |
           v
-  +--------------------------+     <engine>-resolve --capabilities -j
+  +--------------------------+     t-play --engines -j 的 flags[]
   | 该引擎有 --transcript ?  |---- 否 ----> 状态 none，details 照旧
   +------------+-------------+
                | 是
@@ -92,7 +92,7 @@ details 段的行数与置换前相同，上方结果行数不变。
 
 - **触发**：只在播放目标变化时（起播，或 `--watch` 报出换曲）拉一次。同一时刻只保留一个在途请求，
   新曲目到来时丢弃旧请求的结果（按 URL 比对，不按到达顺序）。
-- **能力门控**：`--capabilities -j` 的回答。今天 `yt` 与 `ne` 有 `--transcript`，`bili` 没有，
+- **能力门控**：`t-play --engines -j` 里该引擎的 `flags[]` 有没有 `--transcript`。今天 `yt` 与 `ne` 有 `--transcript`，`bili` 没有，
   但 TUI 不写死这张表——一个仓外引擎加了 `--transcript` 就自动得到歌词。
 - **缓存**：只在内存里，按 URL 存，本会话有效。光标移出再移回、或同一首再播，不重新拉取。
   不落盘，也就没有 `$TMPDIR` 下的文件需要清理。
@@ -107,7 +107,7 @@ details 段的行数与置换前相同，上方结果行数不变。
 
 | 工况 | 条件 | 表现 |
 |---|---|---|
-| 纯音乐 | `ne-resolve` 按站点哨兵 `纯音乐，请欣赏` 报 `no_subtitles_available` | 状态 none，照常显示 Description，不显示错误 |
+| 纯音乐 | 网易云引擎按站点哨兵 `纯音乐，请欣赏` 报 `no_subtitles_available` | 状态 none，照常显示 Description，不显示错误 |
 | 无字幕引擎 / 失败 / 超时 | `bili`，或调用非零退出 | 同上 |
 | 自动字幕轨（`yt`） | 信封 `is_auto` 为真 | 照常显示（是否加弱化标记见「未决」） |
 | 前奏 / 长间奏 | 位置不在任何 segment 内 | `♪  · · ·` |
@@ -131,7 +131,7 @@ details 段的行数与置换前相同，上方结果行数不变。
 
 ## 实施顺序
 
-1. 在 Go 的 `verb` 包里加 `--transcript -j --segments` 的调用与 segments 解析；能力门控接 `--capabilities`。
+1. 在 Go 的 `verb` 包里加 `--transcript -j --segments` 的调用与 segments 解析；能力门控读 `--engines` 的 `flags[]`。
 2. 模型里加歌词状态（none / loading / ready）与按 URL 的缓存；换曲事件触发拉取。
 3. 游标：位置事件 + 二分 + 外推；暂停与 seek。
 4. details 渲染置换与行预算；先把过渡候选渲染成帧供选择，再定实现。
