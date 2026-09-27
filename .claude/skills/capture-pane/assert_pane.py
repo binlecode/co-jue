@@ -78,7 +78,7 @@ def cells(s, ambig_wide=False):
 
 
 # A row is its 2-cell cursor slot, then the ordinal field ONLY when the row numbers are on
-# (the # key / UT_ROW_INDEX), then the title. The marker slot is the constant: it is two
+# (the # key / TING_ROW_INDEX), then the title. The marker slot is the constant: it is two
 # cells whether it holds the cursor glyph or nothing, which is what keeps the title column
 # still as the cursor moves.
 #

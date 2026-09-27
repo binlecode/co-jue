@@ -53,15 +53,18 @@ fi
 # and a file recording a value the program has already decided to throw away is a lie that
 # surfaces months later. Ahead of the block below rather than inside it, because that block is
 # duplicated verbatim in every entry point and this is ting's alone.
-PREF_KEYS="UT_DEFAULT_ENGINE TING_THEME UT_PLAY_MODE UT_PLAY_QUALITY UT_SORT_FIELD TING_LANG UT_SEARCH_RESULTS UT_KEYS UT_ROW_INDEX UT_LIST_MODE UT_LOOP_MODE"
+PREF_KEYS="TING_DEFAULT_ENGINE TING_THEME TING_PLAY_MODE TING_PLAY_QUALITY TING_SORT_FIELD TING_LANG TING_SEARCH_RESULTS TING_KEYS TING_ROW_INDEX TING_LIST_MODE TING_LOOP_MODE"
 PREF_PINNED=""
 for _pk in $PREF_KEYS; do
     if eval "[[ -n \"\${$_pk+x}\" ]]"; then PREF_PINNED="$PREF_PINNED $_pk"; fi
 done
 unset _pk
 # A written key's old name pins it too: the block below reads it into the new key. These are
-# the three OLD:NEW pairs of CFG_RENAMED whose new key is in PREF_KEYS.
-for _pk in UT_START_RESULTS:UT_SEARCH_RESULTS YT_THEME:TING_THEME YT_LANG:TING_LANG; do
+# the OLD:NEW pairs of CFG_RENAMED whose new key is in PREF_KEYS.
+for _pk in UT_DEFAULT_ENGINE:TING_DEFAULT_ENGINE YT_THEME:TING_THEME UT_PLAY_MODE:TING_PLAY_MODE \
+    UT_PLAY_QUALITY:TING_PLAY_QUALITY UT_SORT_FIELD:TING_SORT_FIELD YT_LANG:TING_LANG \
+    UT_SEARCH_RESULTS:TING_SEARCH_RESULTS UT_START_RESULTS:TING_SEARCH_RESULTS UT_KEYS:TING_KEYS \
+    UT_ROW_INDEX:TING_ROW_INDEX UT_LIST_MODE:TING_LIST_MODE UT_LOOP_MODE:TING_LOOP_MODE; do
     if eval "[[ -n \"\${${_pk%%:*}+x}\" ]]"; then PREF_PINNED="$PREF_PINNED ${_pk#*:}"; fi
 done
 unset _pk
@@ -78,17 +81,21 @@ if [[ -z "$TING_CONFIG" ]]; then
         TING_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/uting/config"
     fi
 fi
-UT_CONFIG="$TING_CONFIG"
-for _v in STATE_DIR ENGINE_DIR HISTORY VOLUME IMAGE KEYS RESOURCE PLAY_QUALITY VIZ_STYLE VIZ_COLOR DEFAULT_ENGINE; do
-    eval "[[ -n \"\${TING_$_v+x}\" ]] && UT_$_v=\"\$TING_$_v\" || true"
-    eval "[[ -n \"\${UT_$_v+x}\" && -z \"\${TING_$_v+x}\" ]] && TING_$_v=\"\$UT_$_v\" || true"
-done
 # Renamed and merged keys, OLD:NEW. The old name still reads, one version, into the key that
-# replaced it: from the environment here, from a file in ut_read_config, and ting's write-back
-# renames the line in place. Lower-level than a knob, so it is not spelled with a key prefix.
-CFG_RENAMED="UT_START_RESULTS:UT_SEARCH_RESULTS YT_COOKIE_BROWSER:UT_COOKIE_BROWSER \
-    BILI_COOKIE_BROWSER:UT_COOKIE_BROWSER NE_COOKIE_BROWSER:UT_COOKIE_BROWSER YT_THEME:TING_THEME \
-    YT_LANG:TING_LANG YT_ASCII:TING_ASCII YT_ASCII_VO:TING_ASCII_VO \
+# replaced it: from the environment here (only while the new name is unset, so the new name
+# wins), from a file in ut_read_config, and ting's write-back renames the line in place. A
+# renamed name comes before a merged one, so when both are set the renamed one wins. Not a
+# knob, so not spelled TING_.
+CFG_RENAMED="UT_STATE_DIR:TING_STATE_DIR UT_ENGINE_DIR:TING_ENGINE_DIR UT_HISTORY:TING_HISTORY \
+    UT_DEFAULT_ENGINE:TING_DEFAULT_ENGINE UT_SEARCH_RESULTS:TING_SEARCH_RESULTS \
+    UT_COOKIE_BROWSER:TING_COOKIE_BROWSER UT_SORT_FIELD:TING_SORT_FIELD \
+    UT_PLAY_MODE:TING_PLAY_MODE UT_VOLUME:TING_VOLUME UT_PLAY_QUALITY:TING_PLAY_QUALITY \
+    UT_VIZ_STYLE:TING_VIZ_STYLE UT_VIZ_COLOR:TING_VIZ_COLOR UT_PAGE_ROWS:TING_PAGE_ROWS \
+    UT_FETCH_BATCH:TING_FETCH_BATCH UT_LOOP_MODE:TING_LOOP_MODE UT_RESOURCE:TING_RESOURCE \
+    UT_KEYS:TING_KEYS UT_LIST_MODE:TING_LIST_MODE UT_ROW_INDEX:TING_ROW_INDEX UT_IMAGE:TING_IMAGE \
+    UT_START_RESULTS:TING_SEARCH_RESULTS YT_COOKIE_BROWSER:TING_COOKIE_BROWSER \
+    BILI_COOKIE_BROWSER:TING_COOKIE_BROWSER NE_COOKIE_BROWSER:TING_COOKIE_BROWSER \
+    YT_THEME:TING_THEME YT_LANG:TING_LANG YT_ASCII:TING_ASCII YT_ASCII_VO:TING_ASCII_VO \
     YT_MPV_INPUT_CONF:TING_MPV_INPUT_CONF YT_BG:TING_BG YT_SYNC:TING_SYNC \
     YT_AMBIG_WIDE:TING_AMBIG_WIDE YT_AUDIO_FORMAT:TING_YT_AUDIO_FORMAT \
     YT_VIDEO_FORMAT:TING_YT_VIDEO_FORMAT YT_VIDEO_FORMAT_FAST:TING_YT_VIDEO_FORMAT_FAST \
@@ -101,7 +108,7 @@ for _v in $CFG_RENAMED; do
 done
 UT_DEFAULTS="$SCRIPT_DIR/../config"
 ut_read_config() {
-    local file="$1" line key val _ting_k _ut_k
+    local file="$1" line key val _new
     [[ -r "$file" ]] || return 0
     while IFS= read -r line || [[ -n "$line" ]]; do
         line="${line%%#*}"
@@ -114,29 +121,21 @@ ut_read_config() {
         while [[ "$val" == [[:space:]]* ]]; do val="${val#[[:space:]]}"; done
         case " $CFG_RENAMED " in
         *" $key:"*)
-            _ut_k=" $CFG_RENAMED"
-            _ut_k="${_ut_k#* $key:}"
-            key="${_ut_k%% *}"
+            _new=" $CFG_RENAMED"
+            _new="${_new#* $key:}"
+            key="${_new%% *}"
             ;;
         esac
-        [[ "$key" =~ ^(TING|UT)_[A-Z0-9_]+$ ]] || continue
+        [[ "$key" =~ ^TING_[A-Z0-9_]+$ ]] || continue
         case "$key" in
-        TING_CONFIG | TING_DEFAULTS | TING_ENGINE_DIR | TING_VERSION | UT_CONFIG | UT_DEFAULTS | UT_ENGINE_DIR | UT_VERSION) continue ;;
+        TING_CONFIG | TING_ENGINE_DIR) continue ;;
         esac
         if [[ ${#val} -ge 2 ]] && { [[ "$val" == \"*\" ]] || [[ "$val" == \'*\' ]]; }; then
             val="${val#?}"
             val="${val%?}"
         fi
         [[ "$val" == "~/"* ]] && val="$HOME/${val#\~/}"
-        if [[ "$key" == TING_* ]]; then
-            _ut_k="UT_${key#TING_}"
-            eval "[[ -n \"\${$key+x}\" ]] || $key=\$val"
-            eval "[[ -n \"\${$_ut_k+x}\" ]] || $_ut_k=\$val"
-        else
-            _ting_k="TING_${key#UT_}"
-            eval "[[ -n \"\${$key+x}\" ]] || $key=\$val"
-            eval "[[ -n \"\${$_ting_k+x}\" ]] || $_ting_k=\$val"
-        fi
+        eval "[[ -n \"\${$key+x}\" ]] || $key=\$val"
     done < "$file"
 }
 # FAIL FAST AND SAY WHY. There is deliberately no escape hatch for --version or --help: they
@@ -150,7 +149,7 @@ if [[ ! -r "$UT_DEFAULTS" ]]; then
         "$(basename "$0")" "$UT_DEFAULTS" >&2
     exit 2
 fi
-ut_read_config "$UT_CONFIG"
+ut_read_config "$TING_CONFIG"
 ut_read_config "$UT_DEFAULTS"
 
 # ── PREFERENCE WRITE-BACK ───────────────────────────────────────────────────────────────
@@ -159,7 +158,7 @@ ut_read_config "$UT_DEFAULTS"
 # a preference; the reasoning is ARCHITECTURE.md「两个根数据文件」 (reopen triggers: ROADMAP), the key table is
 # ARCH-cli-contract.md「配置面」. What the code below is:
 #
-#   WHICH FILE  the user's own ($UT_CONFIG). The shipped `config` is NEVER written — it is
+#   WHICH FILE  the user's own ($TING_CONFIG). The shipped `config` is NEVER written — it is
 #               this checkout's declared defaults, not anybody's preferences.
 #   WHICH KEYS  PREF_KEYS, and nothing else. pref_value is the whitelist as well as the
 #               key→variable map, so a key it does not name has no value to write and the
@@ -184,17 +183,17 @@ PREF_SAID=""       # keys already refused out loud, so the notice is said once e
 # to add a twelfth key and one place to forget it.
 pref_value() {
     case "$1" in
-    UT_DEFAULT_ENGINE) printf '%s' "$ENGINE" ;;
+    TING_DEFAULT_ENGINE) printf '%s' "$ENGINE" ;;
     TING_THEME)        printf '%s' "$THEME" ;;
-    UT_PLAY_MODE)      printf '%s' "$PLAY_MODE" ;;
-    UT_PLAY_QUALITY)   printf '%s' "$PLAY_QUALITY" ;;
-    UT_SORT_FIELD)     printf '%s' "$SORT_FIELD" ;;
+    TING_PLAY_MODE)    printf '%s' "$PLAY_MODE" ;;
+    TING_PLAY_QUALITY) printf '%s' "$PLAY_QUALITY" ;;
+    TING_SORT_FIELD)   printf '%s' "$SORT_FIELD" ;;
     TING_LANG)         printf '%s' "$UI_LANG" ;;
-    UT_SEARCH_RESULTS) printf '%s' "$RESULT_N" ;;
-    UT_KEYS)           printf '%s' "$KEYS_TIER" ;;
-    UT_ROW_INDEX)      if ((ROW_INDEX)); then printf 'on'; else printf 'off'; fi ;;
-    UT_LIST_MODE)      printf '%s' "$LIST_MODE" ;;
-    UT_LOOP_MODE)      printf '%s' "$LOOP_MODE" ;;
+    TING_SEARCH_RESULTS) printf '%s' "$RESULT_N" ;;
+    TING_KEYS)         printf '%s' "$KEYS_TIER" ;;
+    TING_ROW_INDEX)    if ((ROW_INDEX)); then printf 'on'; else printf 'off'; fi ;;
+    TING_LIST_MODE)    printf '%s' "$LIST_MODE" ;;
+    TING_LOOP_MODE)    printf '%s' "$LOOP_MODE" ;;
     esac
 }
 
@@ -244,7 +243,7 @@ mark_pref() {
 write_prefs() {
     local keys="$1" line lhs rhs key val pre gap comment trimmed lead bare tmp
     local out="" seen="" k dest link
-    # Resolve $UT_CONFIG along its symlink chain FIRST, and write to what it points at.
+    # Resolve $TING_CONFIG along its symlink chain FIRST, and write to what it points at.
     # temp+mv came from t-playlist, but that store renames over files it created in its own
     # directory; this renames over a file the USER owns — quite possibly a symlink out of a
     # dotfiles repo. Renaming onto the link itself would leave a regular file here, orphan the
@@ -252,7 +251,7 @@ write_prefs() {
     # Same chain walk as this script's own self-resolution at the top — bash 3.2 has no
     # `readlink -f`. A dangling link resolves too, so the create path below makes the file the
     # link promises instead of replacing the link with one.
-    dest="$UT_CONFIG"
+    dest="$TING_CONFIG"
     while [[ -L "$dest" ]]; do
         link=$(readlink "$dest")
         case "$link" in
@@ -371,7 +370,7 @@ fi
 # The playlist store, located the same way and OPTIONAL. Absent, the two playlist keys say
 # so once and the rest of the session is unchanged — the same "a capability is declared by
 # being there" rule an engine follows with --transcript. This file never touches
-# $UT_STATE_DIR itself: the store owns its layout, exactly as t-play owns players/.
+# $TING_STATE_DIR itself: the store owns its layout, exactly as t-play owns players/.
 PLAYLIST_BIN=""
 if [[ -x "$SCRIPT_DIR/t-playlist" ]]; then
     PLAYLIST_BIN="$SCRIPT_DIR/t-playlist"
@@ -380,9 +379,9 @@ elif command -v t-playlist >/dev/null 2>&1; then
 fi
 
 # The listening log, located the same way and just as optionally. HISTORY_BIN, not
-# UT_HISTORY: that name is already the player's set-once switch for whether a row is
+# TING_HISTORY: that name is already the player's set-once switch for whether a row is
 # written at all (ARCH-cli-contract.md「配置面」) — and like its two siblings above, an internal
-# does not wear the TING_/UT_ prefix, which ut_read_config accepts as settable.
+# does not wear the TING_ prefix, which ut_read_config accepts as settable.
 # This file only READS it, and only when h is pressed — the writing is the player's, where
 # the fact "a track ended, and why" exists.
 HISTORY_BIN=""
@@ -420,13 +419,13 @@ relocate_tools() {
 # the one place nobody looks, because the TUI would still run and simply not offer the new
 # one.
 #
-# `t-play --engines` answers it: where engines may live (sibling, $UT_ENGINE_DIR, PATH, the
+# `t-play --engines` answers it: where engines may live (sibling, $TING_ENGINE_DIR, PATH, the
 # first sight of a name winning so a plugin cannot shadow a built-in) and which verbs each
 # accepts are the player's rule and the engine's statement, and a TUI that re-derived either
 # would be a second copy that drifts. The PROSE form is read (name TAB bin TAB flags), not -j:
 # this runs before the jq gate, and every field in it is a name, a path or a flag word.
 #
-# UT_ENGINE_DIR is still resolved here, for this file's usage text only; t-play resolves its
+# TING_ENGINE_DIR is still resolved here, for this file's usage text only; t-play resolves its
 # own, from the same environment.
 ENGINES=()
 ENGINE_FLAG_SETS=()   # parallel to ENGINES: " --search -n … " as the engine states it
@@ -437,15 +436,14 @@ engine_seen() {
     done
     return 1
 }
-if [[ -z "${UT_ENGINE_DIR:-}" ]]; then
+if [[ -z "${TING_ENGINE_DIR:-}" ]]; then
     if [[ -d "${XDG_DATA_HOME:-$HOME/.local/share}/uting/engines" ]] &&
         [[ ! -d "${XDG_DATA_HOME:-$HOME/.local/share}/ting/engines" ]]; then
-        UT_ENGINE_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/uting/engines"
+        TING_ENGINE_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/uting/engines"
     else
-        UT_ENGINE_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/ting/engines"
+        TING_ENGINE_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/ting/engines"
     fi
 fi
-TING_ENGINE_DIR="$UT_ENGINE_DIR"
 while IFS=$'\t' read -r _name _bin _flags; do
     [[ -n "$_name" ]] || continue
     ENGINES+=("$_name")
@@ -453,7 +451,7 @@ while IFS=$'\t' read -r _name _bin _flags; do
 done < <("$PLAY_BIN" --engines 2>/dev/null)
 unset _name _bin _flags
 if ((${#ENGINES[@]} == 0)); then
-    echo "ting: no engine found — need a t-engine-<name> file beside t-play, in $UT_ENGINE_DIR, or on PATH" >&2
+    echo "ting: no engine found — need a t-engine-<name> file beside t-play, in $TING_ENGINE_DIR, or on PATH" >&2
     exit 1
 fi
 
@@ -547,7 +545,7 @@ refresh_engine_caps() {
 
 # Which engine this session starts on. The SAME variable t-play reads, not a second one:
 # a user who set a default source once should not have to set it again per surface.
-ENGINE="$UT_DEFAULT_ENGINE"
+ENGINE="$TING_DEFAULT_ENGINE"
 engine_seen "$ENGINE" || ENGINE="${ENGINES[0]}"
 
 print_usage() {
@@ -564,7 +562,7 @@ Search options (forwarded to t-play --search):
   -m SEC    Minimum duration in seconds
   -M SEC    Maximum duration in seconds
   -s FIELD  Sort field: relevance | view_count | duration (default: relevance)
-  --engine NAME  Which source to search. Defaults to UT_DEFAULT_ENGINE (the same variable
+  --engine NAME  Which source to search. Defaults to TING_DEFAULT_ENGINE (the same variable
             t-play reads), falling back to the first one installed. An engine is one
             t-engine-<name> file, as 't-play --engines' lists them — nothing here lists
             them, so whatever is installed is what the e key offers.
@@ -601,9 +599,9 @@ Keys (List View):
            The number is the ABSOLUTE one `#` prints, counted from the top of the
            list and not of the window; out of range does nothing. There is no
            timeout: any other key drops the number and then does its own job
-  #        row numbers on / off (UT_ROW_INDEX). It is the jump's partner: the
+  #        row numbers on / off (TING_ROW_INDEX). It is the jump's partner: the
            address `Nj` takes is only on screen while this is on
-  Tab      list mode: scroll <-> page (UT_LIST_MODE)
+  Tab      list mode: scroll <-> page (TING_LIST_MODE)
   [ / ]    seek backward / forward 10s (via IPC)
   v        cycle playback mode: audio → video → fast (applies to next play)
   f        cycle quality tier: auto → medium → high (applies to next play; the
@@ -647,7 +645,7 @@ Keys (List View):
   /        live filter — type to narrow instantly; ↑/↓ select, Enter play, Esc clear
   ?        show more / fewer keys (also ？). The hint block has three tiers:
            `core` is this view's own job, `full` is every key above, and `hidden`
-           drops the hint block entirely for maximum content rows. UT_KEYS pins it
+           drops the hint block entirely for maximum content rows. TING_KEYS pins it
   q        quit (stops a player this session started; a player that was already
            running when ting opened is adopted on the banner and left running)
 
@@ -662,9 +660,9 @@ Environment:
   Defaults for every knob below live in <checkout>/config, declared once for the whole
   suite. Override per user in ${XDG_CONFIG_HOME:-~/.config}/ting/config (KEY=value, one
   per line, # comments; the pre-rename .../uting/config is read when there is no ting
-  one); TING_CONFIG relocates it, and UT_CONFIG still does. Chain: flag > environment > your
-  config > the shipped defaults. See ARCH-cli-contract.md「配置面」.
-  UT_ENGINE_DIR    Extra directory scanned for t-engine-<name> files, after t-play's own
+  one); TING_CONFIG relocates it (the old UT_CONFIG still does). Chain: flag >
+  environment > your config > the shipped defaults. See ARCH-cli-contract.md「配置面」.
+  TING_ENGINE_DIR  Extra directory scanned for t-engine-<name> files, after t-play's own
                    directory and before PATH; an engine there is a source the
                    e key rotates through. A name already installed beside this file wins,
                    so a plugin cannot replace a built-in engine. ENVIRONMENT ONLY — it
@@ -682,7 +680,7 @@ Environment:
                    query, then dark. For minimal/mono, light swaps cyan for blue; for
                    community themes it picks the theme's own light variant.
   TING_SYNC=0|1|auto  Synchronized redraws (DCS 1q/2q; default auto: on, off under tmux).
-  UT_IMAGE=auto|on|off  Cover art for the focused row, over the terminal's graphics
+  TING_IMAGE=auto|on|off  Cover art for the focused row, over the terminal's graphics
                     protocol. auto probes the terminal and is off under tmux; off sends
                     no byte at all.
   NO_COLOR=1       Disables color in --color auto mode (an explicit --color wins).
@@ -744,24 +742,24 @@ SEARCH_ARGS=()
 # wants bigger bites should not have to say it twice. 20 because Bilibili's endpoint pages at
 # 20 with no page-size knob (t-engine-bili PAGE_SIZE), so it keeps the first fetch — and every
 # re-fetch — an exact page count. Cross-engine: this is the TUI's appetite, not a site's page
-# size. Separate from UT_SEARCH_RESULTS even though that is 20 too: that one is a TOTAL an
+# size. Separate from TING_SEARCH_RESULTS even though that is 20 too: that one is a TOTAL an
 # engine returns once, this one is the STEP each press moves by, so widening one must not
 # widen the other. ARCH-cli-contract.md「配置面」.
 #
-# WHERE THE FIRST FETCH STARTS is the -n default every search takes, UT_SEARCH_RESULTS — one
+# WHERE THE FIRST FETCH STARTS is the -n default every search takes, TING_SEARCH_RESULTS — one
 # answer to "how many rows does a query return", whether an agent or this UI asks it.
-RESULT_N=$UT_SEARCH_RESULTS  # -n overrides; → grows it, ← shrinks it
+RESULT_N=$TING_SEARCH_RESULTS  # -n overrides; → grows it, ← shrinks it
 # THE FIVE KEY ROTATIONS are product design, not settings: each order below is chosen, and a
 # knob per order tuned something nobody tuned. The v key: the three modes a detached player
 # can take.
 MODE_CYCLE=(audio video fast)
 # The -f default, one value shared with t-play and both resolve halves.
-PLAY_MODE="$UT_PLAY_MODE" # -f flag overrides. Runtime-mutable: v key rotates it (cycle_mode).
+PLAY_MODE="$TING_PLAY_MODE" # -f flag overrides. Runtime-mutable: v key rotates it (cycle_mode).
 # The --quality default, forwarded to t-play on every launch and rotated live by the f key
 # (cycle_quality). There is deliberately NO ting flag for it: a tier is set-once tuning, not
 # a per-request choice, so it comes from the config chain and the key — CLAUDE.md's flag-vs-key
 # rule, and the reason t-play's own --quality exists for the agent surface.
-PLAY_QUALITY="$UT_PLAY_QUALITY"
+PLAY_QUALITY="$TING_PLAY_QUALITY"
 # WHAT HAPPENS WHEN A TRACK ENDS, rotated live by the r key (cycle_loop_mode) and written
 # back like the rest. THREE states here against the player's TWO, and the asymmetry is the
 # design: `off` and `one` are the player's own `--loop` values, while `seq` is not a fact
@@ -769,17 +767,17 @@ PLAY_QUALITY="$UT_PLAY_QUALITY"
 # the cursor down (build_queue_from_selection). t-play cannot tell such a queue from ten
 # presses of `+`, so it is never told. No ting flag, same rule as the quality tier: what
 # happens after a track is set-once tuning, not a per-request choice. ARCH-tui.md「循环」.
-LOOP_MODE="$UT_LOOP_MODE"
+LOOP_MODE="$TING_LOOP_MODE"
 case "$LOOP_MODE" in
 "") LOOP_MODE="off" ;;
 off | seq | one) ;;
-*) die "UT_LOOP_MODE must be off, seq or one (got '$UT_LOOP_MODE')" ;;
+*) die "TING_LOOP_MODE must be off, seq or one (got '$TING_LOOP_MODE')" ;;
 esac
 # Which tier of key hints the view prints, rotated live by the ? key (cycle_keys) and
 # written back like the other nine. There is deliberately NO ting flag for it, by the same
 # rule as the quality tier above: how much of the keymap you want written down is set-once
 # tuning, not a per-request choice. ARCH-tui.md.
-KEYS_TIER="$UT_KEYS"
+KEYS_TIER="$TING_KEYS"
 # Whether each row prints its ordinal, toggled live by the # key and written back like the
 # rest. No ting flag, same rule as the key tier and the quality tier: how a list is
 # LABELLED is set-once tuning, not a per-request choice. ARCH-tui.md.
@@ -787,19 +785,19 @@ KEYS_TIER="$UT_KEYS"
 # like the rest. `scroll` is a continuous window that follows the cursor; `page` is the fixed
 # page this shipped with. No ting flag, same rule as the key tier: which shape of list you
 # read in is set-once tuning. ARCH-tui.md.
-LIST_MODE="$UT_LIST_MODE"
+LIST_MODE="$TING_LIST_MODE"
 case "$LIST_MODE" in
 "") LIST_MODE="scroll" ;;
 scroll | page) ;;
-*) die "UT_LIST_MODE must be scroll or page (got '$UT_LIST_MODE')" ;;
+*) die "TING_LIST_MODE must be scroll or page (got '$TING_LIST_MODE')" ;;
 esac
 ROW_INDEX=0
-case "$UT_ROW_INDEX" in
+case "$TING_ROW_INDEX" in
 "" | off | 0) ROW_INDEX=0 ;;
 on | 1) ROW_INDEX=1 ;;
-*) die "UT_ROW_INDEX must be on or off (got '$UT_ROW_INDEX')" ;;
+*) die "TING_ROW_INDEX must be on or off (got '$TING_ROW_INDEX')" ;;
 esac
-PLAY_VOLUME="$UT_VOLUME"  # --volume flag overrides
+PLAY_VOLUME="$TING_VOLUME"  # --volume flag overrides
 COLOR_MODE="auto"
 THEME="minimal"          # --theme / TING_THEME override: minimal | mono (palette family)
 BG_MODE="auto"           # TING_BG override: auto | light | dark (accent hue selection)
@@ -812,20 +810,20 @@ BG="dark"
 BG_R=""; BG_G=""; BG_B=""
 [[ -n "${TING_THEME:-}" ]] && THEME="$TING_THEME"
 [[ -n "${TING_BG:-}" ]] && BG_MODE="$TING_BG"
-IMAGE_MODE="${UT_IMAGE:-auto}"   # auto | on | off — the focused row's cover art
+IMAGE_MODE="${TING_IMAGE:-auto}"  # auto | on | off — the focused row's cover art
 # ROWS PER SCREEN PAGE — the display page, which is a different thing from both the fetch
 # batch above and t-engine-bili's PAGE_SIZE (the remote API's own page, which is not a knob at
 # all). It is only a request: display_list_menu reflows it down against terminal height.
-PAGE_OPT=$UT_PAGE_ROWS
+PAGE_OPT=$TING_PAGE_ROWS
 # The o key.
 SORT_CYCLE=(relevance view_count duration)
 # The f key: a SUBSET of the tier set. A rotation is a thing you land on by accident, and
-# `low` is a choice you make on purpose, with --quality or UT_PLAY_QUALITY.
+# `low` is a choice you make on purpose, with --quality or TING_PLAY_QUALITY.
 QUALITY_CYCLE=(auto medium high)
 # The r key.
 LOOP_CYCLE=(off seq one)
 # The -s default, one value shared with both search halves.
-SORT_FIELD="$UT_SORT_FIELD"   # -s flag overrides. Runtime-mutable: o rotates it (cycle_sort).
+SORT_FIELD="$TING_SORT_FIELD"  # -s flag overrides. Runtime-mutable: o rotates it (cycle_sort).
 # WHICH THEME NAMES ARE LEGAL — one place. This used to be spelled five times (the cycle
 # validator's allowed list, the --theme gate's pattern, that gate's message, and usage()'s
 # two lists), and an eighth name meant editing five strings and forgetting one. The two
@@ -905,8 +903,8 @@ while (($#)); do
     esac
 done
 
-is_uint "$PAGE_OPT" && ((PAGE_OPT > 0)) || die "-p must be a positive integer (UT_PAGE_ROWS)"
-is_uint "$RESULT_N" && ((RESULT_N > 0)) || die "-n must be a positive integer (UT_SEARCH_RESULTS)"
+is_uint "$PAGE_OPT" && ((PAGE_OPT > 0)) || die "-p must be a positive integer (TING_PAGE_ROWS)"
+is_uint "$RESULT_N" && ((RESULT_N > 0)) || die "-n must be a positive integer (TING_SEARCH_RESULTS)"
 
 # Duration bounds and volume are forwarded (-m/-M as t-play --search's --min/--max-duration,
 # --volume to t-play),
@@ -949,7 +947,7 @@ fi
 case "$PLAY_QUALITY" in
 "") PLAY_QUALITY="auto" ;;
 auto | low | medium | high) ;;
-*) die "UT_PLAY_QUALITY must be one of: auto, low, medium, high" ;;
+*) die "TING_PLAY_QUALITY must be one of: auto, low, medium, high" ;;
 esac
 # The key-hint tier rides the same door, normalised the same way and for the same reason: the
 # ? key rotates this value and writes it back, so the word that reaches the file has to be
@@ -958,17 +956,17 @@ esac
 case "$KEYS_TIER" in
 "") KEYS_TIER="core" ;;
 core | full | hidden) ;;
-*) die "UT_KEYS must be one of: core, full, hidden" ;;
+*) die "TING_KEYS must be one of: core, full, hidden" ;;
 esac
 # The resource readout's knob rides the same door. Config-only, no flag: whether the
 # chrome shows the player's cpu/ram is set-once tuning, not a per-request choice.
-case "$UT_RESOURCE" in 0 | 1) ;; *) die "UT_RESOURCE must be 0 or 1" ;; esac
+case "$TING_RESOURCE" in 0 | 1) ;; *) die "TING_RESOURCE must be 0 or 1" ;; esac
 # The cover art's one knob, and it is a KNOB rather than a key: whether this terminal draws
 # pictures is set once for a terminal, not chosen per row (CLAUDE.md's flag/config split).
 # The door is HERE, with the other scalar doors and before the TTY gate, so a mistyped value
 # in a config file is answered by name instead of surfacing as a screen that quietly never
 # draws — the failure mode a capability knob defaulting to `auto` is most likely to hide in.
-case "$IMAGE_MODE" in auto | on | off) ;; *) die "UT_IMAGE must be one of: auto, on, off (got '$IMAGE_MODE')" ;; esac
+case "$IMAGE_MODE" in auto | on | off) ;; *) die "TING_IMAGE must be one of: auto, on, off (got '$IMAGE_MODE')" ;; esac
 
 # A unix-socket netcat as well as jq: every transport key (pause, seek, volume) and every
 # time readout goes through the player's socket, so a machine without one loses half the
@@ -1537,7 +1535,7 @@ IMAGE_PNG=""        # the file this frame should emit; "" = nothing to emit
 IMAGE_COLS=0        # how many columns that file will take, for the right flush
 IMAGE_TICK=0        # spinner frame for the in-flight cover status
 
-# The cache lives under TMPDIR, NOT under $UT_STATE_DIR, and the distinction is the suite's
+# The cache lives under TMPDIR, NOT under $TING_STATE_DIR, and the distinction is the suite's
 # own: the state dir holds what a person saved and what a player played, and its layout
 # belongs to the two store commands (the note beside PLAYLIST_BIN says this file never
 # touches it). A cover is neither — it is a CDN url's bytes, regenerable in 0.15s and
@@ -2055,14 +2053,14 @@ keys_hidden() { [[ "$KEYS_TIER" == "hidden" ]]; }
 # this view's own job — move, act on the row, get back out, quit; `full` adds the
 # engine / store / tuning / playback family; `hidden` completely suppresses the
 # hint block and hands its rows back to the height budget — which scroll mode fills and
-# page mode uses only up to UT_PAGE_ROWS (ARCH-tui.md, the key-tier section).
+# page mode uses only up to TING_PAGE_ROWS (ARCH-tui.md, the key-tier section).
 cycle_keys() {
     case "$KEYS_TIER" in
     core) KEYS_TIER="full" ;;
     full) KEYS_TIER="hidden" ;;
     hidden|*) KEYS_TIER="core" ;;
     esac
-    mark_pref UT_KEYS
+    mark_pref TING_KEYS
 }
 
 # Row numbers on / off (key: #). A pure display toggle — it changes what a row PRINTS and
@@ -2070,7 +2068,7 @@ cycle_keys() {
 # picks the new prefix width up on the next redraw for free: pfx_w is derived, not stored.
 cycle_row_index() {
     if ((ROW_INDEX)); then ROW_INDEX=0; else ROW_INDEX=1; fi
-    mark_pref UT_ROW_INDEX
+    mark_pref TING_ROW_INDEX
 }
 
 # scroll <-> page (key: Tab). The CURSOR is the anchor across the switch, not the page number
@@ -2081,7 +2079,7 @@ cycle_row_index() {
 # very next frame, which is the same anchor a resize already repages on.
 cycle_list_mode() {
     if [[ "$LIST_MODE" == "scroll" ]]; then LIST_MODE="page"; else LIST_MODE="scroll"; fi
-    mark_pref UT_LIST_MODE
+    mark_pref TING_LIST_MODE
 }
 
 # Cycle the palette family in place (key: t). set_theme is a pure function of
@@ -2169,7 +2167,7 @@ GL_GE="≥"; GL_LE="≤"
 # not Ambiguous — two cells in every terminal, under TING_AMBIG_WIDE or not — so they need no
 # CW table entry: char_w's default of 2 is already exact for them.
 GL_TIME_L="【"; GL_TIME_R="】"
-# The resource readout's two labels (UT_RESOURCE): geometric squares from the same family as
+# The resource readout's two labels (TING_RESOURCE): geometric squares from the same family as
 # the rails' stroke language — ▣ an abstract chip, ▤ a filled "storage cell". Both are
 # East-Asian Ambiguous, so they are tabled in CW_AMBIG below, not hardcoded as one cell.
 GL_CPU="▣"; GL_RAM="▤"
@@ -3027,7 +3025,7 @@ RES_MEM=""
 RES_TICK=0
 RES_STRIDE=3   # the same stride t-play samples its heartbeat's resource fields at
 fetch_play_res() {
-    [[ "$UT_RESOURCE" != 0 ]] || return 0
+    [[ "$TING_RESOURCE" != 0 ]] || return 0
     [[ -n "$CURRENT_PLAY_PID" ]] || { RES_CPU=""; RES_MEM=""; return 0; }
     RES_TICK=$((RES_TICK + 1))
     # -1 so the FIRST call samples: clear_play_state zeroes the counter, and a readout that
@@ -5095,7 +5093,7 @@ display_list_menu() {
                 b_tail="${GL_TIME_L}${PT_CUR}/${PT_TOTAL:-$CURRENT_PLAY_DURATION}${GL_TIME_R}"
             fi
         fi
-        # The player's footprint (UT_RESOURCE): the pair fetch_play_res cached on the same
+        # The player's footprint (TING_RESOURCE): the pair fetch_play_res cached on the same
         # clock the position rode in on, so the field costs the banner no fork of its own.
         # Empty (disabled, or no reading yet) draws nothing rather than a bare label.
         local b_res=""
@@ -5292,7 +5290,7 @@ display_list_menu() {
     # A cover pins detail_h to 7 rows whether or not this row has one, and in `scroll` mode
     # those rows come straight out of the LIST — 19 rows become 15 at 100x30. So the gate
     # asks the list's question first: after paying 7 rows, are there still 10 to browse? Ten
-    # is UT_PAGE_ROWS's shipped value, which is this file's existing answer to "enough list".
+    # is TING_PAGE_ROWS's shipped value, which is this file's existing answer to "enough list".
     # Under either floor the answer is no cover at all — never a smaller one, because a
     # smaller one means a second transcode target and a second layout to keep in step.
     #
@@ -5367,10 +5365,10 @@ display_list_menu() {
         foot_h=$(( row_gap + hint_gap + nav_ok * nav_h + filter_hint + caret_h ))
         avail=$((LINES_N - chrome_h - foot_h - detail_h - LAYOUT_CURSOR_ROW))
     done
-    # ONE AXIS PER MODE. In `page` the row count is UT_PAGE_ROWS pressed down to fit; in
+    # ONE AXIS PER MODE. In `page` the row count is TING_PAGE_ROWS pressed down to fit; in
     # `scroll` it is simply what fits, because a continuous window that stopped at a shipped
     # ceiling of 10 would be a window with a page size — the two facts the mode split exists
-    # to separate. UT_PAGE_ROWS therefore does not change meaning so much as narrow: it is
+    # to separate. TING_PAGE_ROWS therefore does not change meaning so much as narrow: it is
     # page mode's ceiling, and its comment in `config` is true word for word about that mode.
     if [[ "$LIST_MODE" == "scroll" ]]; then
         psize=$avail
@@ -5689,7 +5687,7 @@ display_list_menu() {
     # draws while a track plays; image_place is where that is decided.
     # NOT DRAWING MEANS NOT WANTING, and the dirty bit has to be told. It is raised by
     # image_focus, which only runs when the gate is open — so a frame that closes the gate
-    # (the terminal got short, UT_IMAGE went off) would leave a 1 behind, and that 1 arms the
+    # (the terminal got short, TING_IMAGE went off) would leave a 1 behind, and that 1 arms the
     # one-second clock in read_nav_input for the rest of the session: a wake-up per second,
     # each one starting a fetch for a cover no frame is going to draw.
     #
@@ -5900,7 +5898,7 @@ play_selected() {
     local sock errfile rc=0 msg
     errfile=$(mktemp "${TMPDIR:-/tmp}/ting-play-err.XXXXXX" 2>/dev/null) || errfile="${TMPDIR:-/tmp}/ting-play-err.$$"
     # --engine is passed EXPLICITLY and comes from the envelope: t-play defaults to its own
-    # UT_DEFAULT_ENGINE, and letting that default decide would send a second engine's URL to
+    # TING_DEFAULT_ENGINE, and letting that default decide would send a second engine's URL to
     # the first engine's resolver — which since ARCHITECTURE.md「站点知识的边界」 is a hard usage error rather
     # than the silent mislabel it used to be.
     # The ROW's engine, not the session's: a playlist can mix sources, and passing the
@@ -7432,7 +7430,7 @@ cycle_mode() {
         [[ "${MODE_CYCLE[$i]}" == "$PLAY_MODE" ]] && { cur=$i; break; }
     done
     PLAY_MODE="${MODE_CYCLE[$(( (cur + 1) % n ))]}"
-    mark_pref UT_PLAY_MODE
+    mark_pref TING_PLAY_MODE
 }
 
 # ── QUALITY action (key: f) ─────────────────────────────────────────────────────────────
@@ -7449,7 +7447,7 @@ cycle_quality() {
         [[ "${QUALITY_CYCLE[$i]}" == "$PLAY_QUALITY" ]] && { cur=$i; break; }
     done
     PLAY_QUALITY="${QUALITY_CYCLE[$(( (cur + 1) % n ))]}"
-    mark_pref UT_PLAY_QUALITY
+    mark_pref TING_PLAY_QUALITY
 }
 
 # ── LOOP action (key: r) ────────────────────────────────────────────────────────────────
@@ -7471,7 +7469,7 @@ cycle_loop_mode() {
         [[ "${LOOP_CYCLE[$i]}" == "$LOOP_MODE" ]] && { cur=$i; break; }
     done
     LOOP_MODE="${LOOP_CYCLE[$(( (cur + 1) % n ))]}"
-    mark_pref UT_LOOP_MODE
+    mark_pref TING_LOOP_MODE
     if [[ -n "$CURRENT_PLAY_ID" ]]; then
         if [[ "$LOOP_MODE" == "one" ]]; then pushed=one; else pushed=off; fi
         # Best effort, like every other one-shot the banner fires: the player may have ended
@@ -7752,7 +7750,7 @@ new_search() {
 # makes is not a defence, it is a second place to keep the same fact.
 more_results() {
     local prev="$RESULT_N" rc=0 page="$page_index" sel="$selected"
-    RESULT_N=$(( RESULT_N + UT_FETCH_BATCH ))
+    RESULT_N=$(( RESULT_N + TING_FETCH_BATCH ))
     printf '\n%s%s%s %s %s "%s" %s %s %s%s' \
         "$C_BOLD" "$S_MORE_ACT" "$C_RESET" "$GL_DASH" "$S_REFETCH" "$QUERY_LABEL" \
         "$GL_SEP" "$RESULT_N" "$S_RESULTS_N" "$GL_ELL"
@@ -7774,7 +7772,7 @@ more_results() {
     selected=$sel
     # Both edges record the same key: what is stored is the count a query STARTS from, so the
     # next session opens on the size this one settled at.
-    mark_pref UT_SEARCH_RESULTS
+    mark_pref TING_SEARCH_RESULTS
 }
 
 # ── FEWER action (key: ← on page 1) ─────────────────────────────────────────────────────
@@ -7793,20 +7791,20 @@ more_results() {
 # more rows than a batch holds. At the floor this returns without touching anything, which is
 # exactly what ← on page 1 did before this function existed.
 fewer_results() {
-    local floor=$UT_FETCH_BATCH target
+    local floor=$TING_FETCH_BATCH target
     ((floor >= PAGE_SIZE)) || floor=$PAGE_SIZE
-    target=$(( RESULT_N - UT_FETCH_BATCH ))
+    target=$(( RESULT_N - TING_FETCH_BATCH ))
     ((target >= floor)) || target=$floor
     ((target < RESULT_N)) || return 0
     RESULT_N=$target
     # `|| true` for the reason t-play:1985 already spells out: under `set -euo pipefail`
     # head closing early SIGPIPEs printf, the pipeline goes non-zero, and the script dies AT
-    # the assignment. The unread tail here is exactly UT_FETCH_BATCH rows — a user-settable
+    # the assignment. The unread tail here is exactly TING_FETCH_BATCH rows — a user-settable
     # key — so a large enough batch really does reach it. The truncation is untouched: the
     # guard rescues the pipeline's status, not its output.
     ALL_ROWS=$(printf '%s\n' "$ALL_ROWS" | head -n "$target") || true
     load_rows "$ALL_ROWS"
-    mark_pref UT_SEARCH_RESULTS
+    mark_pref TING_SEARCH_RESULTS
     # No action echo, unlike the other edge: that one prints because it is about to block on a
     # fetch, and this one is already done by the time the frame repaints. The status row's
     # results= IS the feedback.
@@ -7848,7 +7846,7 @@ cycle_engine() {
     apply_search_results
     # After the revert window too, and for the same reason: the file must record the engine
     # that is on screen, never the one a failed fetch just rolled back.
-    mark_pref UT_DEFAULT_ENGINE
+    mark_pref TING_DEFAULT_ENGINE
 }
 
 cycle_sort() {
@@ -7871,7 +7869,7 @@ cycle_sort() {
         return 0
     fi
     apply_search_results
-    mark_pref UT_SORT_FIELD
+    mark_pref TING_SORT_FIELD
 }
 
 # ── FILTER action (key: /) — LIVE incremental narrow ─────────────────────────────────────

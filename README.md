@@ -83,7 +83,7 @@ sets for you.
   is why every line is kept under 4 KB. A row is the same record a playlist holds plus the
   four fields a listening has (`played_at`, `ended_at`, `seconds`, `reason`), so
   `t-history --ls -j` pipes straight into `t-playlist --add` or `t-play -d --queue -`.
-  `UT_HISTORY=0` turns the writing off; optional, like the playlist store.
+  `TING_HISTORY=0` turns the writing off; optional, like the playlist store.
 - **`ting`** — the human face. One self-rendered list, live filter, pagination that
   reflows against the measured chrome, three playback states, en/zh chrome, ASCII fallback, themes.
   No TUI framework, no fzf.
@@ -136,10 +136,10 @@ To change settings for yourself, don't edit that file. Write only the keys you w
 ```sh
 mkdir -p ~/.config/ting
 cat >> ~/.config/ting/config <<'EOF'
-UT_DEFAULT_ENGINE=bili        # search Bilibili unless --engine says otherwise
-UT_SEARCH_RESULTS=40          # fetch 40 rows per query instead of 20
+TING_DEFAULT_ENGINE=bili      # search Bilibili unless --engine says otherwise
+TING_SEARCH_RESULTS=40        # fetch 40 rows per query instead of 20
 TING_THEME=nord
-UT_COOKIE_BROWSER=safari      # read site logins from Safari instead of Chrome
+TING_COOKIE_BROWSER=safari    # read site logins from Safari instead of Chrome
 EOF
 ```
 
@@ -154,9 +154,9 @@ Extensionless and flat, the same spelling `yt-dlp` uses for `~/.config/yt-dlp/co
 `.toml` or `.yml` would promise structure this suite cannot parse without taking a runtime
 dependency it refuses.
 
-Both files are **read as data, never sourced**, so `UT_X=$(cmd)` stores those characters
-instead of running anything, and only `TING_`/`UT_` keys are read — no config can
-reach `PATH`, `TMPDIR` or `LD_PRELOAD`. `UT_ENGINE_DIR` wears an allowed prefix and would be
+Both files are **read as data, never sourced**, so `TING_X=$(cmd)` stores those characters
+instead of running anything, and only `TING_` keys are read — no config can
+reach `PATH`, `TMPDIR` or `LD_PRELOAD`. `TING_ENGINE_DIR` wears an allowed prefix and would be
 the hole in that: it names a directory of programs the suite runs, so it is refused from both
 files and read from the environment only.
 
@@ -168,15 +168,15 @@ comments and layout survive; a value that would not read back unchanged is not w
 all, and a key already pinned in your environment is left alone with a note rather than
 written to a file that could never win against it.
 
-`UT_CONFIG` relocates your file, from the environment only. Three knobs are deliberately
+`TING_CONFIG` relocates your file, from the environment only. Three knobs are deliberately
 absent from the shipped defaults because their unset state *is* an auto-detection that a
 value would defeat: `TING_LANG` (zh under a zh\* locale), `TING_ASCII` (on under a non-UTF-8
-locale) and `UT_STATE_DIR` (its default chains through `XDG_STATE_HOME`). Set those in your
+locale) and `TING_STATE_DIR` (its default chains through `XDG_STATE_HOME`). Set those in your
 own config or the environment.
 
 **A source that does not ship with the suite** is still just a `<name>-search` +
 `<name>-resolve` pair. Three places are scanned for one, in this order: next to the suite's
-own scripts, then `$UT_ENGINE_DIR` (default
+own scripts, then `$TING_ENGINE_DIR` (default
 `${XDG_DATA_HOME:-~/.local/share}/ting/engines`), then `PATH`. A name already installed
 beside the suite wins, so a pair you drop in that directory can add a source but never
 replace a built-in one. `docs/ARCH-cli-contract.md`「加一个引擎 —— 清单」 is what such a pair
@@ -269,7 +269,7 @@ this view's own job (move, act on the row, get back out, quit, and `?` itself) a
 line at 80 columns; `full` prints every key above; `hidden` suppresses the hint block entirely
 for maximum content rows. It hides HINTS, never keys: everything in `full` is still pressable
 under `core` and `hidden`. The tier is a preference like the other ten, written back to your own
-config as `UT_KEYS=core|full|hidden`, and `？` is bound with it — a zh input method's
+config as `TING_KEYS=core|full|hidden`, and `？` is bound with it — a zh input method's
 shift-/ is a full-width question mark. `j`/`k` are list-view only: with `/` open they are text
 you are typing.
 
@@ -345,14 +345,14 @@ either one directly.
 |---|---|
 | `tests/contract.sh` | The CLI contract, asserted by running it: the search and resolve envelopes, the player's engine seam (an unknown engine is usage, a dead media id is a propagated failure that still carries a reason), every documented rejection, the host gate stated as an invariant over every **discovered** engine (a real URL is claimed by exactly one; a confusable is refused by all), `--transcript` both ways, the idle lifecycle verbs (including the queue verbs, where a
 payload this process cannot use is a usage error and a well-formed one with nothing playing is
-"did not take effect"), the tombstone record for a player that died unasked, the exit-code taxonomy, the playlist store (driven under a disposable `UT_STATE_DIR`, including eight concurrent writers against the lock), the listening log's own contract in the same disposable store (an 8 KB title truncated and MEASURED, because "every line under 4096 bytes" is the premise its lock-free append rests on), and the TUI booting / surviving a resize / leaving on `q` under tmux — and leaving no player behind when it goes, because `ting` stops its playback on exit, so a TUI that did not leave is a TUI still holding one. It also runs three of the four pipelines `docs/ARCH-cli-contract.md`「调用面」 prints, rather than leaving them as prose nothing executes — the fourth launches a player and belongs below. Under two minutes in full; **`--offline` runs the hermetic prefix** — every gate, both stores, the lifecycle and the death record, in ~30s with no packet sent, which is what makes "run it before every commit" a rule and not a wish. The check total is deliberately not quoted here: it moves with every check that lands, it was already stale in this sentence twice over, and the suite prints its own — **`0 failed` is the number that means passing**.  |
+"did not take effect"), the tombstone record for a player that died unasked, the exit-code taxonomy, the playlist store (driven under a disposable `TING_STATE_DIR`, including eight concurrent writers against the lock), the listening log's own contract in the same disposable store (an 8 KB title truncated and MEASURED, because "every line under 4096 bytes" is the premise its lock-free append rests on), and the TUI booting / surviving a resize / leaving on `q` under tmux — and leaving no player behind when it goes, because `ting` stops its playback on exit, so a TUI that did not leave is a TUI still holding one. It also runs three of the four pipelines `docs/ARCH-cli-contract.md`「调用面」 prints, rather than leaving them as prose nothing executes — the fourth launches a player and belongs below. Under two minutes in full; **`--offline` runs the hermetic prefix** — every gate, both stores, the lifecycle and the death record, in ~30s with no packet sent, which is what makes "run it before every commit" a rule and not a wish. The check total is deliberately not quoted here: it moves with every check that lands, it was already stale in this sentence twice over, and the suite prints its own — **`0 failed` is the number that means passing**.  |
 | `tests/playback.sh` | The detached-player lifecycle, whose bugs are **processes**: detach returns before mpv is up, two players, an ambiguous mutation → exit 4 *and* `status:"ambiguous"` (4 alone is also what an idle call answers, so the field is the half that separates them), a targeted one moves only its target, and zero orphan mpv at the end. It also owns the **live read** — the `--status` fields off a real mpv socket, `paused:false` distinguished from `paused:null`, and a really-running player whose socket is really removed degrading to nulls with volume off the record — because the peer has no stand-in and never will. It drives a **queue** end to end for the same reason — a mock engine would skip the
 resolve between two tracks, which is the thing most likely to break: `--queue` launches —
 from a real `t-playlist --show -j` envelope, so the documented pipeline is what starts the
 player rather than an array written to look like one —
 `--enqueue` appends (six concurrent writers, no lost update), `--next` moves the position and
 the player follows, and a track reaching its own end starts the next. It also plays a real
-Bilibili track — the one check that proves the player *applies* an engine's `http_headers` rather than merely receiving them, because that site's CDN answers 403 without them while YouTube would keep working. And it owns the **listening log's wiring**, since only here does a real track really end: a 19-second handle is played out, and the row that appears for it carries no reason — which is what separates a history from a death record. Starts real players at `--volume 0` in a state dir of its own, and points `UT_STATE_DIR` somewhere disposable too, so it never touches what you are listening to nor what you listened to. It needs the network, and its time is real engine resolves plus one 19-second track played out to its own end — what is left is not waiting. |
+Bilibili track — the one check that proves the player *applies* an engine's `http_headers` rather than merely receiving them, because that site's CDN answers 403 without them while YouTube would keep working. And it owns the **listening log's wiring**, since only here does a real track really end: a 19-second handle is played out, and the row that appears for it carries no reason — which is what separates a history from a death record. Starts real players at `--volume 0` in a state dir of its own, and points `TING_STATE_DIR` somewhere disposable too, so it never touches what you are listening to nor what you listened to. It needs the network, and its time is real engine resolves plus one 19-second track played out to its own end — what is left is not waiting. |
 
 One more file in `tests/` is not a suite and asserts nothing. `tests/drive.sh` is a **driver** for the TUI, which needs a real tty and so cannot be run from
 a pipe. It launches tmux at a declared geometry, waits on the ready marker, optionally sends

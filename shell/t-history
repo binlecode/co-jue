@@ -66,17 +66,21 @@ if [[ -z "$TING_CONFIG" ]]; then
         TING_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/uting/config"
     fi
 fi
-UT_CONFIG="$TING_CONFIG"
-for _v in STATE_DIR ENGINE_DIR HISTORY VOLUME IMAGE KEYS RESOURCE PLAY_QUALITY VIZ_STYLE VIZ_COLOR DEFAULT_ENGINE; do
-    eval "[[ -n \"\${TING_$_v+x}\" ]] && UT_$_v=\"\$TING_$_v\" || true"
-    eval "[[ -n \"\${UT_$_v+x}\" && -z \"\${TING_$_v+x}\" ]] && TING_$_v=\"\$UT_$_v\" || true"
-done
 # Renamed and merged keys, OLD:NEW. The old name still reads, one version, into the key that
-# replaced it: from the environment here, from a file in ut_read_config, and ting's write-back
-# renames the line in place. Lower-level than a knob, so it is not spelled with a key prefix.
-CFG_RENAMED="UT_START_RESULTS:UT_SEARCH_RESULTS YT_COOKIE_BROWSER:UT_COOKIE_BROWSER \
-    BILI_COOKIE_BROWSER:UT_COOKIE_BROWSER NE_COOKIE_BROWSER:UT_COOKIE_BROWSER YT_THEME:TING_THEME \
-    YT_LANG:TING_LANG YT_ASCII:TING_ASCII YT_ASCII_VO:TING_ASCII_VO \
+# replaced it: from the environment here (only while the new name is unset, so the new name
+# wins), from a file in ut_read_config, and ting's write-back renames the line in place. A
+# renamed name comes before a merged one, so when both are set the renamed one wins. Not a
+# knob, so not spelled TING_.
+CFG_RENAMED="UT_STATE_DIR:TING_STATE_DIR UT_ENGINE_DIR:TING_ENGINE_DIR UT_HISTORY:TING_HISTORY \
+    UT_DEFAULT_ENGINE:TING_DEFAULT_ENGINE UT_SEARCH_RESULTS:TING_SEARCH_RESULTS \
+    UT_COOKIE_BROWSER:TING_COOKIE_BROWSER UT_SORT_FIELD:TING_SORT_FIELD \
+    UT_PLAY_MODE:TING_PLAY_MODE UT_VOLUME:TING_VOLUME UT_PLAY_QUALITY:TING_PLAY_QUALITY \
+    UT_VIZ_STYLE:TING_VIZ_STYLE UT_VIZ_COLOR:TING_VIZ_COLOR UT_PAGE_ROWS:TING_PAGE_ROWS \
+    UT_FETCH_BATCH:TING_FETCH_BATCH UT_LOOP_MODE:TING_LOOP_MODE UT_RESOURCE:TING_RESOURCE \
+    UT_KEYS:TING_KEYS UT_LIST_MODE:TING_LIST_MODE UT_ROW_INDEX:TING_ROW_INDEX UT_IMAGE:TING_IMAGE \
+    UT_START_RESULTS:TING_SEARCH_RESULTS YT_COOKIE_BROWSER:TING_COOKIE_BROWSER \
+    BILI_COOKIE_BROWSER:TING_COOKIE_BROWSER NE_COOKIE_BROWSER:TING_COOKIE_BROWSER \
+    YT_THEME:TING_THEME YT_LANG:TING_LANG YT_ASCII:TING_ASCII YT_ASCII_VO:TING_ASCII_VO \
     YT_MPV_INPUT_CONF:TING_MPV_INPUT_CONF YT_BG:TING_BG YT_SYNC:TING_SYNC \
     YT_AMBIG_WIDE:TING_AMBIG_WIDE YT_AUDIO_FORMAT:TING_YT_AUDIO_FORMAT \
     YT_VIDEO_FORMAT:TING_YT_VIDEO_FORMAT YT_VIDEO_FORMAT_FAST:TING_YT_VIDEO_FORMAT_FAST \
@@ -89,7 +93,7 @@ for _v in $CFG_RENAMED; do
 done
 UT_DEFAULTS="$SCRIPT_DIR/../config"
 ut_read_config() {
-    local file="$1" line key val _ting_k _ut_k
+    local file="$1" line key val _new
     [[ -r "$file" ]] || return 0
     while IFS= read -r line || [[ -n "$line" ]]; do
         line="${line%%#*}"
@@ -102,29 +106,21 @@ ut_read_config() {
         while [[ "$val" == [[:space:]]* ]]; do val="${val#[[:space:]]}"; done
         case " $CFG_RENAMED " in
         *" $key:"*)
-            _ut_k=" $CFG_RENAMED"
-            _ut_k="${_ut_k#* $key:}"
-            key="${_ut_k%% *}"
+            _new=" $CFG_RENAMED"
+            _new="${_new#* $key:}"
+            key="${_new%% *}"
             ;;
         esac
-        [[ "$key" =~ ^(TING|UT)_[A-Z0-9_]+$ ]] || continue
+        [[ "$key" =~ ^TING_[A-Z0-9_]+$ ]] || continue
         case "$key" in
-        TING_CONFIG | TING_DEFAULTS | TING_ENGINE_DIR | TING_VERSION | UT_CONFIG | UT_DEFAULTS | UT_ENGINE_DIR | UT_VERSION) continue ;;
+        TING_CONFIG | TING_ENGINE_DIR) continue ;;
         esac
         if [[ ${#val} -ge 2 ]] && { [[ "$val" == \"*\" ]] || [[ "$val" == \'*\' ]]; }; then
             val="${val#?}"
             val="${val%?}"
         fi
         [[ "$val" == "~/"* ]] && val="$HOME/${val#\~/}"
-        if [[ "$key" == TING_* ]]; then
-            _ut_k="UT_${key#TING_}"
-            eval "[[ -n \"\${$key+x}\" ]] || $key=\$val"
-            eval "[[ -n \"\${$_ut_k+x}\" ]] || $_ut_k=\$val"
-        else
-            _ting_k="TING_${key#UT_}"
-            eval "[[ -n \"\${$key+x}\" ]] || $key=\$val"
-            eval "[[ -n \"\${$_ting_k+x}\" ]] || $_ting_k=\$val"
-        fi
+        eval "[[ -n \"\${$key+x}\" ]] || $key=\$val"
     done < "$file"
 }
 # FAIL FAST AND SAY WHY. There is deliberately no escape hatch for --version or --help: they
@@ -138,7 +134,7 @@ if [[ ! -r "$UT_DEFAULTS" ]]; then
         "$(basename "$0")" "$UT_DEFAULTS" >&2
     exit 2
 fi
-ut_read_config "$UT_CONFIG"
+ut_read_config "$TING_CONFIG"
 ut_read_config "$UT_DEFAULTS"
 
 # ==============================================================================
@@ -149,19 +145,16 @@ ut_read_config "$UT_DEFAULTS"
 # neighbours (yt-dlp, mpv) are there and a Linux port would need no second layout, and an
 # override because without it `tests/contract.sh` would write into the user's real history.
 # ARCH-cli-contract.md「配置面」.
-if [[ -z "${TING_STATE_DIR:-${UT_STATE_DIR:-}}" ]]; then
+if [[ -z "${TING_STATE_DIR:-}" ]]; then
     if [[ -d "${XDG_STATE_HOME:-$HOME/.local/state}/ting" ]]; then
-        UT_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/ting"
+        TING_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/ting"
     elif [[ -d "${XDG_STATE_HOME:-$HOME/.local/state}/uting" ]]; then
-        UT_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/uting"
+        TING_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/uting"
     else
-        UT_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/ting"
+        TING_STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/ting"
     fi
-else
-    UT_STATE_DIR="${TING_STATE_DIR:-$UT_STATE_DIR}"
 fi
-TING_STATE_DIR="$UT_STATE_DIR" 
-HISTORY_DIR="$UT_STATE_DIR/history"
+HISTORY_DIR="$TING_STATE_DIR/history"
 
 # The row format version, written on every line. A JSONL file has no envelope to carry one,
 # so the row carries it: a line this build cannot read must be skippable, and a schema
@@ -245,7 +238,7 @@ now_utc() { date -u +%FT%TZ 2>/dev/null || echo unknown; }
 
 ensure_store() {
     mkdir -p -m 700 "$HISTORY_DIR" 2>/dev/null || die "cannot create the state directory: $HISTORY_DIR"
-    chmod 700 "$UT_STATE_DIR" "$HISTORY_DIR" 2>/dev/null || true
+    chmod 700 "$TING_STATE_DIR" "$HISTORY_DIR" 2>/dev/null || true
 }
 
 # The ONE duration formatter, as a jq prelude — one of the identical copies of these six
@@ -594,7 +587,7 @@ Output (--ls -j): {status, count, items[]} — items are the item record the res
     t-history --ls -n 50 -j | t-playlist --add rediscover
     t-history --ls -n 10 -j | t-play -d --queue -
 
-Storage: $UT_STATE_DIR/history/<YYYY-MM>.jsonl
+Storage: $TING_STATE_DIR/history/<YYYY-MM>.jsonl
   (default $XDG_STATE_HOME/ting, else ~/.local/state/ting; a pre-rename
   .../uting is used when there is no ting one) — one line per listening,
   appended, never rewritten except by --clear. Every line is under 4096 bytes so the
@@ -607,7 +600,7 @@ Exit codes: 0 ok
             4 the store said no        (.reason: corrupt)
   --clear on an empty log is 0 with removed:0 — the end state holds.
 
-The player's own writes are gated by UT_HISTORY (default on; UT_HISTORY=0 disables them).
+The player's own writes are gated by TING_HISTORY (default on; TING_HISTORY=0 disables them).
 This command stores what was played; to play something, use t-play.
 EOF
 }

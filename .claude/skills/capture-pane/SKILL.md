@@ -34,17 +34,17 @@ visually, and put that width in the surrounding prose.
 
 ## 2. Capture — after the ready marker, never after a sleep
 
-`UT_CONFIG` is not optional here, and it points at a file of this capture's OWN. Two reasons,
+`TING_CONFIG` is not optional here, and it points at a file of this capture's OWN. Two reasons,
 and the second is the one that bites: a frame taken against the developer's config is a
 picture of their theme and their chrome language rather than of the shipped defaults — and
-`ting` WRITES its preference keys back to whatever `UT_CONFIG` names (the live set is `PREF_KEYS` in `shell/ting` — grep it, don't trust a remembered count), so `t`, `l`, `v`,
+`ting` WRITES its preference keys back to whatever `TING_CONFIG` names (the live set is `PREF_KEYS` in `shell/ting` — grep it, don't trust a remembered count), so `t`, `l`, `v`,
 `o`, `e` and the count edges would edit that file as a side effect of photographing it.
 
 ```bash
 S=cap
 CAPCFG=$(mktemp "${TMPDIR:-/tmp}/ting-capture.XXXXXX")
 tmux kill-session -t $S 2>/dev/null
-tmux new-session -d -s $S -x 100 -y 30 "cd $PWD && TING_LANG=en UT_CONFIG=$CAPCFG shell/ting 'lofi hip hop'"
+tmux new-session -d -s $S -x 100 -y 30 "cd $PWD && TING_LANG=en TING_CONFIG=$CAPCFG shell/ting 'lofi hip hop'"
 timeout 30 bash -c "until tmux capture-pane -t $S -p | grep -q \"query='\"; do sleep 0.5; done"
 tmux capture-pane -t $S -p > tmp/raw-list.txt
 ```

@@ -63,9 +63,9 @@ command -v tmux >/dev/null 2>&1 || { echo "drive.sh: tmux is required (ting need
 # Why, once, for all three files under tests/: contract.sh's header. What is specific
 # to a DRIVER: the pane holds a real `ting` driving a real `t-play` and a real mpv, so only
 # whose state it lands on changes — and their playlists and history still render, because
-# UT_STATE_DIR is deliberately NOT redirected (a frame captured here should show the store a
+# TING_STATE_DIR is deliberately NOT redirected (a frame captured here should show the store a
 # human sees). What is suppressed is the HISTORY half of that store's write side, via
-# UT_HISTORY=0 in the pane: a track this script starts and reaps a second later is not a
+# TING_HISTORY=0 in the pane: a track this script starts and reaps a second later is not a
 # listening, and unlike a player, a log is not something --stop takes back.
 #
 # THE PLAYLISTS ARE NOT PROTECTED, and nothing here makes them so. The same real store that
@@ -73,20 +73,20 @@ command -v tmux >/dev/null 2>&1 || { echo "drive.sh: tmux is required (ting need
 # human pressing them under `-i` — adds to, deletes from, deletes or renames the user's REAL
 # playlists, exactly as it would outside tmux, and there is no undo for it. That is the price
 # of frames that show the real store; drive a playlist-editing key only against a store you
-# can lose, by exporting UT_STATE_DIR to a scratch dir for that run (it is forwarded).
+# can lose, by exporting TING_STATE_DIR to a scratch dir for that run (it is forwarded).
 UT_TEST_TMP=$(mktemp -d "${TMPDIR:-/tmp}/ting-drive.XXXXXX") || exit 1
 export TMPDIR="$UT_TEST_TMP"
 STATE_DIR="$TMPDIR/ting-$(id -u)"
 
 # The config the pane reads is a COPY of the one a human reads, in this run's own temp dir —
-# the same trade as UT_HISTORY=0 above, one level further in. ting WRITES eleven preference keys
+# the same trade as TING_HISTORY=0 above, one level further in. ting WRITES eleven preference keys
 # back to the user's config file now (a cycle key that has to be re-pressed every session is
 # not a preference), and `-k t`/`-k l` are exactly the keys that would rewrite the developer's
 # file as a side effect of driving a frame. Copied rather than left empty because the read
-# side is the whole point of not redirecting UT_STATE_DIR either: a frame captured here should
+# side is the whole point of not redirecting TING_STATE_DIR either: a frame captured here should
 # show the theme and the chrome language a human actually has.
 DRIVE_CFG="$UT_TEST_TMP/config"
-cp "${TING_CONFIG:-${UT_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/ting/config}}" "$DRIVE_CFG" 2>/dev/null ||
+cp "${TING_CONFIG:-${TING_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/ting/config}}" "$DRIVE_CFG" 2>/dev/null ||
     cp "${XDG_CONFIG_HOME:-$HOME/.config}/uting/config" "$DRIVE_CFG" 2>/dev/null ||
     : >"$DRIVE_CFG"
 
@@ -123,20 +123,18 @@ trap 'exit 130' INT TERM
 # get this shell's environment: it gets the tmux SERVER's, and the server is whichever one is
 # already running — often started hours ago from another window. `TING_ASCII=1 tests/drive.sh`
 # looked like it worked only when no server was up yet; with one up it silently drove the
-# default. Verified by driving UT_STATE_DIR: the pane reported an empty store while the same
+# default. Verified by driving TING_STATE_DIR: the pane reported an empty store while the same
 # variable listed four playlists outside tmux.
 #
-# TING_SYNC=0 (tmux and DCS frame sync do not mix), TMPDIR and the two config names are placed
-# AFTER the forwarded block so the driver's own choice wins over an inherited one — TMPDIR
-# because the isolation above is not negotiable, and it is not a YT_*/UT_*/TING_* name so it
-# is never forwarded anyway; the config names because a forwarded one would put the pane's
-# writes back on the real file, which is the one thing the copy above exists to prevent.
-# BOTH names are pinned, not just UT_CONFIG: TING_CONFIG outranks it in the loader, so
-# pinning only the weaker one would let an exported TING_CONFIG walk straight through the
-# isolation. An exported config name is still honoured where it can do no harm: it picks
-# WHICH file gets copied.
-# UT_HISTORY=0 goes BEFORE it: suppressing the log write is a default, not a rule, so
-# `UT_HISTORY=1 tests/drive.sh -k Enter` still drives the writing path.
+# TING_SYNC=0 (tmux and DCS frame sync do not mix), TMPDIR and TING_CONFIG are placed AFTER
+# the forwarded block so the driver's own choice wins over an inherited one — TMPDIR because
+# the isolation above is not negotiable, and it is not a YT_*/UT_*/TING_* name so it is never
+# forwarded anyway; TING_CONFIG because a forwarded one would put the pane's writes back on the
+# real file, which is the one thing the copy above exists to prevent. A forwarded old UT_CONFIG
+# cannot: it is read only when TING_CONFIG is unset. An exported config name is still honoured
+# where it can do no harm: it picks WHICH file gets copied.
+# TING_HISTORY=0 goes BEFORE it: suppressing the log write is a default, not a rule, so
+# `TING_HISTORY=1 tests/drive.sh -k Enter` still drives the writing path.
 env_prefix=""
 while IFS= read -r line; do
     case "$line" in
@@ -150,7 +148,7 @@ while IFS= read -r line; do
 done < <(env)
 
 tmux new-session -d -s "$S" -x "$COLS" -y "$ROWS" \
-    "cd '$PWD' && UT_HISTORY=0$env_prefix TMPDIR='$TMPDIR' UT_CONFIG='$DRIVE_CFG' TING_CONFIG='$DRIVE_CFG' TING_SYNC=0 shell/ting '$QUERY'"
+    "cd '$PWD' && TING_HISTORY=0$env_prefix TMPDIR='$TMPDIR' TING_CONFIG='$DRIVE_CFG' TING_SYNC=0 shell/ting '$QUERY'"
 
 # Wait on the ready MARKER, never on a sleep: a captured spinner frame is a picture of the
 # loading state, not of the layout. A cold yt-dlp search takes ~10s.

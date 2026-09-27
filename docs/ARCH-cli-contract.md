@@ -39,7 +39,7 @@
    |   存储记录模型:  {engine, url, title...} = 直接对应一次 t-play 调用                     |
    +-----------------------------------------------------------------------------------------+
    | 配置层级继承链                                                                          |
-   |   命令行 Flag  >  环境变量 (UT_*)  >  用户配置 (~/.config/ting/config)  >  出厂默认配置 |
+   |   命令行 Flag  >  环境变量 (TING_*)  >  用户配置 (~/.config/ting/config)  >  出厂默认配置 |
    +-----------------------------------------------------------------------------------------+
 ```
 
@@ -57,7 +57,7 @@
   在里面：十个命令名本身 · 各自的 argv 与 flag 面 · 退出码表(0/1/2+/4) ·
           单行 JSON envelope 的字段与形状 · player record · 生命周期语义 ·
           引擎契约（<engine>-search / <engine>-resolve 两张 envelope） ·
-          TING_* / UT_* 环境变量 · 配置面（四层链、两个文件的位置、
+          TING_* 环境变量 · 配置面（四层链、两个文件的位置、
           键的前缀命名空间、缺出厂文件 = 2，「配置面」）
   不在里面：内部函数名 · 键位、视图、渲染与主题（ARCH-tui.md） · 注释 · docs/ · tests/ · .claude/skills/ ·
           引擎背后用哪个原语（curl / yt-dlp / openssl —— seam 是 envelope，
@@ -149,8 +149,8 @@ detached 播放器）、生命周期与控制动词附带未被消费的 positio
   与任何生命周期动词互斥 —— 移动一个已经在跑的播放头是 `--seek-to` 的活。
   它压过句柄自己带的偏移（`<engine>-resolve` 一节的 `start_seconds`），
   在一个队列里**只作用于第一条**（ARCH-player.md「队列」）。
-  `--viz-color COLOR` 只在 `-f viz` 的前台渲染里有意义（默认 `UT_VIZ_COLOR` / `cyan`），
-  别的模式下连校都不校 —— 与 `UT_VIZ_STYLE` 同一条规矩：一个模式不读的键，不该由那个模式来报错。
+  `--viz-color COLOR` 只在 `-f viz` 的前台渲染里有意义（默认 `TING_VIZ_COLOR` / `cyan`），
+  别的模式下连校都不校 —— 与 `TING_VIZ_STYLE` 同一条规矩：一个模式不读的键，不该由那个模式来报错。
   **它是一道形状门，不是取值门，而这是 5 依赖下的必然。** 合法的颜色名是 ffmpeg 的那张表，
   套件里没有 `ffmpeg` 可问，抄一份下来就是把另一个项目的清单冻进我们的契约；
   所以门只否掉**画不进滤镜串**的形状 —— `:` `,` 空格这些会当场撕开 `colors=…:r=15` 的字符 —— 退出 1，
@@ -196,11 +196,11 @@ detached 播放器）、生命周期与控制动词附带未被消费的 positio
   `--queue-mv` 不纳入，反方向的那一次移动就是它精确的反操作。
 - **它写收听日志。** 一个 **detached** 播放器通过 `t-history --record`（下文 `t-history` 一节）每条曲目记一行 ——
   在曲目结束时记，一次 `--stop` 或一次 `--next` 结束了它时同样记，
-  因为一份只记录未被打断的曲目的日志，是一份系统性偏斜的记录。尽力而为：`UT_HISTORY=0` 关掉它，
+  因为一份只记录未被打断的曲目的日志，是一份系统性偏斜的记录。尽力而为：`TING_HISTORY=0` 关掉它，
   `t-history` 不在就静默，它的任何失败都不得让一条曲目付出代价。
   一条从未开始、也不是失败的曲目（一次 stop 正好落在两条曲目之间的缝里）不是一次收听，不得一行。
 - **引擎选择与 URL 自动嗅探：**
-  - **优先级链**：显式命令行标志 `--engine NAME` > URL Host 自动嗅探 > 环境变量（`TING_DEFAULT_ENGINE` / `UT_DEFAULT_ENGINE`） > 用户配置 > 出厂默认值（`yt`）。
+  - **优先级链**：显式命令行标志 `--engine NAME` > URL Host 自动嗅探 > 环境变量（`TING_DEFAULT_ENGINE`） > 用户配置 > 出厂默认值（`yt`）。
   - **自动嗅探规则**：当调用方未显式传递 `--engine` 时，`t-play` 识别输入句柄是否符合 URL 结构（`http://* | https://* | www.* | youtu.be/* | b23.tv/* | 163cn.tv/*`），并在纯 bash 3.2 参数扩展下提取小写 hostname 进行模式映射：
     - `*.youtube.com | youtube.com | *.youtu.be | youtu.be | *.youtube-nocookie.com` $\rightarrow$ `yt`
     - `*.bilibili.com | bilibili.com | *.b23.tv | b23.tv` $\rightarrow$ `bili`
@@ -210,7 +210,7 @@ detached 播放器）、生命周期与控制动词附带未被消费的 positio
   从此有一个调用方可以直接问的出口：它答出每个装了的引擎，以及**一次播放真正会跑的**那两条路径
   （与 `--engine` 走同一个查找函数，所以"告诉你会跑什么"与"实际跑什么"不会分叉）。
   它为 Go TUI 而加（PLAN-go-tui.md「未决」，2026-09-25 定）：规矩只在 shell 里写一次，
-  调用方拿到路径就跑，不必知道 `$UT_ENGINE_DIR` 与它那条 XDG 默认链；agent 也第一次能问"装了哪些源"。
+  调用方拿到路径就跑，不必知道 `$TING_ENGINE_DIR` 与它那条 XDG 默认链；agent 也第一次能问"装了哪些源"。
   门与引擎的 `--capabilities` 同一种：在一切依赖门之前作答，连 `jq` 都不要，也不碰状态目录；
   配 `--engine`、位置参数或另一个动词都退 1 —— 带 `--engine` 的人期待的是过滤，拿到全表会读成"装了"。
   一个 `--engine` 门会拒的名字不列出来，列出一个播放器随后拒绝的源，正是这个动词要消灭的分歧。
@@ -218,7 +218,7 @@ detached 播放器）、生命周期与控制动词附带未被消费的 positio
   `-n`/`-m`/`-M`/`-s` → "那是一个搜索标志 —— 用 `<engine>-search`"；`--info`/`--transcript`/`--sub-lang` → "那是一个引擎
   动词"；`--get-url` → 取代了它的那个 `<engine>-resolve -j` 调用；其它任何不认识的长标志 →
   播放标志的清单。**每一句里的 `<engine>` 都是拼出来的**（`$ENGINE`：`--engine`，否则
-  `UT_DEFAULT_ENGINE`），所以在第二个引擎下这些门臂点的是那个引擎的命令，而不是 `yt-`。
+  `TING_DEFAULT_ENGINE`），所以在第二个引擎下这些门臂点的是那个引擎的命令，而不是 `yt-`。
   **一处已知且接受的顺序依赖**：`--get-url` 与那三个抽取动词的 die 就在长选项归一化循环
   **里面**，所以 `--engine` 只有排在它们**前面**时才已被吃掉 ——
   `t-play --transcript --engine bili` 仍会说 `yt-resolve`（「门模型」 的门表同此）。
@@ -317,7 +317,7 @@ detached 播放器）、生命周期与控制动词附带未被消费的 positio
   或一个裸的**条目数组**。搜索信封那一种是重点：一条搜索**结果**不带 `engine` 字段，
   信封才带，所以只有整个包裹才能给条目打上产出它的引擎的标签。
   不认识的字段被丢掉；每个条目必须有 `engine` 与 `url`。
-- **存储：** `$UT_STATE_DIR/playlists/<name>.json`，一个播放列表一个文件，`mkdir` 锁
+- **存储：** `$TING_STATE_DIR/playlists/<name>.json`，一个播放列表一个文件，`mkdir` 锁
   （`.lock-<name>`），temp+mv。名字**就是**文件名 —— 不做 slug，因为一个 slug 会让屏幕上的名字
   和磁盘上的名字变成两个事实。名字拒绝 `/`、控制字符与开头的 `.`，上限 64 个字符。
   **在一个大小写不敏感的文件系统上（macOS 默认），两个只有大小写不同的名字是同一个播放列表** ——
@@ -340,13 +340,13 @@ detached 播放器）、生命周期与控制动词附带未被消费的 positio
   所以调用方碰巧带着的某个键（一条搜索结果的 `channel`）到不了磁盘。
   `engine` 与一个不含空白的 `url` 是必须的，`played_at` 必须是一个 ISO 时间戳，
   而 `reason` 必须是 PLAYBACK 枚举（「数据契约」）的成员或 null。
-- **存储：** `$UT_STATE_DIR/history/<YYYY-MM>.jsonl`，只追加，一次收听一行。
+- **存储：** `$TING_STATE_DIR/history/<YYYY-MM>.jsonl`，只追加，一次收听一行。
   **这是整套套件里唯一一个不取锁的写** —— `>>` 是 `O_APPEND`，而一行在 `PIPE_BUF` 以内就整行落地 ——
   这也正是为什么**每一行都必须待在 4096 字节以内**：标题在 UTF-8 边界上截到 200 字节，
   然后整行被**量一遍**，字段按顺序丢（title、id、url）直到装得下。信封里的 `truncated` 报告这件事。
   按月分片让"清掉旧的东西"是一次 `rm` 而不是一次重写。
 - **谁写它：** 一个 detached 的 `t-play` 子进程，每条曲目一次，无论是什么结束了这条曲目
-  （`t-play` 一节，`UT_HISTORY`）。`t-history` 从不播放，`t-play` 从不打开日志文件。
+  （`t-play` 一节，`TING_HISTORY`）。`t-history` 从不播放，`t-play` 从不打开日志文件。
 - **不是死亡记录。** `players/dead/` 只装失败、有界、在 `$TMPDIR` 里、重启即无；
   这一个是每一条曲目、无界、且 durable。两者在同一瞬间被写下，是同一条规则的两面
   （ARCH-player.md「状态机」）。
@@ -557,7 +557,7 @@ capabilities 信封（`<engine>-search --capabilities -j` 与 `<engine>-resolve 
   调用方问的是"有没有"（`.flags | index("--parts")`），不读顺序。
 
 engines 信封（`t-play --engines -j`）—— 一行，不发包，不要任何依赖：
-- **`engines`** 按发现顺序排列（本目录的、`$UT_ENGINE_DIR` 的、PATH 上的），每项 `{name, search, resolve}`，
+- **`engines`** 按发现顺序排列（本目录的、`$TING_ENGINE_DIR` 的、PATH 上的），每项 `{name, search, resolve}`，
   两条都是绝对路径。空数组是一个回答（退 0），不是失败 —— 没装引擎是事实，不是这次调用没生效。
 - 路径里带控制字符的那一项被略过而不是转义：信封由 `printf` 印出，路径是唯一的自由文本。
 
@@ -602,7 +602,7 @@ YouTube 的限流器），但播放与搜索一直都够得到它，只是报成
 而那正是让 `ting` 用同一个装载器渲染一个播放列表的东西。
 
 收听日志（`t-history`）—— **同一条**条目记录，加上一次收听有、而一个列表条目没有的那四个字段（`played_at`/`ended_at`/`seconds`/`reason`）。
-`$UT_STATE_DIR/history/<YYYY-MM>.jsonl` 的一行，且**在 4096 字节以内** ——
+`$TING_STATE_DIR/history/<YYYY-MM>.jsonl` 的一行，且**在 4096 字节以内** ——
 那个免锁追加所倚仗的前提（「命令规格」的 `t-history` 一节）。`reason` 是 PLAYBACK 枚举，或者 **null，
 而那正是一条放到自己尽头的曲目长的样子**；一条被跳过或被停掉的是 `stopped_by_user`，
 而 `seconds` 是那个把 0:05 的一次跳过与 3:20 的一次停止区分开来的东西。
@@ -802,8 +802,8 @@ search、resolve、`--info`、`--transcript`、`-d`、`--status`、`--stop`、`-
 **出厂默认值住在 `<checkout>/config`** —— 每个入口点从自己**解析后**位置的上一级读它，
 和上面读 `VERSION` 同一个机制、同一个理由。**套件里每一个默认值都在那里声明，一次，
 供每个入口点共用。** 在它之前，每个默认值是各脚本内联的 `: "${KEY:=值}"`，
-于是一个跨引擎的值（`UT_SEARCH_RESULTS`）要写两遍、可以各自漂移而没有东西会发现 ——
-这次搬迁当场就抓出了两处：`UT_PLAY_MODE` 在四个脚本里不一致、`UT_SORT_FIELD` 在三个里不一致
+于是一个跨引擎的值（`TING_SEARCH_RESULTS`）要写两遍、可以各自漂移而没有东西会发现 ——
+这次搬迁当场就抓出了两处：`TING_PLAY_MODE` 在四个脚本里不一致、`TING_SORT_FIELD` 在三个里不一致
 （根因是 `ting` 拿**轮换顺序**当**合法值域**用，见下面「轮换顺序不是合法值域」一条）。
 
 所以这个文件**不是可选的**：缺了它的 checkout 是坏的，并且会这么说 —— 一行话，退 **2**。
@@ -815,7 +815,7 @@ search、resolve、`--info`、`--transcript`、`-d`、`--status`、`--stop`、`-
 **用户自己的文件是 `${XDG_CONFIG_HOME:-~/.config}/ting/config`**（不存在则回退到改名前的 `.../uting/config`），没有扩展名，
 和 `yt-dlp` 自己的 `~/.config/yt-dlp/config` 同一个拼法：格式是平的 `KEY=value`，
 一个 `.toml`/`.yml` 会承诺这个套件加不了解析器（那是一条运行时依赖）的结构。
-它被**先**读，所以它压过出厂默认值。`TING_CONFIG`（或 `UT_CONFIG`）换掉这个路径，而且**只能从环境**来 ——
+它被**先**读，所以它压过出厂默认值。`TING_CONFIG`（或 `TING_CONFIG`）换掉这个路径，而且**只能从环境**来 ——
 一个文件不能搬动自己，两个测试套件正是靠它从不去读用户真实的配置。
 **出厂那份没有任何命令会写。用户那份由 `ting` 写回十一个键** —— 见下面「写回」。
 
@@ -823,12 +823,12 @@ search、resolve、`--info`、`--transcript`、`-d`、`--status`、`--stop`、`-
 配置**，让下一次会话从这一次停下的地方开始（一个每次会话都要重按的偏好等于没有偏好 —— ARCHITECTURE.md「两个根数据文件」；重开触发器在 ROADMAP）。写回的是：
 
 ```
-   UT_DEFAULT_ENGINE   e 键切来源            UT_SORT_FIELD      o 键换排序字段
-   TING_THEME          t 键换配色家族        TING_LANG          l 键换界面语言
-   UT_PLAY_MODE        v 键换播放模式        UT_SEARCH_RESULTS  → / ← 两条边改行数
-   UT_PLAY_QUALITY     f 键换质量档          UT_KEYS            ? 键换提示块的档
-   UT_ROW_INDEX        # 键开关行号        UT_LIST_MODE       Tab 键换列表模式
-   UT_LOOP_MODE        r 键换循环模式
+   TING_DEFAULT_ENGINE   e 键切来源            TING_SORT_FIELD      o 键换排序字段
+   TING_THEME            t 键换配色家族        TING_LANG            l 键换界面语言
+   TING_PLAY_MODE        v 键换播放模式        TING_SEARCH_RESULTS  → / ← 两条边改行数
+   TING_PLAY_QUALITY     f 键换质量档          TING_KEYS            ? 键换提示块的档
+   TING_ROW_INDEX        # 键开关行号          TING_LIST_MODE       Tab 键换列表模式
+   TING_LOOP_MODE        r 键换循环模式
 ```
 
 白名单是硬的：**不在这十一个里的键，写回路径根本够不着**（`ting` 的 `pref_value` 既是
@@ -855,7 +855,7 @@ search、resolve、`--info`、`--transcript`、`-d`、`--status`、`--stop`、`-
 - **不加锁**（写临时文件再 `mv -f`，一次可见）：两个 `ting` 同时开着是后写者赢，丢的是
   一个偏好而不是用户数据；为它在键循环里加一次锁自旋是更坏的交易。写不进去（只读的
   `~/.config`）是**软失败**：印一行短提示，本次会话不再重试，TUI 不会因此死掉。
-  **临时文件落在 symlink 解析之后的真实路径旁边**：`UT_CONFIG` 指的很可能是一条指向
+  **临时文件落在 symlink 解析之后的真实路径旁边**：`TING_CONFIG` 指的很可能是一条指向
   dotfiles 仓库的符号链接，而 `mv -f` 落在链接本身上会把链接换成一个普通文件、把用户真正
   的那份**架空**（此后他在 dotfiles 里改的每一笔都不再生效），而且什么都不报。写之前先
   沿链走到真实文件（与每个入口点自解析用的是同一个惯用法，bash 3.2 没有 `readlink -f`），
@@ -868,19 +868,17 @@ search、resolve、`--info`、`--transcript`、`-d`、`--status`、`--stop`、`-
 **格式与安全边界**：`KEY=value`，一行一个，`#` 到行尾是注释，一对匹配的引号会被剥掉，
 开头的 `~/` 展开成 `$HOME`。这个文件是**当数据读的，绝不 source** ——
 一个会被执行的配置文件可以运行任何东西，而这个套件的整个安全故事就是它的输入是数据；
-`eval` 从一个变量赋值，从不从那一行赋值，所以 `UT_X=$(cmd)` 存下的就是那九个字符。
-**只有套件自己的命名空间可设**（`TING_` / `UT_`，正则 `^(TING|UT)_[A-Z0-9_]+$`；旧的 `YT_`/`BILI_`/`NE_`
-键名先按改名表换成新名再过这道正则），于是一个文件永远够不到 `PATH`、`TMPDIR` 或 `LD_PRELOAD`。
+`eval` 从一个变量赋值，从不从那一行赋值，所以 `TING_X=$(cmd)` 存下的就是那九个字符。
+**文件里只认 `TING_` 开头的键**（正则 `^TING_[A-Z0-9_]+$`；旧的 `UT_`/`YT_`/`BILI_`/`NE_` 键名先按改名表
+换成新名再过这道正则），于是一个文件永远够不到 `PATH`、`TMPDIR` 或 `LD_PRELOAD`，也够不到任何常量：
+`UT_VERSION`（从 `VERSION` 那一行读进来的）与 `UT_DEFAULTS`（出厂文件自己的路径）拼在命名空间之外。
 引擎键住在 `TING_<ENGINE>_` 之下，所以**加一个引擎不加前缀**，仓外引擎也有合法的键名可用。
 播放器为自己 detached 子进程设的那四个拼成 `_TING_*`：前导下划线把它们放在命名空间**之外**，
 一个文件级的 `_TING_IPC_SOCK`（本会把每一个播放器都指向同一个 socket）被正则本身挡掉，不必进拒收名单。
-命名空间之内被拒的是：`UT_CONFIG` 与 `UT_DEFAULTS`（两个配置文件各自的路径）
-同样被拒 —— 一个文件不能搬动自己；`UT_VERSION` 也在名单上 —— 它是从 `VERSION` 那一行读进来的
-**常量**，不是旋钮，只是穿着一个能被配置够到的前缀，而 `--version` 答的话不该由一个配置文件
-改写。`UT_ENGINE_DIR` 是名单上**唯一一个真旋钮** —— 它被拒不是因为名字不是旋钮，而是因为
-**值是一批会被运行的可执行文件**：一个能设它的配置文件就是换了个拼法的 `PATH`，
-上面那句"一个文件永远够不到 `PATH`"当场作废 —— 命名空间之内的拒收，前缀白名单一个都挡不住。
-拒收名单是这四个名字，各带 `TING_` 与 `UT_` 两种拼法。载入块在**每个入口点里逐字重复**，
+命名空间之内被拒的只有两个：`TING_CONFIG` —— 一个文件不能搬动自己；`TING_ENGINE_DIR` —— 它是**真旋钮**，
+被拒不是因为名字不是旋钮，而是因为**值是一批会被运行的可执行文件**：一个能设它的配置文件就是换了个拼法的
+`PATH`，上面那句"一个文件永远够不到 `PATH`"当场作废 —— 命名空间之内的拒收，前缀白名单一个都挡不住。
+载入块在**每个入口点里逐字重复**，
 和 `VERSION` 读法一样：逐字节的副本可以 grep 出漂移，而一个 source 进来的文件
 会把 `VERSION` 数据文件存在所要理正的依赖方向反过来。
 
@@ -891,18 +889,18 @@ search、resolve、`--info`、`--transcript`、`-d`、`--status`、`--stop`、`-
 ```
    TING_LANG      未设置 = zh* locale 下 zh，否则英文
    TING_ASCII     未设置 = 非 UTF-8 locale 下自动开
-   UT_STATE_DIR   默认是 ${XDG_STATE_HOME:-$HOME/.local/state}/ting ——
+   TING_STATE_DIR  默认是 ${XDG_STATE_HOME:-$HOME/.local/state}/ting ——
                   一条穿过另一个变量的链，平的 KEY=value 文件表达不了，
                   而摊平成一个字面路径会悄悄丢掉本节承诺的 XDG 支持
 ```
 
-**还有第四个，但它连用户那份也进不去：`UT_ENGINE_DIR` 只能从环境来。** 它同样是一条穿过
+**还有第四个，但它连用户那份也进不去：`TING_ENGINE_DIR` 只能从环境来。** 它同样是一条穿过
 `XDG_DATA_HOME` 的链（默认 `${XDG_DATA_HOME:-$HOME/.local/share}/ting/engines`），
 所以也内联 —— 但把它排除在两个文件之外的是上面那条执行边界，不是表达力。
 它在 `ting` 与 `t-play` 各内联一次（平级入口点不共享库），两份副本必须给出同一个默认值，
 `tests/contract.sh` 以 `XDG_DATA_HOME` 驱动两边来钉住这一点。
 
-这三个仍然内联（前两个在 `ting` / 各引擎，UT_STATE_DIR 在 `t-playlist` /
+这三个仍然内联（前两个在 `ting` / 各引擎，TING_STATE_DIR 在 `t-playlist` /
 `t-history`），要钉住就在自己的配置或环境里设。
 
 **作用域写在名字里。** 引擎键是 `TING_<ENGINE>_<KEY>`（`TING_YT_AUDIO_FORMAT`、`TING_BILI_UA`），
@@ -913,10 +911,10 @@ engine:bili / engine:ne），分组与名字说的是同一件事。
 的取值或默认：那曾是同一个数字的两份事实，2026-09-01 剪掉（ROADMAP 里那条"语义并进 config 注释"
 的条目由此关闭）。留在这里的只有**跨文件才成立**的规矩，键名只作例子：
 
-- **一个键，两个面读同一个值。** `UT_DEFAULT_ENGINE` 由 `t-play` 与 `ting` 同读，
-  `UT_PLAY_MODE` 由播放器与两个 resolve 半边同读：一个已经挑过一次默认的用户不该每个面再挑
+- **一个键，两个面读同一个值。** `TING_DEFAULT_ENGINE` 由 `t-play` 与 `ting` 同读，
+  `TING_PLAY_MODE` 由播放器与两个 resolve 半边同读：一个已经挑过一次默认的用户不该每个面再挑
   一次，而两份内联默认正是这次搬迁抓出漂移的地方（本节开头）。
-- **一次设定的调音是键，不是标志。** `UT_PLAY_QUALITY`、`UT_VIZ_STYLE`、`UT_RESOURCE`、`UT_KEYS`
+- **一次设定的调音是键，不是标志。** `TING_PLAY_QUALITY`、`TING_VIZ_STYLE`、`TING_RESOURCE`、`TING_KEYS`
   都刻意没有 `ting` 侧的旗标（CLAUDE.md 的旗标/配置键规矩）；它们的 agent 面是播放器的旗标
   （`t-play --quality`）或那份 `KEY=value` 文件本身。一个不认识的值**在启动时**退 1 并点名
   那个键，四个走同一道闸 —— 在第一次按键时才死，离用户写下的那一行太远。
@@ -928,11 +926,11 @@ engine:bili / engine:ne），分组与名字说的是同一件事。
   `-f`/`-s` 对着引擎的封闭集校验，从不对着 cycle：cycle 可配置的那些年，拿它当值域就会
   拒绝引擎接受的值、并逼着 `ting` 的默认与引擎的不一致 —— 正是本节开头抓出的那个 bug。
   质量档的 cycle 是值域的**子集**（没有 low）：降质是特意的选择，用 `--quality` 或
-  `UT_PLAY_QUALITY` 设，不是转过去就该落上的一格。
-- **三个都是 20 或 10 的数，是三件事。** `UT_SEARCH_RESULTS` 是一次搜索返回的**总数**
+  `TING_PLAY_QUALITY` 设，不是转过去就该落上的一格。
+- **三个都是 20 或 10 的数，是三件事。** `TING_SEARCH_RESULTS` 是一次搜索返回的**总数**
   （`t-play --search` 的 `-n` 缺省，也是 `ting` 第一次抓取的行数 —— 同一个问题，一个键），
-  `UT_FETCH_BATCH` 是 `→`/`←` 每按一次动多少行的**步长**，
-  `UT_PAGE_ROWS` 是每屏一页多少行（一个请求，会被窗口高度往下 reflow）；`bili-search` 内部的
+  `TING_FETCH_BATCH` 是 `→`/`←` 每按一次动多少行的**步长**，
+  `TING_PAGE_ROWS` 是每屏一页多少行（一个请求，会被窗口高度往下 reflow）；`bili-search` 内部的
   `PAGE_SIZE` 是远端 API 自己的页，**不是**旋钮（`ne-search` 的两倍多取与三次请求上限同理 ——
   引擎内部的成本策略，刻意不做成配置键）。放宽其中一个不该顺带放宽另一个。
   一次搜索的行数**上限**（200）是每个引擎自己的常量，不是旋钮：它护的是站方的请求预算
@@ -941,10 +939,10 @@ engine:bili / engine:ne），分组与名字说的是同一件事。
   按命令前缀同一条拼接规矩起名（「加一个引擎」），只有**引擎**读。`TING_YT_SUB_LANG_CHAIN` 与
   `TING_NE_INCLUDE_VIP` 之所以不是套件键：bili 根本没有字幕链，而"要不要看大会员限定的行"只有
   网易云这一侧算得出 —— 一个半个套件必须忽略的跨引擎旋钮比没有旋钮更糟，调用方分不出是哪一半。
-  **反过来，三家都读、意思也一样的就是套件键**：`UT_COOKIE_BROWSER` 一个人一个浏览器，
+  **反过来，三家都读、意思也一样的就是套件键**：`TING_COOKIE_BROWSER` 一个人一个浏览器，
   从前三个引擎各一份同义的键已并成它。它仍然只有引擎读，播放器没有任何 cookie 代码路径
   可供泄漏；当前生效值靠 `t-play --auth -j` 问出来（「数据契约」），不靠调用方读环境。
-- **用户级状态与运行时状态是两个根。** `UT_STATE_DIR` 是 durable 的、用户亲手建起来的东西的
+- **用户级状态与运行时状态是两个根。** `TING_STATE_DIR` 是 durable 的、用户亲手建起来的东西的
   家（`playlists/`、`history/`），走 XDG 而不是 `~/Library/Application Support`，因为用户面是
   一个终端而一次 Linux 移植不该需要第二套布局；播放器的 `$TMPDIR/ting-<uid>` 重启即抹。
   它不是方便旋钮：两个测试套件都设它，不设就会写进用户真实的存储。
@@ -953,16 +951,8 @@ engine:bili / engine:ne），分组与名字说的是同一件事。
 `YT_AUDIO_FORMAT` 属于 YouTube 引擎），`UT_` 是套件还叫 `uting` 时的套件级前缀，`BILI_`、`NE_`
 各是一个引擎的，`TING_` 是改名之后的正名。当初不清算的理由是改名会弄坏用户的配置；
 旧名兜底一个版本、写回时就地改名之后这个代价没了，而一身两义的 `YT_` 与"加一个引擎就要给
-载入块加一个前缀"的代价一直都在。`YT_`/`BILI_`/`NE_` 的键已经改完；`UT_` 的键是下一步，
-在那之前 `UT_X` 与 `TING_X` 照下一段互为别名。
-
-**两个名字同时设时，`TING_` 赢。** 每个入口点在读两个配置文件之前跑一遍镜像：`TING_X` 有值
-就写进 `UT_X`，只有 `UT_X` 有值时才反向补一份 —— 于是照着旧名写的脚本一个字都不用改，而两个
-名字打架时答案唯一，且是本节承诺的那个。（第一版镜像只补缺失的一侧，两边都设时留下的是 `UT_`，
-也就是恰好反过来；`tests/contract.sh` 现在拿"两个都设"这一种输入把它钉死，因为那是唯一一种
-别的检查都发现不了的输入。）`TING_CONFIG` 与 `TING_STATE_DIR` 不在那个循环里，各自手写一次：
-前者决定循环之后要读哪个文件，后者要在默认值链之前定下来。配置文件里两种拼法都收，
-并且都不压过已经从环境来的值。
+载入块加一个前缀"的代价一直都在。`TING_CONFIG` 不在改名表上：它决定之后要读哪个文件，
+所以在表之前手写一次（`TING_CONFIG`，没有才看旧的 `UT_CONFIG`）。
 
 **三条路径同样是两名链：新名先看，旧名兜底。** `${XDG_CONFIG_HOME:-~/.config}/ting/config`
 → `.../uting/config`；`${XDG_STATE_HOME:-~/.local/state}/ting` → `.../uting`；
@@ -973,12 +963,15 @@ engine:bili / engine:ne），分组与名字说的是同一件事。
 
 **改名与合并的键，旧名兜底一个版本。** 改名：`YT_THEME` → `TING_THEME` 一类的套件键，
 `YT_AUDIO_FORMAT` → `TING_YT_AUDIO_FORMAT` 一类的引擎键；合并：`UT_START_RESULTS` 并进了
-`UT_SEARCH_RESULTS`，`YT_`/`BILI_`/`NE_COOKIE_BROWSER` 并进了 `UT_COOKIE_BROWSER`。全部旧名 → 新名
-写在载入块里的一张表上（`CFG_RENAMED`）。载入块在文件里读到旧名就当新名收，环境里的旧名只在新名没设时补上 —— 所以写着旧名的用户配置照样生效，而且因为用户那份
-先读，它照样压过出厂默认值；两个名字都在时新名赢。`ting` 写回时再把旧名那一行就地改成新名，
-第一次写回就迁完。
+`TING_SEARCH_RESULTS`，`YT_`/`BILI_`/`NE_COOKIE_BROWSER` 并进了 `TING_COOKIE_BROWSER`。全部旧名 → 新名
+写在载入块里的一张表上（`CFG_RENAMED`），不按前缀规则推 —— `YT_` 一半归套件一半归引擎，规则推不出来。
+载入块在文件里读到旧名就当新名收，环境里的旧名只在新名没设时补上 —— 所以写着旧名的用户配置照样生效，
+而且因为用户那份先读，它照样压过出厂默认值。**两个名字都在时新名赢**：那是本节承诺的名字。
+早先一版两名镜像只补缺失的一侧，两边都设时留下的恰好是旧名；`tests/contract.sh` 拿"两个都设"这一种
+输入把它钉死，因为那是别的检查都发现不了的输入。`ting` 写回时再把旧名那一行就地改成新名，
+不论这一次写不写它的值，第一次写回就迁完。
 
-Cookie 处理：`UT_COOKIE_BROWSER` 是按平台做存在性检查的（那个浏览器的 profile 目录在不在）；
+Cookie 处理：`TING_COOKIE_BROWSER` 是按平台做存在性检查的（那个浏览器的 profile 目录在不在）；
 不在的话，抽取就不带 cookie 地跑，而不是坏掉。在浏览器还开着时读它的 cookie 数据库
 可能得到一次被锁住的读，并悄无声息地降级成未认证的抽取 —— 变通办法是关掉浏览器。
 **只有引擎读它**，所以播放器没有任何 cookie 代码路径可供泄漏一份出去。
@@ -1007,13 +1000,13 @@ Cookie 处理：`UT_COOKIE_BROWSER` 是按平台做存在性检查的（那个�
    （`bili-resolve` 就是这样，yt-dlp 对 B 站任何形态都不给这个键）。
    本站根本没有时间戳语法就恒填 `null` —— 那是合法状态，不是缺口。
    同时检查这个站的 `webpage_url` 会不会把偏移带进 `url`；会的话就剥掉它，且**只剥它**。
-4. **`foo-resolve --auth`** —— cookie 决定读自套件键 `UT_COOKIE_BROWSER`（「配置面」），信封按 「数据契约」，且 `auth=="cookie"` 与 `cookie_browser != "none" and profile_found`
+4. **`foo-resolve --auth`** —— cookie 决定读自套件键 `TING_COOKIE_BROWSER`（「配置面」），信封按 「数据契约」，且 `auth=="cookie"` 与 `cookie_browser != "none" and profile_found`
    等价；`cookie_readable` 来自这个引擎自己的 `cookie_probe`。不吃位置参数，拒 `-f`/`--raw`，在依赖门之前作答。
    `tests/contract.sh` 把这几条当作对**每一个被发现的**引擎的不变量来断言，
    所以第三个引擎落地那天它就被覆盖了 —— 不是等谁想起来去加一行。
 5. **旋钮前缀：** 引擎自己的调校一律读 `TING_FOO_*`（引擎名大写 —— 格式、传输，
    同一条规矩；`config` 里 `TING_BILI_*` 那族就是样子），载入块不用改。不带引擎段的是套件键
-   （`UT_STATE_DIR`、`UT_DEFAULT_ENGINE`、`TING_THEME`），引擎不得新增。
+   （`TING_STATE_DIR`、`TING_DEFAULT_ENGINE`、`TING_THEME`），引擎不得新增。
 6. **两半都要：** `ENGINE_NAME` 从一个常量印出来；每一个信封（包括错误）里都有 `status` 与
    `engine`；一个信封一行（「数据契约」）；`-V` 在任何依赖门之前回答（「退出码」）；
    门把跨界标志指向正确的动词（「门模型」）。**`--capabilities -j` 两半都要**，
@@ -1026,10 +1019,10 @@ Cookie 处理：`UT_COOKIE_BROWSER` 是按平台做存在性检查的（那个�
    这一对来发现它（ARCH-tui.md）。
 
 **这两个文件放哪：三个地方，一个顺序，两个面读的是同一个顺序** ——
-**套件自己那个目录 → `$UT_ENGINE_DIR` → `$PATH`**。第一个是内置引擎的家（本仓的 `shell/`），
+**套件自己那个目录 → `$TING_ENGINE_DIR` → `$PATH`**。第一个是内置引擎的家（本仓的 `shell/`），
 第三个是用户自建符号链接的老办法（ARCHITECTURE.md「命令拓扑」）；中间那个是**给仓外引擎
 准备的**，默认 `${XDG_DATA_HOME:-$HOME/.local/share}/ting/engines`，只能从环境设（「配置面」）。
-三处**全都扫**，同名**先看见的赢**，于是一对放进 `$UT_ENGINE_DIR` 的文件只能**加**一个源，
+三处**全都扫**，同名**先看见的赢**，于是一对放进 `$TING_ENGINE_DIR` 的文件只能**加**一个源，
 永远替不掉一个内置源 —— 那是故意的：那个目录任何能写一个目录的东西都够得到，而一个能顶替
 `yt-resolve` 的目录会让"我现在跑的是哪个 yt"变成一句问不出口的话。
 `ting` 与 `t-play` 必须走同一个顺序，否则 TUI 会列出一个播放器打不开的源。

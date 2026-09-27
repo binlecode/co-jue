@@ -54,17 +54,17 @@ cd "$REPO" || exit 1
 # the sharpest form of the same sentence — every --stop --all below would reach the player the
 # user is listening to, and every orphan count would be a count of THEIR mpv.
 #
-# EVERY INHERITED TING_*/UT_* NAME IS DROPPED FIRST, before this file sets any of its own. Each
+# EVERY INHERITED CONFIG NAME IS DROPPED FIRST, before this file sets any of its own. Each
 # one is a config key the loader reads from the environment ahead of any file, so a developer's
-# exported UT_DEFAULT_ENGINE or UT_HISTORY=0 beats the empty config below and steers every
-# check without appearing anywhere in the run; TING_* is worse, because it outranks the UT_
-# names this file exports and would put its redirection back on the real files. A sweep over
+# exported TING_DEFAULT_ENGINE or TING_HISTORY=0 beats the empty config below and steers every
+# check without appearing anywhere in the run; an old UT_/YT_/BILI_/NE_ name still reads into
+# its TING_ key while that key is unset, so it is swept too. A sweep over
 # the whole namespace rather than a list, because a list is only as complete as the day it was
 # written. The checks that prove a particular name works set it themselves, one command at a
 # time. `compgen -v` rather than parsing `env`: it lists NAMES, so a value with a newline in it
 # cannot forge a line that looks like one.
 for _v in $(compgen -v); do
-    case "$_v" in TING_* | UT_*) unset "$_v" 2>/dev/null ;; esac
+    case "$_v" in TING_* | UT_* | YT_* | BILI_* | NE_*) unset "$_v" 2>/dev/null ;; esac
 done
 unset _v
 UT_TEST_TMP=$(mktemp -d "${TMPDIR:-/tmp}/ting-playback.XXXXXX") || exit 1
@@ -75,11 +75,11 @@ STATE_DIR="$TMPDIR/ting-$(id -u)"
 # a detached player writes a row to the listening log for every track it finishes, so without
 # this every run of this file would append a dozen tracks nobody listened to into the user's
 # real history — and unlike a player, a log is not something --stop takes back.
-export UT_STATE_DIR="$UT_TEST_TMP/state"
+export TING_STATE_DIR="$UT_TEST_TMP/state"
 
 # AND THE USER'S OWN CONFIG FILE, which is the third thing this run must not read — the one
 # that was missed. Every default this file leans on comes from the four-level chain, and the
-# user's own file wins over the shipped one: a `UT_DEFAULT_ENGINE=bili` written there by
+# user's own file wins over the shipped one: a `TING_DEFAULT_ENGINE=bili` written there by
 # `ting`'s own e key (it writes that key back) sends every YouTube handle below to
 # `t-engine-bili`, which refuses the host, and 23 checks go red saying nothing whatsoever about
 # the player. That is not hypothetical — it is what this file did on the machine that added
@@ -89,7 +89,7 @@ export UT_STATE_DIR="$UT_TEST_TMP/state"
 # contract.sh has isolated this from the start; this file had not. The environment half of the
 # same chain was swept at the top of this block.
 : >"$UT_TEST_TMP/config"
-export UT_CONFIG="$UT_TEST_TMP/config"
+export TING_CONFIG="$UT_TEST_TMP/config"
 
 # Two long, stable tracks. Silent at --volume 0; the point is the process, not the audio.
 U1=${YT_TEST_URL1:-https://www.youtube.com/watch?v=n61ULEU7CO0}
@@ -532,7 +532,7 @@ shell/t-play --stop --all -j >/dev/null 2>&1
 # doc actually advertises unexecuted — and that arm is the one carrying the claim: a stored
 # record IS a call, so the two commands need no jq mapping between them. contract.sh proves
 # the same envelope reaches the gate offline (4, no player); this is the half where it really
-# starts one. UT_STATE_DIR is this file's own (top of file), so the list is disposable.
+# starts one. TING_STATE_DIR is this file's own (top of file), so the list is disposable.
 jq -nc --arg a "$U1" --arg b "$U2" '[{engine:"yt",url:$a},{engine:"yt",url:$b}]' |
     shell/t-playlist --add chill -j >/dev/null 2>&1
 report "the list stored 2" 2 "$(shell/t-playlist --show chill -j 2>/dev/null | jq -r '.count // 0')"
@@ -926,7 +926,7 @@ report "…from all three engines, one shape" 0 \
 # The short track is replayed here because exactly one row for it exists by now, and only
 # this player could write a second.
 h_before=$(h_url "$HIST")
-o7=$(UT_HISTORY=0 shell/t-play -d -j --volume 0 -- "$SHORT" 2>/dev/null)
+o7=$(TING_HISTORY=0 shell/t-play -d -j --volume 0 -- "$SHORT" 2>/dev/null)
 id7=$(printf '%s' "$o7" | jq -r '.id // empty')
 sock7=$(printf '%s' "$o7" | jq -r '.sock // empty')
 # mpv has to really PLAY, or "the switch wrote nothing" is true of a track that never started
@@ -938,10 +938,10 @@ if wait_for_sock "$sock7" && wait_live "$id7" position >/dev/null; then
     # PRECONDITION holds: the row is written by the player's own exit path, and --stop returns
     # only after that whole process group is gone (do_stop, stop_group). No process that could
     # write a row is left, so the answer below is final.
-    report "UT_HISTORY=0 writes nothing" "$h_before" \
+    report "TING_HISTORY=0 writes nothing" "$h_before" \
         "$(h_url "$(shell/t-history --ls -n 50 -j 2>/dev/null)")"
 else
-    bad "the UT_HISTORY=0 player never started playing — the off switch is untested"
+    bad "the TING_HISTORY=0 player never started playing — the off switch is untested"
 fi
 
 echo "── --watch: one player as a stream, across its queue, to its end ──"

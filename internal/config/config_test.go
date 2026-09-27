@@ -11,31 +11,34 @@ func TestParseLine(t *testing.T) {
 		line, key, val string
 		ok             bool
 	}{
-		{"UT_X=1", "UT_X", "1", true},
-		{"  UT_X =  two words  # note", "UT_X", "two words", true},
-		{`UT_X="quoted # not"`, "UT_X", `"quoted`, true}, // # cuts before the quote pair is seen
-		{`UT_X="a b"`, "UT_X", "a b", true},
-		{`UT_X='a'`, "UT_X", "a", true},
-		{`UT_X="a'`, "UT_X", `"a'`, true},
-		{"UT_X=~/music", "UT_X", "/home/u/music", true},
-		{"UT_X=a~/b", "UT_X", "a~/b", true},
-		{"UT_X=$(rm -rf /)", "UT_X", "$(rm -rf /)", true},
-		{"UT_X=", "UT_X", "", true},
 		{"TING_X=1", "TING_X", "1", true},
+		{"  TING_X =  two words  # note", "TING_X", "two words", true},
+		{`TING_X="quoted # not"`, "TING_X", `"quoted`, true}, // # cuts before the quote pair is seen
+		{`TING_X="a b"`, "TING_X", "a b", true},
+		{`TING_X='a'`, "TING_X", "a", true},
+		{`TING_X="a'`, "TING_X", `"a'`, true},
+		{"TING_X=~/music", "TING_X", "/home/u/music", true},
+		{"TING_X=a~/b", "TING_X", "a~/b", true},
+		{"TING_X=$(rm -rf /)", "TING_X", "$(rm -rf /)", true},
+		{"TING_X=", "TING_X", "", true},
+		{"UT_HISTORY=0", "TING_HISTORY", "0", true},
+		{"UT_ENGINE_DIR=/evil", "", "", false},
+		{"UT_VERSION=9", "", "", false},
+		{"UT_UNKNOWN=1", "", "", false},
 		{"TING_LANG=zh", "TING_LANG", "zh", true},
 		{"PATH=/evil", "", "", false},
 		{"ut_x=1", "", "", false},
-		{"UT_ENGINE_DIR=/evil", "", "", false},
+		{"TING_ENGINE_DIR=/evil", "", "", false},
 		{"TING_CONFIG=/x", "", "", false},
 		{"_TING_IPC_SOCK=/x", "", "", false},
 		{"YT_IPC_SOCK=/x", "", "", false},
 		{"YT_THEME=nord", "TING_THEME", "nord", true},
 		{"BILI_UA=x", "TING_BILI_UA", "x", true},
 		{"YT_UNKNOWN=1", "", "", false},
-		{"# UT_X=1", "", "", false},
+		{"# TING_X=1", "", "", false},
 		{"just words", "", "", false},
 		{"", "", "", false},
-		{"UT_X=1\r", "UT_X", "1", true},
+		{"TING_X=1\r", "TING_X", "1", true},
 	}
 	for _, c := range cases {
 		k, v, ok := ParseLine(c.line, "/home/u")
@@ -56,34 +59,34 @@ func TestChain(t *testing.T) {
 	dir := t.TempDir()
 	shipped := filepath.Join(dir, "config")
 	user := filepath.Join(dir, "user")
-	write(t, shipped, "UT_A=shipped\nUT_B=shipped\nUT_C=shipped\nUT_D=shipped\nTING_BG=shipped\n")
-	write(t, user, "UT_B=user\nUT_B=second-line-loses\nTING_C=user-new-name\nUT_ENGINE_DIR=/evil\n")
+	write(t, shipped, "TING_A=shipped\nTING_B=shipped\nTING_HISTORY=shipped\nTING_D=shipped\nTING_BG=shipped\n")
+	write(t, user, "TING_B=user\nTING_B=second-line-loses\nUT_HISTORY=user-old-name\nTING_ENGINE_DIR=/evil\n")
 	env := []string{
 		"HOME=" + dir,
-		"UT_CONFIG=" + user,
-		"UT_D=env",
+		"TING_CONFIG=" + user,
+		"TING_D=env",
 		"YT_BG=old-name",
-		"TING_BG=new-name",       // a renamed key's new name wins over its old one
-		"YT_SYNC=old-only",       // an old name alone still reads into the new key
-		"TING_A=not-on-the-list", // TING_A is not a renamed knob in the environment
+		"TING_BG=new-name",     // a renamed key's new name wins over its old one
+		"YT_SYNC=old-only",     // an old name alone still reads into the new key
+		"UT_A=not-an-old-name", // UT_A is on no rename table
 	}
 	c, err := Load(env, shipped)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := map[string]string{
-		"UT_A": "shipped", "UT_B": "user", "TING_B": "user", "UT_C": "user-new-name",
-		"UT_D": "env", "TING_BG": "new-name", "TING_SYNC": "old-only",
+		"TING_A": "shipped", "TING_B": "user", "TING_HISTORY": "user-old-name",
+		"TING_D": "env", "TING_BG": "new-name", "TING_SYNC": "old-only",
 	}
 	for k, v := range want {
 		if got := c.Value(k); got != v {
 			t.Errorf("%s = %q, want %q", k, got, v)
 		}
 	}
-	if _, ok := c.Get("UT_ENGINE_DIR"); ok {
-		t.Error("a config file set UT_ENGINE_DIR")
+	if _, ok := c.Get("TING_ENGINE_DIR"); ok {
+		t.Error("a config file set TING_ENGINE_DIR")
 	}
-	if !c.Pinned("UT_D") || !c.Pinned("TING_BG") || !c.Pinned("YT_SYNC") || c.Pinned("UT_B") {
+	if !c.Pinned("TING_D") || !c.Pinned("TING_BG") || !c.Pinned("YT_SYNC") || c.Pinned("TING_B") {
 		t.Error("pinned should be exactly the environment's keys")
 	}
 	if c.UserPath != user {
@@ -119,11 +122,11 @@ func TestMissingShippedIsItsOwnError(t *testing.T) {
 
 // The real shipped file parses, and a few of its values are what the shell reads.
 func TestRealShippedConfig(t *testing.T) {
-	c, err := Load([]string{"HOME=/nonexistent", "UT_CONFIG=/nonexistent"}, "../../config")
+	c, err := Load([]string{"HOME=/nonexistent", "TING_CONFIG=/nonexistent"}, "../../config")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, k := range []string{"UT_DEFAULT_ENGINE", "UT_SEARCH_RESULTS", "UT_PLAY_MODE", "UT_PAGE_ROWS"} {
+	for _, k := range []string{"TING_DEFAULT_ENGINE", "TING_SEARCH_RESULTS", "TING_PLAY_MODE", "TING_PAGE_ROWS"} {
 		if c.Value(k) == "" {
 			t.Errorf("%s is empty", k)
 		}

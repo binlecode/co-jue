@@ -28,11 +28,11 @@ func suite(t *testing.T) *Suite {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
-	t.Setenv("UT_STATE_DIR", filepath.Join(dir, "state"))
+	t.Setenv("TING_STATE_DIR", filepath.Join(dir, "state"))
 	t.Setenv("TMPDIR", dir)
-	t.Setenv("UT_CONFIG", filepath.Join(dir, "no-config"))
-	t.Setenv("UT_HISTORY", "0")
-	t.Setenv("UT_ENGINE_DIR", filepath.Join(dir, "no-engines"))
+	t.Setenv("TING_CONFIG", filepath.Join(dir, "no-config"))
+	t.Setenv("TING_HISTORY", "0")
+	t.Setenv("TING_ENGINE_DIR", filepath.Join(dir, "no-engines"))
 	shell, err := filepath.Abs("../../shell")
 	if err != nil {
 		t.Fatal(err)

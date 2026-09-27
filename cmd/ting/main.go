@@ -42,9 +42,9 @@ Usage:
   ting [options] [search query]
 
 Options:
-  -n NUM         Number of results to fetch (default: UT_SEARCH_RESULTS)
-  --engine NAME  Which source to search (default: UT_DEFAULT_ENGINE, else the first installed)
-  -f MODE        Playback mode: audio | video | fast (default: UT_PLAY_MODE)
+  -n NUM         Number of results to fetch (default: TING_SEARCH_RESULTS)
+  --engine NAME  Which source to search (default: TING_DEFAULT_ENGINE, else the first installed)
+  -f MODE        Playback mode: audio | video | fast (default: TING_PLAY_MODE)
   --volume N     mpv startup volume, 0-100
   -h             This help
   -V             Print the suite version
@@ -128,28 +128,28 @@ func main() {
 		die(2, "%v", err)
 	}
 
-	mode := pick(f.mode, cfg, "UT_PLAY_MODE")
+	mode := pick(f.mode, cfg, "TING_PLAY_MODE")
 	switch mode {
 	case "audio", "video", "fast", "":
 	default:
 		die(1, "-f must be one of: audio, video, fast (playback is detached — ascii/viz need a terminal to draw on)")
 	}
-	volume := pick(f.volume, cfg, "UT_VOLUME")
+	volume := pick(f.volume, cfg, "TING_VOLUME")
 	if volume != "" {
 		if v, err := strconv.Atoi(volume); err != nil || v < 0 || v > 100 {
 			die(1, "--volume must be between 0 and 100")
 		}
 	}
 	n := 0
-	if s := pick(f.n, cfg, "UT_SEARCH_RESULTS"); s != "" {
+	if s := pick(f.n, cfg, "TING_SEARCH_RESULTS"); s != "" {
 		if n, err = strconv.Atoi(s); err != nil || n < 1 {
 			die(1, "-n must be a positive integer")
 		}
 	}
-	pageRows, _ := strconv.Atoi(cfg.Value("UT_PAGE_ROWS"))
+	pageRows, _ := strconv.Atoi(cfg.Value("TING_PAGE_ROWS"))
 
 	if !term.IsTerminal(os.Stdin.Fd()) || !term.IsTerminal(os.Stdout.Fd()) {
-		die(1, "requires a terminal (interactive menu); use %s-search / t-play headless", cfg.Value("UT_DEFAULT_ENGINE"))
+		die(1, "requires a terminal (interactive menu); use %s-search / t-play headless", cfg.Value("TING_DEFAULT_ENGINE"))
 	}
 
 	suite, err := verb.Locate()
@@ -164,11 +164,11 @@ func main() {
 		die(2, "%v", err)
 	}
 	if len(engines) == 0 {
-		die(1, "no engine found — need a <name>-search and <name>-resolve pair beside t-play, in $UT_ENGINE_DIR, or on PATH")
+		die(1, "no engine found — need a <name>-search and <name>-resolve pair beside t-play, in $TING_ENGINE_DIR, or on PATH")
 	}
 	names := make([]string, len(engines))
 	idx := -1
-	want := pick(f.engine, cfg, "UT_DEFAULT_ENGINE")
+	want := pick(f.engine, cfg, "TING_DEFAULT_ENGINE")
 	for i, e := range engines {
 		names[i] = e.Name
 		if e.Name == want {
@@ -192,7 +192,7 @@ func main() {
 		Engine:    idx,
 		Query:     strings.Join(f.query, " "),
 		Search:    verb.SearchOpts{N: n},
-		Play:      verb.PlayOpts{Mode: mode, Quality: cfg.Value("UT_PLAY_QUALITY"), Volume: volume},
+		Play:      verb.PlayOpts{Mode: mode, Quality: cfg.Value("TING_PLAY_QUALITY"), Volume: volume},
 		PageRows:  pageRows,
 		AdoptFrom: players,
 	})

@@ -87,7 +87,7 @@ shell/ting --version                                      # 响应版本（不�
 - **站点知识与播放生命周期彻底隔离**：播放器 `t-play` 绝不直接运行 `yt-dlp`，不知道站点 Cookie 或格式代码；通过拼接命令名调用 `<engine>-resolve -j` 获取最终流媒体 URL 及 HTTP 请求头，以 `--no-ytdl` 注入 `mpv`。
 - **单视图原地重绘**：`ting` 仅拥有一套统一的滚动渲染视图，无全屏清屏闪烁；所有非搜索数据（歌单 `b`、历史 `h`、分 P `c`、章节 `i`）均作为“临时替换行源”接入该视图。
 - **多字节与 CJK 精确宽度**：按键处理以单字节累积并由 `utf8_complete` 还原字符；显示宽度由 `disp_w` 按 EAW 表准确分配，保证不同终端与语言下绝对不撕裂排版。
-- **配置继承链与偏好写回**：配置查找按 `Flag > Env (TING_* > UT_*) > User Config (~/.config/ting/config) > Shipped Config` 顺序继承；`config`、`state`、`engines` 三处路径与每个环境变量都是「新名优先、旧名兜底」的两名链。出厂 `config` 永远只读，`ting` 退出时将 11 个偏好键写回用户个人配置文件。
+- **配置继承链与偏好写回**：配置查找按 `Flag > Env > User Config (~/.config/ting/config) > Shipped Config` 顺序继承；键一律 `TING_` 前缀（引擎键 `TING_<ENGINE>_*`），改名前的旧键名兜底一个版本；`config`、`state`、`engines` 三处路径是「新目录优先、旧目录兜底」的两名链。出厂 `config` 永远只读，`ting` 退出时将 11 个偏好键写回用户个人配置文件。
 
 ---
 
@@ -108,7 +108,7 @@ shell/ting --version                                      # 响应版本（不�
 
 - **Harden before you extend**：扩展功能前先确认现有测试用例全绿，排查 bug 时先编写能复现失败的测试。
 - 🔴 **零 fixture / 零 mock / 零 stub —— 全部是真实功能测试**：测试必须驱动真实入口、发真实网络请求、解析真实信封、管理真实进程。严禁在 `tests/` 内自造替身，也严禁用预先捏造的数据（seed 好的存储记录、写死的信封、staged 配置键）去喂一个本该自己产出这份数据的命令。
-  - **隔离不是 fixture**：`TMPDIR` / `UT_STATE_DIR` / 一个空的 `UT_CONFIG` 只是把写操作挡在用户真实文件之外，它们不预置任何行为；一旦某个文件预置了键值去驱动被测行为，那就是 fixture，必须改成由真实命令跑出来。
+  - **隔离不是 fixture**：`TMPDIR` / `TING_STATE_DIR` / 一个空的 `TING_CONFIG` 只是把写操作挡在用户真实文件之外，它们不预置任何行为；一旦某个文件预置了键值去驱动被测行为，那就是 fixture，必须改成由真实命令跑出来。
   - **就绪一律轮询真实信号**（socket 出现、标题回填、帧上的 ready 标记），严禁 `sleep` 猜时间。
 - **最少提交门禁**：每次 commit 前必须运行 `bash -n shell/*` 并通过 `tests/contract.sh --offline`。
 

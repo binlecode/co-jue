@@ -51,13 +51,13 @@ fi
 # RESOLVED location — the same mechanism, and the same reason, as the VERSION read above.
 # That file is where every default value in the suite is declared, ONCE, for every entry
 # point. Before it existed each default was inlined per script, which meant a cross-engine
-# value like UT_SEARCH_RESULTS was written twice and could drift apart with nothing to
+# value like TING_SEARCH_RESULTS was written twice and could drift apart with nothing to
 # catch it. It is therefore NOT optional: a checkout without it is broken, and says so with
 # exit 2 rather than letting set -u abort somewhere further in. --version and --help still
 # answer, because those two must work on a broken checkout to be worth having.
 #
 # The user's own file is ${XDG_CONFIG_HOME:-~/.config}/ting/config — read FIRST, so it wins
-# over the shipped defaults; UT_CONFIG relocates it (environment only: a file cannot move
+# over the shipped defaults; TING_CONFIG relocates it (environment only: a file cannot move
 # itself, and the two suites set it so they never read a real user's config). Both files are
 # optional to WRITE and neither is written by any command — nothing in the suite persists
 # configuration.
@@ -65,27 +65,24 @@ fi
 # `KEY=value`, one per line, `#` to end of line is a comment, one matching quote pair
 # stripped, a leading ~/ expanded. Deliberately NOT sourced as shell: a config file that is
 # executed can run anything, and this suite's safety story is that its inputs are DATA.
-# `eval` assigns from a variable, never from the line, so `UT_X=$(cmd)` stores those nine
-# characters. Only TING_ and UT_ keys are read (an old YT_/BILI_/NE_ name is first renamed
-# through CFG_RENAMED below), so no file can reach PATH, TMPDIR or LD_PRELOAD — nor the four
-# the player sets for its own detached child, which are spelled _TING_ for exactly that: a
-# file-level _TING_IPC_SOCK would aim every player at one socket. Refused inside those
-# namespaces are the three names that are not knobs at all: the two config paths (a file
-# cannot move itself) and UT_VERSION, which is the VERSION line read in above — what
-# `--version` answers is not a setting. And so is UT_ENGINE_DIR, which IS a knob — the one
-# refused for what its VALUE is rather than for what the name means. It points at a
-# directory of EXECUTABLES this suite runs, so a config file that could set it would be PATH
-# under another spelling, and the sentence above would stop being true. Environment only,
-# like the two config paths. Four names in both spellings, and the refusal is what makes
-# the prefix safe to wear: a constant is only reachable from a config file because it is
-# spelled UT_.
+# `eval` assigns from a variable, never from the line, so `TING_X=$(cmd)` stores those nine
+# characters. Only TING_ keys are read (an old UT_/YT_/BILI_/NE_ name is first renamed
+# through CFG_RENAMED below), so no file can reach PATH, TMPDIR or LD_PRELOAD. Nor can it reach
+# a constant: UT_VERSION (the VERSION line read in above) and UT_DEFAULTS are spelled outside
+# the namespace, and so are the four the player sets for its own detached child — _TING_*,
+# the leading underscore is the point: a file-level _TING_IPC_SOCK would aim every player at
+# one socket. Two names inside the namespace are refused. TING_CONFIG, because a file cannot
+# move itself. And TING_ENGINE_DIR, which IS a knob — refused for what its VALUE is rather
+# than for what the name means. It points at a directory of EXECUTABLES this suite runs, so a
+# config file that could set it would be PATH under another spelling, and the sentence above
+# would stop being true. Environment only, like the config path.
 #
-# Four defaults stay inline and are named in `config`'s own header: UT_STATE_DIR and
-# UT_ENGINE_DIR (both chain through an XDG variable, which a flat file cannot express),
+# Four defaults stay inline and are named in `config`'s own header: TING_STATE_DIR and
+# TING_ENGINE_DIR (both chain through an XDG variable, which a flat file cannot express),
 # TING_LANG and TING_ASCII (unset IS the locale probe for both).
 #
 # The key list is ARCH-cli-contract.md「配置面」. This block is duplicated VERBATIM in every
-# entry points: ten independent executables share no library, and a byte-for-byte copy is
+# entry point: independent executables share no library, and a byte-for-byte copy is
 # greppable for drift where a sourced file would invert the dependency direction the VERSION
 # data file exists to keep straight.
 TING_CONFIG="${TING_CONFIG:-${UT_CONFIG:-}}"
@@ -96,17 +93,21 @@ if [[ -z "$TING_CONFIG" ]]; then
         TING_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/uting/config"
     fi
 fi
-UT_CONFIG="$TING_CONFIG"
-for _v in STATE_DIR ENGINE_DIR HISTORY VOLUME IMAGE KEYS RESOURCE PLAY_QUALITY VIZ_STYLE VIZ_COLOR DEFAULT_ENGINE; do
-    eval "[[ -n \"\${TING_$_v+x}\" ]] && UT_$_v=\"\$TING_$_v\" || true"
-    eval "[[ -n \"\${UT_$_v+x}\" && -z \"\${TING_$_v+x}\" ]] && TING_$_v=\"\$UT_$_v\" || true"
-done
 # Renamed and merged keys, OLD:NEW. The old name still reads, one version, into the key that
-# replaced it: from the environment here, from a file in ut_read_config, and ting's write-back
-# renames the line in place. Lower-level than a knob, so it is not spelled with a key prefix.
-CFG_RENAMED="UT_START_RESULTS:UT_SEARCH_RESULTS YT_COOKIE_BROWSER:UT_COOKIE_BROWSER \
-    BILI_COOKIE_BROWSER:UT_COOKIE_BROWSER NE_COOKIE_BROWSER:UT_COOKIE_BROWSER YT_THEME:TING_THEME \
-    YT_LANG:TING_LANG YT_ASCII:TING_ASCII YT_ASCII_VO:TING_ASCII_VO \
+# replaced it: from the environment here (only while the new name is unset, so the new name
+# wins), from a file in ut_read_config, and ting's write-back renames the line in place. A
+# renamed name comes before a merged one, so when both are set the renamed one wins. Not a
+# knob, so not spelled TING_.
+CFG_RENAMED="UT_STATE_DIR:TING_STATE_DIR UT_ENGINE_DIR:TING_ENGINE_DIR UT_HISTORY:TING_HISTORY \
+    UT_DEFAULT_ENGINE:TING_DEFAULT_ENGINE UT_SEARCH_RESULTS:TING_SEARCH_RESULTS \
+    UT_COOKIE_BROWSER:TING_COOKIE_BROWSER UT_SORT_FIELD:TING_SORT_FIELD \
+    UT_PLAY_MODE:TING_PLAY_MODE UT_VOLUME:TING_VOLUME UT_PLAY_QUALITY:TING_PLAY_QUALITY \
+    UT_VIZ_STYLE:TING_VIZ_STYLE UT_VIZ_COLOR:TING_VIZ_COLOR UT_PAGE_ROWS:TING_PAGE_ROWS \
+    UT_FETCH_BATCH:TING_FETCH_BATCH UT_LOOP_MODE:TING_LOOP_MODE UT_RESOURCE:TING_RESOURCE \
+    UT_KEYS:TING_KEYS UT_LIST_MODE:TING_LIST_MODE UT_ROW_INDEX:TING_ROW_INDEX UT_IMAGE:TING_IMAGE \
+    UT_START_RESULTS:TING_SEARCH_RESULTS YT_COOKIE_BROWSER:TING_COOKIE_BROWSER \
+    BILI_COOKIE_BROWSER:TING_COOKIE_BROWSER NE_COOKIE_BROWSER:TING_COOKIE_BROWSER \
+    YT_THEME:TING_THEME YT_LANG:TING_LANG YT_ASCII:TING_ASCII YT_ASCII_VO:TING_ASCII_VO \
     YT_MPV_INPUT_CONF:TING_MPV_INPUT_CONF YT_BG:TING_BG YT_SYNC:TING_SYNC \
     YT_AMBIG_WIDE:TING_AMBIG_WIDE YT_AUDIO_FORMAT:TING_YT_AUDIO_FORMAT \
     YT_VIDEO_FORMAT:TING_YT_VIDEO_FORMAT YT_VIDEO_FORMAT_FAST:TING_YT_VIDEO_FORMAT_FAST \
@@ -119,7 +120,7 @@ for _v in $CFG_RENAMED; do
 done
 UT_DEFAULTS="$SCRIPT_DIR/../config"
 ut_read_config() {
-    local file="$1" line key val _ting_k _ut_k
+    local file="$1" line key val _new
     [[ -r "$file" ]] || return 0
     while IFS= read -r line || [[ -n "$line" ]]; do
         line="${line%%#*}"
@@ -132,29 +133,21 @@ ut_read_config() {
         while [[ "$val" == [[:space:]]* ]]; do val="${val#[[:space:]]}"; done
         case " $CFG_RENAMED " in
         *" $key:"*)
-            _ut_k=" $CFG_RENAMED"
-            _ut_k="${_ut_k#* $key:}"
-            key="${_ut_k%% *}"
+            _new=" $CFG_RENAMED"
+            _new="${_new#* $key:}"
+            key="${_new%% *}"
             ;;
         esac
-        [[ "$key" =~ ^(TING|UT)_[A-Z0-9_]+$ ]] || continue
+        [[ "$key" =~ ^TING_[A-Z0-9_]+$ ]] || continue
         case "$key" in
-        TING_CONFIG | TING_DEFAULTS | TING_ENGINE_DIR | TING_VERSION | UT_CONFIG | UT_DEFAULTS | UT_ENGINE_DIR | UT_VERSION) continue ;;
+        TING_CONFIG | TING_ENGINE_DIR) continue ;;
         esac
         if [[ ${#val} -ge 2 ]] && { [[ "$val" == \"*\" ]] || [[ "$val" == \'*\' ]]; }; then
             val="${val#?}"
             val="${val%?}"
         fi
         [[ "$val" == "~/"* ]] && val="$HOME/${val#\~/}"
-        if [[ "$key" == TING_* ]]; then
-            _ut_k="UT_${key#TING_}"
-            eval "[[ -n \"\${$key+x}\" ]] || $key=\$val"
-            eval "[[ -n \"\${$_ut_k+x}\" ]] || $_ut_k=\$val"
-        else
-            _ting_k="TING_${key#UT_}"
-            eval "[[ -n \"\${$key+x}\" ]] || $key=\$val"
-            eval "[[ -n \"\${$_ting_k+x}\" ]] || $_ting_k=\$val"
-        fi
+        eval "[[ -n \"\${$key+x}\" ]] || $key=\$val"
     done < "$file"
 }
 # FAIL FAST AND SAY WHY. There is deliberately no escape hatch for --version or --help: they
@@ -168,7 +161,7 @@ if [[ ! -r "$UT_DEFAULTS" ]]; then
         "$(basename "$0")" "$UT_DEFAULTS" >&2
     exit 2
 fi
-ut_read_config "$UT_CONFIG"
+ut_read_config "$TING_CONFIG"
 ut_read_config "$UT_DEFAULTS"
 # Path to this script, used to re-exec a detached playback child (see detach_play).
 SELF="${BASH_SOURCE[0]}"
@@ -182,7 +175,7 @@ SELF="${BASH_SOURCE[0]}"
 # the player and the TUI would both have to hold. Per-call override: --engine.
 # ARCH-cli-contract.md「命令规格」
 
-# THE LISTENING LOG, on by default; `UT_HISTORY=0` turns it off. A history that ships off is
+# THE LISTENING LOG, on by default; `TING_HISTORY=0` turns it off. A history that ships off is
 # not a history — nobody finds the knob that has to be found before the feature has ever
 # produced a row, so the default is the feature. What it buys is bounded on purpose: a local
 # file, on this machine, with a --clear verb of its own. The reopen condition is a SHARED
@@ -272,20 +265,20 @@ so a flag its site has no use for is refused (1), and --engines lists what each 
   the default. -n counts what is FETCHED; the duration bounds shorten it.
 
 Options:
-  --engine N  Which engine a play or an engine verb goes to (default: $UT_DEFAULT_ENGINE;
-              set UT_DEFAULT_ENGINE). The name is the file: --engine yt runs t-engine-yt.
+  --engine N  Which engine a play or an engine verb goes to (default: $TING_DEFAULT_ENGINE;
+              set TING_DEFAULT_ENGINE). The name is the file: --engine yt runs t-engine-yt.
   --start SEC Open at SEC seconds instead of the beginning. Whole seconds, 0 or more.
               A handle carrying its own timestamp (…&t=601s) starts there on its own;
               this overrides it, and in a queue it applies to the first track only.
-  --quality TIER  Quality tier: auto|low|medium|high (default: UT_PLAY_QUALITY / auto).
+  --quality TIER  Quality tier: auto|low|medium|high (default: TING_PLAY_QUALITY / auto).
               The (mode, tier) -> format table lives in the engine
   -f MODE     Playback mode (default: audio)
               audio|ba  audio-only          video|bv  high-quality video+audio
               fast|fst  progressive video   ascii|asc terminal video (mpv terminal VO)
-              viz|waves live audio visualizer (UT_VIZ_STYLE picks the picture)
+              viz|waves live audio visualizer (TING_VIZ_STYLE picks the picture)
               (-d rejects ascii/viz: a detached player has no terminal to draw on)
   --viz-color C  Visualizer color for -f viz: an ffmpeg color name (cyan, magenta, …),
-              0xRRGGBB, or #RRGGBB (default: UT_VIZ_COLOR / cyan). In the CONFIG FILE
+              0xRRGGBB, or #RRGGBB (default: TING_VIZ_COLOR / cyan). In the CONFIG FILE
               only 0xRRGGBB works — there a # starts a comment. The gate checks the
               SHAPE, not the name: an unknown name reaches mpv and draws its default.
   --volume N  mpv startup volume, 0-100 (default: mpv's own). For -d this is the STARTING
@@ -335,7 +328,7 @@ Options:
   --watch     Stream a detached player's state until it ends: one line per change, never
               per frame. It follows the player across its queue, not one mpv.
   --engines   List every installed engine — a t-engine-<name> file beside this file, in
-              \$UT_ENGINE_DIR, or on PATH (first sight of a name wins) — with the file a
+              \$TING_ENGINE_DIR, or on PATH (first sight of a name wins) — with the file a
               call would run and the engine flags it accepts. Needs no jq; touches no state.
   --color M   auto|always|never (default: auto). No -c short form.
   -h          This help
@@ -380,7 +373,7 @@ Output contracts (one line of JSON each; the why behind each shape: ARCH-cli-con
                    end (the player is gone; last known state + exit_code, reason from
                    its tombstone, both null when it finished or was stopped)
             cpu (percent) and mem (MB) are summed over the player's process group and
-            sampled every 3rd heartbeat; null with UT_RESOURCE=0
+            sampled every 3rd heartbeat; null with TING_RESOURCE=0
   --set-vol {status:"ok", id, volume} | {status:"not_playing"} | {status:"ambiguous", …}
             | {status:"error", reason:"ipc_failed"}
   --pause   {status:"ok", id, paused:true|false}   (same not_playing/ambiguous/error shapes)
@@ -427,7 +420,7 @@ Playback keys (mpv, during a blocking 't-play -- <handle>' playback):
 Dependencies: mpv (playback) + jq; a unix-socket netcat — BSD/OpenBSD 'nc -U' or nmap's
               'ncat' — for every socket verb: --set-volume, --pause, --resume,
               --seek, --seek-to, --watch (the queue verbs need only jq); a t-engine-<name>
-              next to this file, in \$UT_ENGINE_DIR, or on PATH. yt-dlp / curl / cookies are
+              next to this file, in \$TING_ENGINE_DIR, or on PATH. yt-dlp / curl / cookies are
               the ENGINE's business, not the player's; an engine verb needs none of mpv, jq
               or nc from this file — only what that engine gates for itself.
 
@@ -435,16 +428,16 @@ Environment:
   Defaults for every knob below live in <checkout>/config, declared once for the whole
   suite. Override per user in \${XDG_CONFIG_HOME:-~/.config}/ting/config (KEY=value, one
   per line, # comments; the pre-rename .../uting/config is read when there is no ting
-  one); TING_CONFIG relocates it, and UT_CONFIG still does. Chain: flag > environment > your
-  config > the shipped defaults. See ARCH-cli-contract.md「配置面」.
-  UT_DEFAULT_ENGINE    Engine used when --engine is not given (default: $UT_DEFAULT_ENGINE)
-  UT_ENGINE_DIR        Extra directory searched for t-engine-<name>, after this file's own
+  one); TING_CONFIG relocates it (the old UT_CONFIG still does). Chain: flag >
+  environment > your config > the shipped defaults. See ARCH-cli-contract.md「配置面」.
+  TING_DEFAULT_ENGINE  Engine used when --engine is not given (default: $TING_DEFAULT_ENGINE)
+  TING_ENGINE_DIR      Extra directory searched for t-engine-<name>, after this file's own
                        directory and before PATH. ENVIRONMENT ONLY — it names programs the
                        player runs, so neither config file can set it.
                        (default: \${XDG_DATA_HOME:-~/.local/share}/ting/engines)
-  UT_HISTORY           0 stops a detached player writing to the listening log (default: on)
-  UT_VIZ_STYLE         -f viz picture: bars (log-scaled spectrum) | wave (waveform)
-                       (default: $UT_VIZ_STYLE)
+  TING_HISTORY         0 stops a detached player writing to the listening log (default: on)
+  TING_VIZ_STYLE       -f viz picture: bars (log-scaled spectrum) | wave (waveform)
+                       (default: $TING_VIZ_STYLE)
   TING_ASCII_VO        mpv terminal video output driver (default: tct)
   TING_MPV_INPUT_CONF  Path to an optional custom mpv input.conf
 EOF
@@ -616,20 +609,19 @@ validate_loop_mode() {
 # PATH — the same three places, in the same order, that `ting` builds its registry from, and
 # the two files have to agree or the TUI offers a source the player cannot open. The default
 # chains through XDG_DATA_HOME, which is why it is inline here and not in the shipped
-# `config`: a flat KEY=value file cannot express a chain (UT_STATE_DIR is the precedent).
+# `config`: a flat KEY=value file cannot express a chain (TING_STATE_DIR is the precedent).
 # It is refused from BOTH config files — see the ut_read_config block above for why.
 #
 # The suite writes nothing here and does not create it; a checkout with no plugin dir loses
 # one failed glob per lookup and nothing else.
-if [[ -z "${UT_ENGINE_DIR:-}" ]]; then
+if [[ -z "${TING_ENGINE_DIR:-}" ]]; then
     if [[ -d "${XDG_DATA_HOME:-$HOME/.local/share}/uting/engines" ]] &&
         [[ ! -d "${XDG_DATA_HOME:-$HOME/.local/share}/ting/engines" ]]; then
-        UT_ENGINE_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/uting/engines"
+        TING_ENGINE_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/uting/engines"
     else
-        UT_ENGINE_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/ting/engines"
+        TING_ENGINE_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/ting/engines"
     fi
 fi
-TING_ENGINE_DIR="$UT_ENGINE_DIR"
 
 # Checks if string looks like an HTTP/HTTPS URL or well-known shortlink
 is_url_target() {
@@ -684,7 +676,7 @@ engine_resolve_bin() {
         die "invalid engine name: '$ENGINE'"
     fi
     ENGINE_RESOLVE=$(engine_file_bin "$ENGINE") ||
-        die "unknown engine '$ENGINE': no 't-engine-$ENGINE' next to t-play, in $UT_ENGINE_DIR, or on PATH"
+        die "unknown engine '$ENGINE': no 't-engine-$ENGINE' next to t-play, in $TING_ENGINE_DIR, or on PATH"
     return 0
 }
 
@@ -695,8 +687,8 @@ engine_resolve_bin() {
 engine_file_bin() { # <name>
     if [[ -x "$SCRIPT_DIR/t-engine-$1" ]]; then
         printf '%s\n' "$SCRIPT_DIR/t-engine-$1"
-    elif [[ -x "$UT_ENGINE_DIR/t-engine-$1" ]]; then
-        printf '%s\n' "$UT_ENGINE_DIR/t-engine-$1"
+    elif [[ -x "$TING_ENGINE_DIR/t-engine-$1" ]]; then
+        printf '%s\n' "$TING_ENGINE_DIR/t-engine-$1"
     else
         command -v "t-engine-$1" 2>/dev/null
     fi
@@ -704,7 +696,7 @@ engine_file_bin() { # <name>
 
 # THE ENGINE REGISTRY, published: `--engines` answers which sources are installed and what each
 # accepts, so no caller has to carry the rule below — a TUI runs `t-play` and never learns
-# that UT_ENGINE_DIR exists (PLAN-go-tui.md「未决」, decided 2026-09-25).
+# that TING_ENGINE_DIR exists (PLAN-go-tui.md「未决」, decided 2026-09-25).
 #
 # All three places are always scanned and the first sight of a name wins, so a plugin dir
 # cannot shadow a built-in. A name the player would refuse as `--engine` (the regex in
@@ -746,7 +738,7 @@ ENGINE_FLAGS_RE='^("-[-a-z0-9_]*"(,"-[-a-z0-9_]*")*)?$'
 do_engines() {
     local d name bin caps flags sep="" out=""
     engines_scan_dir "$SCRIPT_DIR"
-    engines_scan_dir "$UT_ENGINE_DIR"
+    engines_scan_dir "$TING_ENGINE_DIR"
     local saved_ifs=$IFS
     IFS=:
     for d in $PATH; do
@@ -774,7 +766,7 @@ do_engines() {
     if [[ "$OUTPUT_MODE" == "json" ]]; then
         printf '{"status":"ok","engines":[%s]}\n' "$out"
     elif [[ -z "$sep" ]]; then
-        echo "no engines: need a t-engine-<name> file beside t-play, in $UT_ENGINE_DIR, or on PATH" >&2
+        echo "no engines: need a t-engine-<name> file beside t-play, in $TING_ENGINE_DIR, or on PATH" >&2
     fi
     exit 0
 }
@@ -795,7 +787,7 @@ do_engines() {
 # Without --engine, a URL handle picks its engine by host, exactly as a play does; a bare id
 # or a query takes the default. ARCH-cli-contract.md「命令规格」.
 forward_engine_verb() {
-    local a verb="" engine="$UT_DEFAULT_ENGINE" specified=0 last="" bin sniffed
+    local a verb="" engine="$TING_DEFAULT_ENGINE" specified=0 last="" bin sniffed
     for a in "$@"; do
         [[ "$a" == "--" ]] && break
         case "$a" in
@@ -837,7 +829,7 @@ forward_engine_verb() {
     fi
     [[ "$engine" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || die "invalid engine name: '$engine'"
     bin=$(engine_file_bin "$engine") ||
-        die "unknown engine '$engine': no 't-engine-$engine' next to t-play, in $UT_ENGINE_DIR, or on PATH"
+        die "unknown engine '$engine': no 't-engine-$engine' next to t-play, in $TING_ENGINE_DIR, or on PATH"
     exec "$bin" "${fwd[@]}"
 }
 
@@ -1184,7 +1176,7 @@ play_viz_url() {
     # the glyph mpv emits is ▄. ARCH-player.md「终端可视化」
     size="${width}x$((height * 2))"
 
-    # WHICH picture is taste, so it is a config key and not a flag (UT_VIZ_STYLE) — nobody
+    # WHICH picture is taste, so it is a config key and not a flag (TING_VIZ_STYLE) — nobody
     # picks a visualiser style per track. The COLOUR beside it has both, and that asymmetry
     # is deliberate: it follows the pane this call draws on, not the taste of the person.
     # ARCH-player.md「终端可视化」. Both chains were measured at this geometry
@@ -1203,7 +1195,7 @@ play_viz_url() {
     # wherever they agreed, which for a stereo mix is most of the picture. Downmixing before
     # showfreqs also makes the reading honest — one bar per terminal column, not two summed.
     local filter
-    case "$UT_VIZ_STYLE" in
+    case "$TING_VIZ_STYLE" in
     bars) filter="aformat=channel_layouts=mono,showfreqs=s=${size}:mode=bar:ascale=log:fscale=log:colors=${VIZ_COLOR}:r=15" ;;
     *) filter="showwaves=s=${size}:mode=cline:colors=${VIZ_COLOR}:r=15" ;;
     esac
@@ -1841,7 +1833,7 @@ history_bin() {
 # log of what was played may cost the playing of the next thing.
 history_record() {
     local url=$1 engine=$2 rc=$3 id=$4 title=$5
-    [[ "$UT_HISTORY" == 0 ]] && return 0
+    [[ "$TING_HISTORY" == 0 ]] && return 0
     [[ -n "$url" && -n "$engine" ]] || return 0
     history_bin || return 0
 
@@ -3126,7 +3118,7 @@ watch_bail() {
 RES_STRIDE=3
 watch_sample_res() {
     local pid=$1 out=""
-    [[ "${UT_RESOURCE:-1}" != 0 ]] || return 0
+    [[ "${TING_RESOURCE:-1}" != 0 ]] || return 0
     out=$(ps -A -o pgid=,%cpu=,rss= 2>/dev/null |
         awk -v g="$pid" '$1 == g { c += $2; r += $3; n += 1 }
                          END { if (n) printf "%.0f %.0f", c, r / 1024 }') || out=""
@@ -3642,18 +3634,18 @@ do_set_loop() {
 
 # The `-f` and `--volume` defaults, both cross-engine: set-once choices about how this user
 # listens, not about where the bytes came from. ARCH-cli-contract.md「配置面」.
-PLAYBACK_MODE="$UT_PLAY_MODE"
-PLAY_QUALITY="$UT_PLAY_QUALITY" # --quality flag overrides; the engine maps (mode, tier)
-VOLUME="$UT_VOLUME"
+PLAYBACK_MODE="$TING_PLAY_MODE"
+PLAY_QUALITY="$TING_PLAY_QUALITY" # --quality flag overrides; the engine maps (mode, tier)
+VOLUME="$TING_VOLUME"
 PLAY_START=""        # --start: seconds to open at, beating the handle's own offset
-VIZ_COLOR="${UT_VIZ_COLOR:-cyan}"
+VIZ_COLOR="${TING_VIZ_COLOR:-cyan}"
 VIZ_COLOR_FLAG=0
 COLOR_MODE="auto"
 # Default output is prose; -j selects the machine envelope.
 OUTPUT_MODE="list"
 # Playback lifecycle / structured-output state.
 DETACH=0
-ENGINE="$UT_DEFAULT_ENGINE"  # which t-engine-<name> turns a handle into bytes
+ENGINE="$TING_DEFAULT_ENGINE"  # which t-engine-<name> turns a handle into bytes
 ENGINE_SPECIFIED=0
 ACTION=""            # "" (normal) | status | stop | set-volume | pause | resume | seek |
                      # seek-to | enqueue | next | set-loop | queue-show | queue-rm |
@@ -3668,7 +3660,7 @@ SET_VOLUME_ARG=""    # value from --set-volume N
 # came from a UI's "sequential" or from ten presses of --enqueue. ARCH-player.md「循环」.
 #
 # Deliberately NOT defaulted from a config key. ting's own three-state cycle writes
-# UT_LOOP_MODE back to the user's config, and its third state (seq) is not a value this flag
+# TING_LOOP_MODE back to the user's config, and its third state (seq) is not a value this flag
 # has — reading it here would make every later t-play call die on the caller's own
 # preference file. The player's default is off, full stop.
 LOOP_MODE="off"      # --loop
@@ -4144,7 +4136,7 @@ fi
 #
 # Refused HERE, before a player or even an id exists, because the path is known from the
 # environment alone: the id is always mktemp's six characters. Exit 1 like every other
-# environment value this file validates (UT_VIZ_STYLE) — the call cannot
+# environment value this file validates (TING_VIZ_STYLE) — the call cannot
 # succeed as configured, and the message says which variable to change. Counted in BYTES
 # (LC_ALL=C), because that is what the kernel counts; a CJK directory name is three per glyph.
 # Checked ahead of the -f ascii|viz refusal below only so the suite can pin the boundary
@@ -4366,14 +4358,14 @@ if [[ "$PLAYBACK_MODE" == "ascii" ]]; then
 fi
 
 if [[ "$PLAYBACK_MODE" == "viz" ]]; then
-    if ! validate_enum "$UT_VIZ_STYLE" bars wave; then
-        die "UT_VIZ_STYLE must be one of: bars, wave"
+    if ! validate_enum "$TING_VIZ_STYLE" bars wave; then
+        die "TING_VIZ_STYLE must be one of: bars, wave"
     fi
     if [[ ! "$VIZ_COLOR" =~ ^[a-zA-Z0-9#_|]+$ ]]; then
         if ((VIZ_COLOR_FLAG)); then
             die "--viz-color must be a valid color name or hex (got '$VIZ_COLOR')"
         else
-            die "UT_VIZ_COLOR must be a valid color name or hex (got '$VIZ_COLOR')"
+            die "TING_VIZ_COLOR must be a valid color name or hex (got '$VIZ_COLOR')"
         fi
     fi
 fi

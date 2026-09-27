@@ -1,6 +1,6 @@
 # PLAN — `t-play` 成为唯一 CLI 入口，引擎退到底层（`t-engine-<site>`）
 
-> **Status**: 实施中（2026-09-26 开工）· §8 七项按建议定下；第 1 步（`t-engine-yt`）、第 2 步（`t-engine-bili`、`t-engine-ne`）、第 3 步（`t-play` 入口，连同第 4 步的调用方切换）已落；第 5 步删并已落，前缀统一进行中  
+> **Status**: 实施中（2026-09-26 开工）· §8 七项按建议定下；第 1 步（`t-engine-yt`）、第 2 步（`t-engine-bili`、`t-engine-ne`）、第 3 步（`t-play` 入口，连同第 4 步的调用方切换）已落；第 5 步（删并、前缀统一）已落  
 > **Priority**: 第一梯队，**立即做**：先于 `PLAN-go-tui.md` 第 4 步，Go 那侧等本计划落地再继续  
 > **Target Branch**: main  
 > **Governing Docs**: [`ARCHITECTURE.md`](ARCHITECTURE.md)「命令拓扑与文件布局」、[`ARCH-engine.md`](ARCH-engine.md)、
@@ -263,3 +263,10 @@ yt 这一对 392 行（占 `yt-search` 代码的 63%），bili、ne 各约 214 �
 - **顺带发现**：`TING_THEME`、`TING_LANG`、`TING_ASCII`、`TING_SYNC` 原在环境镜像表上，被镜像进没人读的
   `UT_THEME` 等名字，从来没生效过；现在它们就是真键，镜像表去掉这四个。
 - **旧名在环境里也钉住写回**：`ting` 在读配置之前按旧名查一遍三对写回键（`UT_START_RESULTS`、`YT_THEME`、`YT_LANG`）。
+- **第二次提交：`UT_` 键全部换成 `TING_`，文件只认 `TING_`**。20 个 `UT_` 键进同一张改名表，两名镜像循环删掉；
+  从此每个键的 `TING_` 环境名都生效（从前只有镜像表上的 11 个）。拒收名单只剩 `TING_CONFIG`、`TING_ENGINE_DIR`：
+  `UT_VERSION`、`UT_DEFAULTS` 是内部常量，照旧拼 `UT_`，正好落在命名空间之外，不必再拒。`TING_CONFIG` 不进表，
+  在表之前手写一次，没有才看 `UT_CONFIG`。
+- **测试的环境隔离跟着改**：`contract.sh` 开头连旧名 `UT_CONFIG`、`UT_STATE_DIR` 一起清掉（旧名在新名没设时会补进来）；
+  `playback.sh` 的清扫扩到 `YT_`/`BILI_`/`NE_`；各 pane 命令行只设 `TING_` 一个名字。
+

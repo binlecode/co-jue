@@ -98,7 +98,7 @@ fi
 #
 # Redirecting TMPDIR is what makes that instruction safe. It changes nothing about WHAT is
 # invoked or asserted: the player is the real one and its state is really written, just not on
-# top of the user's. The playlist store already had this in UT_STATE_DIR; the half that kills
+# top of the user's. The playlist store already had this in TING_STATE_DIR; the half that kills
 # processes is the half that needed it more.
 UT_TEST_TMP=$(mktemp -d "${TMPDIR:-/tmp}/ting-contract.XXXXXX") || exit 1
 export TMPDIR="$UT_TEST_TMP"
@@ -107,20 +107,20 @@ STATE_DIR="$TMPDIR/ting-$(id -u)"
 # ---- the config file, pointed somewhere disposable ----------------------------------
 # The same argument as TMPDIR above, one layer out. Every command in the suite now reads
 # ${XDG_CONFIG_HOME:-~/.config}/ting/config, so without this line a developer whose real
-# config sets UT_SEARCH_RESULTS or UT_SORT_FIELD would see this file go red on their
+# config sets TING_SEARCH_RESULTS or TING_SORT_FIELD would see this file go red on their
 # machine and green on everyone else's — the worst failure a suite can have, because the
 # red is not in the subject. It points at a real, EMPTY file rather than a missing path so
 # the loader's read path is the one exercised for the rest of the run; the checks that
-# prove the loader actually loads something write their own file and set UT_CONFIG
+# prove the loader actually loads something write their own file and set TING_CONFIG
 # themselves.
-# TING_* is DROPPED rather than mirrored, and that is the whole isolation story in one line:
-# every export below is a UT_ name, and TING_ now outranks UT_ in the loader — so a developer
-# with TING_CONFIG or TING_STATE_DIR exported would have this file's own redirection silently
-# overruled and would run against their real files. The checks that prove the TING_ names work
-# set them themselves, one command at a time.
-unset TING_CONFIG TING_STATE_DIR
-export UT_CONFIG="$UT_TEST_TMP/config"
-: > "$UT_CONFIG"
+# The old UT_ names of the two redirections are DROPPED too: the loader still reads an old
+# name into its TING_ key whenever the TING_ one is unset, so a developer with UT_STATE_DIR
+# exported would have it fill in wherever this file has not set TING_STATE_DIR yet, and run
+# against their real store. The checks that prove the old names still work set them
+# themselves, one command at a time.
+unset TING_CONFIG TING_STATE_DIR UT_CONFIG UT_STATE_DIR
+export TING_CONFIG="$UT_TEST_TMP/config"
+: > "$TING_CONFIG"
 
 # ---- …and the real one, WATCHED --------------------------------------------------------
 # The export above redirects every command this shell runs. It does not reach a tmux pane —
@@ -160,8 +160,8 @@ report_real_config() {
 # The config file got this guard when ting learned to write one. The playlist store and the
 # listening log have been writable by every check in this file since long before that, and
 # they had no guard at all — the discipline was three sections each remembering to point
-# UT_STATE_DIR somewhere disposable, which is exactly the kind of discipline that holds until
-# it doesn't. It didn't: a section added after the one that ends with `unset UT_STATE_DIR`
+# TING_STATE_DIR somewhere disposable, which is exactly the kind of discipline that holds until
+# it doesn't. It didn't: a section added after the one that ends with `unset TING_STATE_DIR`
 # assigned the variable without exporting it, and every t-playlist call in it went to the
 # user's real store and left a playlist there.
 #
@@ -343,15 +343,15 @@ undo_pane() {
     UNDO_STATE=$(mktemp -d "${TMPDIR:-/tmp}/ting-undostore.XXXXXX")
     UNDO_CFG="$UT_TEST_TMP/undo-config"
     : >"$UNDO_CFG"
-    printf '%s' "$YT_S" | UT_STATE_DIR="$UNDO_STATE" shell/t-playlist --add undo-list -j >/dev/null 2>&1
-    [ "$(UT_STATE_DIR="$UNDO_STATE" shell/t-playlist --show undo-list -j 2>/dev/null | jq -r '.count // 0')" -ge 3 ] ||
+    printf '%s' "$YT_S" | TING_STATE_DIR="$UNDO_STATE" shell/t-playlist --add undo-list -j >/dev/null 2>&1
+    [ "$(TING_STATE_DIR="$UNDO_STATE" shell/t-playlist --show undo-list -j 2>/dev/null | jq -r '.count // 0')" -ge 3 ] ||
         { echo "contract.sh: the undo list did not seed — suite error, not a failure" >&2; exit 1; }
-    ul_show() { UT_STATE_DIR="$UNDO_STATE" shell/t-playlist --show "$1" -j 2>/dev/null; }
+    ul_show() { TING_STATE_DIR="$UNDO_STATE" shell/t-playlist --show "$1" -j 2>/dev/null; }
     ul_count() { ul_show "$1" | jq -r '.count // "none"'; }
     TS="ctest-undo-$$"
     tmux kill-session -t "$TS" 2>/dev/null
     tmux new-session -d -s "$TS" -x 100 -y 30 \
-        "cd '$PWD' && env TING_SYNC=0 UT_HISTORY=0 TMPDIR='$TMPDIR' UT_STATE_DIR='$UNDO_STATE' TING_STATE_DIR='$UNDO_STATE' UT_CONFIG='$UNDO_CFG' TING_CONFIG='$UNDO_CFG' TING_LANG=en shell/ting --volume 0 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
+        "cd '$PWD' && env TING_SYNC=0 TING_HISTORY=0 TMPDIR='$TMPDIR' TING_STATE_DIR='$UNDO_STATE' TING_CONFIG='$UNDO_CFG' TING_LANG=en shell/ting --volume 0 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
     undo_up=$(poll_until 40 pane_has "query='")
     report "the undo pane paints a list" 1 "$undo_up"
     if [ "$undo_up" = 1 ]; then
@@ -405,7 +405,7 @@ undo_pane() {
         tmux send-keys -t "$TS" d
         poll_until 10 pane_has 'z to undo' >/dev/null
         ul_show undo-list | jq -c '{items: .items[0:1]}' |
-            UT_STATE_DIR="$UNDO_STATE" shell/t-playlist --add undo-list -j >/dev/null 2>&1
+            TING_STATE_DIR="$UNDO_STATE" shell/t-playlist --add undo-list -j >/dev/null 2>&1
         U_MOVED=$(ul_show undo-list)
         tmux send-keys -t "$TS" z
         report "z on a list changed elsewhere says so" 1 "$(poll_until 10 pane_has 'changed elsewhere, not undone')"
@@ -419,7 +419,7 @@ undo_pane() {
         tmux send-keys -t "$TS" z
         report "R then z: the title is the old name" 1 "$(poll_until 10 pane_has "playlist='undo-list'")"
         report "…and so is the store" '["undo-list"]' \
-            "$(UT_STATE_DIR="$UNDO_STATE" shell/t-playlist --ls -j 2>/dev/null | jq -c '[.playlists[].name]')"
+            "$(TING_STATE_DIR="$UNDO_STATE" shell/t-playlist --ls -j 2>/dev/null | jq -c '[.playlists[].name]')"
         # D, then z from the search it left us on: the list is reopened.
         tmux send-keys -t "$TS" D
         report "D lands on the search with the offer" 1 "$(poll_until 10 pane_has 'Deleted playlist .* z to undo')"
@@ -580,7 +580,7 @@ undo_pane() {
         # frame and after z, the two places it appears.
         tmux kill-session -t "$TS" 2>/dev/null
         tmux new-session -d -s "$TS" -x 100 -y 30 \
-            "cd '$PWD' && env TING_SYNC=0 UT_HISTORY=0 TMPDIR='$TMPDIR' UT_STATE_DIR='$UNDO_STATE' TING_STATE_DIR='$UNDO_STATE' UT_CONFIG='$UNDO_CFG' TING_CONFIG='$UNDO_CFG' TING_LANG=zh shell/ting 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
+            "cd '$PWD' && env TING_SYNC=0 TING_HISTORY=0 TMPDIR='$TMPDIR' TING_STATE_DIR='$UNDO_STATE' TING_CONFIG='$UNDO_CFG' TING_LANG=zh shell/ting 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
         if [ "$(poll_until 40 pane_has "query='")" = 1 ]; then
             tmux send-keys -t "$TS" b
             poll_until 10 pane_has '[0-9]\. undo-list' >/dev/null
@@ -869,11 +869,11 @@ echo "── the death record: contract fields present ────────�
 report "failed[] always present"   0 "$(jq_ok '.failed|type=="array"' shell/t-play --status -j)"
 
 echo "── the playlist store: durable state, one file, one lock ──────────"
-# UT_STATE_DIR is exported, and that is the whole reason the knob exists: without it every
+# TING_STATE_DIR is exported, and that is the whole reason the knob exists: without it every
 # check below would write into the user's real playlists. It points somewhere disposable
 # for the rest of this file.
-export UT_STATE_DIR
-UT_STATE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/ting-plstore.XXXXXX")
+export TING_STATE_DIR
+TING_STATE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/ting-plstore.XXXXXX")
 PL=shell/t-playlist
 ENV_JSON='{"status":"ok","engine":"yt","query":"q","count":2,"results":[{"id":"a1","title":"One","url":"https://www.youtube.com/watch?v=a1","channel":"c","duration":213,"duration_fmt":"00h:03m:33s","view_count":5,"live_status":"not_live"},{"id":"a2","title":"Two","url":"https://www.youtube.com/watch?v=a2","channel":"c","duration":null,"duration_fmt":null,"view_count":null,"live_status":"is_live"}]}'
 
@@ -934,15 +934,15 @@ report "a real --show reaches the gate" 4 "$($PL --show mellow -j | shell/t-play
 # envelope at all under -j — the failure yt-search was fixed for, reintroduced in a second
 # command. --show fails (the question was about that list); --ls still answers (the question
 # was about the store, and one bad file must not hide the rest).
-printf '%s' '{ not json' > "$UT_STATE_DIR/playlists/wrecked.json"
+printf '%s' '{ not json' > "$TING_STATE_DIR/playlists/wrecked.json"
 report "--show on a corrupt file: 4"    4 "$(rc $PL --show wrecked)"
 report "…with reason corrupt"           0 "$(jq_ok '.status=="error" and .reason=="corrupt"' $PL --show wrecked -j)"
 report "--ls survives a corrupt file"   0 "$(jq_ok '.status=="ok" and (.playlists|length)>0' $PL --ls -j)"
 # `schema` is WRITTEN by every add; this is the check that makes writing it worth anything.
 printf '%s' '{"schema":99,"name":"future","created_at":"x","updated_at":"x","count":0,"items":[]}' \
-    > "$UT_STATE_DIR/playlists/future.json"
+    > "$TING_STATE_DIR/playlists/future.json"
 report "a newer schema is refused: 4"   4 "$(rc $PL --show future)"
-rm -f "$UT_STATE_DIR/playlists/wrecked.json" "$UT_STATE_DIR/playlists/future.json"
+rm -f "$TING_STATE_DIR/playlists/wrecked.json" "$TING_STATE_DIR/playlists/future.json"
 report "a name with / is refused"       1 "$(rc $PL --del "a/b")"
 report "…with reason invalid_name"      0 "$(jq_ok '.reason=="invalid_name"' $PL --del "a/b" -j)"
 report "a selector with no verb: 1"     1 "$(rc $PL --show mellow --index 2)"
@@ -974,7 +974,7 @@ report "8 concurrent adds keep all 8"   0 "$(jq_ok '.count==8' $PL --show race -
 # through the 5s spin TWICE to learn two facts about one failure; what the second run added
 # was that the code is 4 in prose mode as well as under -j, and the taxonomy section asserts
 # that mode-parity on a failure of its own for 40ms.
-mkdir -p "$UT_STATE_DIR/playlists/.lock-race"
+mkdir -p "$TING_STATE_DIR/playlists/.lock-race"
 LOCKED=$(printf '[{"engine":"yt","url":"https://x/z"}]' | $PL --add race -j 2>/dev/null); LOCKED_ST=$?
 report "a held lock: 4, not 1"          4 "$LOCKED_ST"
 report "…with reason locked"            0 "$(jqv '.reason=="locked"' "$LOCKED")"
@@ -982,7 +982,7 @@ report "…with reason locked"            0 "$(jqv '.reason=="locked"' "$LOCKED"
 # next caller WAIT for it either: staleness is tested on the first failed mkdir, so this is
 # the fast path, not a second 5s spin (shell/t-playlist:lock_playlist). Measured before the
 # reorder: 5.46s. After: 0.10s.
-touch -t 202001010000 "$UT_STATE_DIR/playlists/.lock-race"
+touch -t 202001010000 "$TING_STATE_DIR/playlists/.lock-race"
 report "a stale lock is stolen"         0 "$(printf '[{"engine":"yt","url":"https://x/z"}]' | $PL --add race -j >/dev/null 2>&1; echo $?)"
 
 # THE UNDO COPY. The owner is this shell: it is alive for the whole run, which is all an
@@ -997,10 +997,10 @@ report "a stale lock is stolen"         0 "$(printf '[{"engine":"yt","url":"http
 # Its own store, too: every call reaps dead owners' copies, and a poller sharing this one
 # would reap the dead-owner copy further down before that check could see it written.
 sleep 30 & UNDO_HOLD=$!
-UNDO_EXPIRY_OUT="$UT_STATE_DIR.expiry"
+UNDO_EXPIRY_OUT="$TING_STATE_DIR.expiry"
 UNDO_EXPIRY_DIR=$(mktemp -d "${TMPDIR:-/tmp}/ting-plundo.XXXXXX")
 (
-    UT_STATE_DIR=$UNDO_EXPIRY_DIR
+    TING_STATE_DIR=$UNDO_EXPIRY_DIR
     printf '%s' "$ENV_JSON" | $PL --add expiry >/dev/null 2>&1
     $PL --rm expiry --index 0 --owner "$UNDO_HOLD" >/dev/null 2>&1
     printf '%s' "$ENV_JSON" | $PL --add expiry >/dev/null 2>&1
@@ -1061,8 +1061,8 @@ report "…and nothing is left to undo"  0 "$(jq_ok '.reason=="undo_none"' $PL -
 # An owner that died without discarding (kill -9): ANY later call clears its copy.
 UNDO_DEAD=$(sh -c 'echo $$')
 $PL --rm u --index 0 --owner "$UNDO_DEAD" -j >/dev/null 2>&1
-report "a dead owner's copy is written" 0 "$([ -d "$UT_STATE_DIR/undo/playlist-$UNDO_DEAD" ]; echo $?)"
-report "…and the next --ls clears it"  1 "$($PL --ls >/dev/null 2>&1; [ -d "$UT_STATE_DIR/undo/playlist-$UNDO_DEAD" ]; echo $?)"
+report "a dead owner's copy is written" 0 "$([ -d "$TING_STATE_DIR/undo/playlist-$UNDO_DEAD" ]; echo $?)"
+report "…and the next --ls clears it"  1 "$($PL --ls >/dev/null 2>&1; [ -d "$TING_STATE_DIR/undo/playlist-$UNDO_DEAD" ]; echo $?)"
 # The gates: each is a malformed call, so each is 1 whatever the store holds.
 report "--owner not a number: 1"       1 "$(rc $PL --rm u --index 0 --owner x)"
 report "--owner 0: 1"                  1 "$(rc $PL --del u --owner 0)"
@@ -1076,14 +1076,14 @@ wait "$UNDO_EXPIRY_PID"
 kill "$UNDO_HOLD" 2>/dev/null; wait "$UNDO_HOLD" 2>/dev/null
 report "the window closes by itself"   "undo_stale undo_expired" "$(cat "$UNDO_EXPIRY_OUT" 2>/dev/null)"
 rm -rf "$UNDO_EXPIRY_OUT" "$UNDO_EXPIRY_DIR"
-rm -rf "$UT_STATE_DIR"
+rm -rf "$TING_STATE_DIR"
 
 echo "── the listening log: append-only, one line, bounded ──────────────"
 # The eighth entry point, and the second half of the user-level store. Same disposable
-# UT_STATE_DIR discipline as the playlist section above, and for a sharper reason: without it
+# TING_STATE_DIR discipline as the playlist section above, and for a sharper reason: without it
 # these checks append to the log of what the user actually listened to, and --clear deletes
 # from it.
-UT_STATE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/ting-histore.XXXXXX")
+TING_STATE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/ting-histore.XXXXXX")
 HL=shell/t-history
 # A listening is the ITEM record plus the four fields a listening has and a list entry does
 # not. `channel` is in here on purpose: it is the field a caller would carry in by accident,
@@ -1135,14 +1135,14 @@ report "an 8KB title is recorded"      0 "$(jqv '.status=="ok" and .recorded==1'
 report "…and reports truncated"        0 "$(jqv '.truncated==true' "$H_OUT")"
 report "…and --ls still parses it"     0 "$(jq_ok '.count==3 and ([.items[]|select(.id=="big")]|length)==1' $HL --ls -j)"
 # Bytes, not characters: the budget is PIPE_BUF and awk counts what the kernel writes.
-report "…and no line reaches 4096B"    0 "$(LC_ALL=C awk 'length($0) >= 4096 { bad = 1 } END { print bad + 0 }' "$UT_STATE_DIR"/history/*.jsonl)"
+report "…and no line reaches 4096B"    0 "$(LC_ALL=C awk 'length($0) >= 4096 { bad = 1 } END { print bad + 0 }' "$TING_STATE_DIR"/history/*.jsonl)"
 
 # One unreadable line must not hide the rest — the rule --ls already applies to a corrupt
 # playlist file, on the format where a hand edit is likeliest.
-printf '%s\n' '{ not json' >> "$UT_STATE_DIR/history/2026-08.jsonl"
+printf '%s\n' '{ not json' >> "$TING_STATE_DIR/history/2026-08.jsonl"
 report "a broken line hides nothing"   0 "$(jq_ok '.status=="ok" and .count==3' $HL --ls -j)"
 # `schema` is written by every record; this is what makes writing it worth anything.
-printf '%s\n' '{"schema":99,"engine":"yt","url":"https://x/9","played_at":"2026-08-09T10:00:00Z"}' >> "$UT_STATE_DIR/history/2026-08.jsonl"
+printf '%s\n' '{"schema":99,"engine":"yt","url":"https://x/9","played_at":"2026-08-09T10:00:00Z"}' >> "$TING_STATE_DIR/history/2026-08.jsonl"
 report "a newer schema is skipped"     0 "$(jq_ok '.count==3' $HL --ls -j)"
 
 # --clear is mostly an `rm`: shards older than the boundary go whole. Everything above lands
@@ -1174,8 +1174,8 @@ report "a url with whitespace: 1"      1 "$(rc_in "$(printf '%s' "$H_ROW" | jq -
 report "a malformed played_at: 1"      1 "$(rc_in "$(printf '%s' "$H_ROW" | jq -c '.played_at="last tuesday"')" $HL --record -)"
 report "a reason off the enum: 1"      1 "$(rc_in "$(printf '%s' "$H_ROW" | jq -c '.reason="bored"')" $HL --record -)"
 
-rm -rf "$UT_STATE_DIR"
-unset UT_STATE_DIR
+rm -rf "$TING_STATE_DIR"
+unset TING_STATE_DIR
 
 echo "── version and the non-TTY refusal ────────────────────────────────"
 # Stated over every entry point the checkout HAS, not over a list of six names: a hardcoded
@@ -1354,11 +1354,11 @@ report "t-play --quality keeps the engine gate" 1 \
 # than the tier that
 # happened to be written first: each one is its own `case`, not one loop through one
 # validator, so a check driving only the quality tier is
-# green on a door that was never closed — which is the shape UT_KEYS arrived in.
+# green on a door that was never closed — which is the shape TING_KEYS arrived in.
 # And the claim is the MESSAGE, not the exit code: every one of these exits 1 and so does the
 # TTY gate a few lines further down the same file, so an exit code alone cannot separate
 # "refused the value" from "refused the pipe" and the check could not fail.
-for spec in UT_PLAY_QUALITY=bogus UT_KEYS=bogus TING_BG=sideways UT_RESOURCE=maybe UT_IMAGE=bogus; do
+for spec in TING_PLAY_QUALITY=bogus TING_KEYS=bogus TING_BG=sideways TING_RESOURCE=maybe TING_IMAGE=bogus; do
     KNOB_OUT=$(env "$spec" shell/ting </dev/null 2>&1 || true)
     case "$KNOB_OUT" in
     *"${spec%%=*}"*) KNOB_HIT=yes ;;
@@ -1367,34 +1367,34 @@ for spec in UT_PLAY_QUALITY=bogus UT_KEYS=bogus TING_BG=sideways UT_RESOURCE=may
     report "${spec%%=*}: a bogus value dies naming the key" "yes" "$KNOB_HIT"
 done
 
-# UT_VIZ_STYLE is the player's own scalar door and lives behind a MODE, so the loop above —
+# TING_VIZ_STYLE is the player's own scalar door and lives behind a MODE, so the loop above —
 # which drives ting — cannot reach it. Three claims, and the discriminator is the MESSAGE
 # for the same reason it is up there: all three exit 1. A handle on a host no engine claims
 # keeps every one of them offline, because the host gate answers before yt-dlp is reached.
 VIZ_URL="https://example.com/x"
 viz_says_key() {
     case "$(env "$1" shell/t-play -f "$2" -- "$VIZ_URL" 2>&1 || true)" in
-    *UT_VIZ_STYLE*) echo yes ;;
+    *TING_VIZ_STYLE*) echo yes ;;
     *) echo no ;;
     esac
 }
-report "UT_VIZ_STYLE: a bogus value dies naming the key" "yes" "$(viz_says_key UT_VIZ_STYLE=bogus viz)"
+report "TING_VIZ_STYLE: a bogus value dies naming the key" "yes" "$(viz_says_key TING_VIZ_STYLE=bogus viz)"
 # …and the gate is at the DOOR, before the handle's own: a legal style has to fall THROUGH
 # to the resolve failure rather than be answered here.
-report "UT_VIZ_STYLE: a legal value reaches the handle gate" "no" "$(viz_says_key UT_VIZ_STYLE=wave viz)"
+report "TING_VIZ_STYLE: a legal value reaches the handle gate" "no" "$(viz_says_key TING_VIZ_STYLE=wave viz)"
 # …and it is scoped to the mode that draws. A door that fires for -f audio would reject a
 # config the audio path never reads — which is the shape a mode-blind `case` arrives in.
-report "UT_VIZ_STYLE: silent outside -f viz" "no" "$(viz_says_key UT_VIZ_STYLE=bogus audio)"
+report "TING_VIZ_STYLE: silent outside -f viz" "no" "$(viz_says_key TING_VIZ_STYLE=bogus audio)"
 
 viz_says_color_key() {
     case "$(env "$1" shell/t-play -f "$2" -- "$VIZ_URL" 2>&1 || true)" in
-    *UT_VIZ_COLOR*) echo yes ;;
+    *TING_VIZ_COLOR*) echo yes ;;
     *) echo no ;;
     esac
 }
-report "UT_VIZ_COLOR: a bogus value dies naming the key" "yes" "$(viz_says_color_key 'UT_VIZ_COLOR=bad color!' viz)"
-report "UT_VIZ_COLOR: a legal value reaches the handle gate" "no" "$(viz_says_color_key 'UT_VIZ_COLOR=magenta' viz)"
-report "UT_VIZ_COLOR: silent outside -f viz" "no" "$(viz_says_color_key 'UT_VIZ_COLOR=bad color!' audio)"
+report "TING_VIZ_COLOR: a bogus value dies naming the key" "yes" "$(viz_says_color_key 'TING_VIZ_COLOR=bad color!' viz)"
+report "TING_VIZ_COLOR: a legal value reaches the handle gate" "no" "$(viz_says_color_key 'TING_VIZ_COLOR=magenta' viz)"
+report "TING_VIZ_COLOR: silent outside -f viz" "no" "$(viz_says_color_key 'TING_VIZ_COLOR=bad color!' audio)"
 
 # THE SPELLING, and it is a CONFIG-FILE fact that no environment check can reach: the three
 # above hand the key over env, where `#` is just a character. In the FILE the loader cuts the
@@ -1410,16 +1410,16 @@ report "UT_VIZ_COLOR: silent outside -f viz" "no" "$(viz_says_color_key 'UT_VIZ_
 VIZCFG="$UT_TEST_TMP/vizcolor.config"
 viz_cfg_says() {
     printf '%s\n' "$1" > "$VIZCFG"
-    case "$(UT_CONFIG="$VIZCFG" shell/t-play -f viz -- "$VIZ_URL" 2>&1 || true)" in
+    case "$(TING_CONFIG="$VIZCFG" shell/t-play -f viz -- "$VIZ_URL" 2>&1 || true)" in
     *"0xff0000zz"*) echo quoted ;;
-    *UT_VIZ_COLOR*) echo other ;;
+    *TING_VIZ_COLOR*) echo other ;;
     *) echo gone ;;
     esac
 }
-report "UT_VIZ_COLOR: 0xRRGGBB survives the config file" "quoted" \
-    "$(viz_cfg_says 'UT_VIZ_COLOR=0xff0000zz!')"
+report "TING_VIZ_COLOR: 0xRRGGBB survives the config file" "quoted" \
+    "$(viz_cfg_says 'TING_VIZ_COLOR=0xff0000zz!')"
 report "…and a #-spelled value never arrives"           "gone" \
-    "$(viz_cfg_says 'UT_VIZ_COLOR=#0xff0000zz!')"
+    "$(viz_cfg_says 'TING_VIZ_COLOR=#0xff0000zz!')"
 
 # ── ARCH-player.md「终端可视化」's five worked calls, each run once. The PICTURE those
 # lines are about needs a real resolve and a real tty, so it stays 实测 in that doc — a
@@ -1458,7 +1458,7 @@ report "-f viz: the minimal call"     yes "$(viz_reaches_engine yt shell/t-play 
 # `bars` beside `wave`: the check above proves a legal style is not answered at the door, but
 # it drives one member of a two-member enum, and the default is the OTHER one — so a door that
 # only ever admitted its own default would be green up there and red here.
-report "…UT_VIZ_STYLE=bars, the default" yes "$(viz_reaches_engine yt UT_VIZ_STYLE=bars shell/t-play -f viz -- "$VIZ_URL")"
+report "…TING_VIZ_STYLE=bars, the default" yes "$(viz_reaches_engine yt TING_VIZ_STYLE=bars shell/t-play -f viz -- "$VIZ_URL")"
 report "…with --volume 0"             yes "$(viz_reaches_engine yt shell/t-play -f viz --volume 0 -- "$VIZ_URL")"
 # Three flags at once, which is the line most likely to rot: --start and --quality each have a
 # value gate of their own and each is checked alone above, but nothing had ever given both to
@@ -1616,8 +1616,8 @@ done
 SIBLINGS=$(engines_verb)
 report "the checkout's own engines are the registry" "bili ne yt" "$SIBLINGS"
 report "…an engine on PATH joins it"     "$SIBLINGS zz" "$(engines_verb PATH="$PATH_ENG:$PATH")"
-report "…one in UT_ENGINE_DIR too"       "$SIBLINGS zz" "$(engines_verb UT_ENGINE_DIR="$PLUG")"
-# The DEFAULT of that knob, driven rather than read: nothing sets UT_ENGINE_DIR here, so the
+report "…one in TING_ENGINE_DIR too"     "$SIBLINGS zz" "$(engines_verb TING_ENGINE_DIR="$PLUG")"
+# The DEFAULT of that knob, driven rather than read: nothing sets TING_ENGINE_DIR here, so the
 # engine is only found if the inline default really chains through XDG_DATA_HOME.
 report "…and its default chains through XDG_DATA_HOME" "$SIBLINGS zz" \
     "$(engines_verb XDG_DATA_HOME="$XDG_HOME")"
@@ -1626,39 +1626,39 @@ report "…and its default chains through XDG_DATA_HOME" "$SIBLINGS zz" \
 # reachable by anything that can write one directory; letting it replace `t-engine-yt` would
 # make "which yt am I running" unanswerable.
 ln -sf "$PWD/shell/t-engine-yt" "$PLUG/t-engine-yt"
-report "a plugin cannot shadow a built-in" "$SIBLINGS zz" "$(engines_verb UT_ENGINE_DIR="$PLUG")"
+report "a plugin cannot shadow a built-in" "$SIBLINGS zz" "$(engines_verb TING_ENGINE_DIR="$PLUG")"
 # A name the player would refuse as --engine is not listed, even when the file is a real
 # engine: listing a source the player then refuses is the disagreement the verb exists to end.
 ln -sf "$PWD/shell/t-engine-yt" "$PLUG/t-engine-Bad"
-report "…and a name --engine refuses is not one" "$SIBLINGS zz" "$(engines_verb UT_ENGINE_DIR="$PLUG")"
-# UT_ENGINE_DIR IS REFUSED FROM A CONFIG FILE, and this is the check that says why the name
+report "…and a name --engine refuses is not one" "$SIBLINGS zz" "$(engines_verb TING_ENGINE_DIR="$PLUG")"
+# TING_ENGINE_DIR IS REFUSED FROM A CONFIG FILE, and this is the check that says why the name
 # is on that list at all: it points at a directory of EXECUTABLES the suite runs, so a file
 # that could set it would be PATH under another spelling — exactly what「配置面」's prefix rule
 # buys, and what the _TING_IPC_SOCK refusal further down protects from the other direction.
 ENGCFG=$UT_TEST_TMP/engine-dir.config
-printf 'UT_ENGINE_DIR=%s\n' "$PLUG" > "$ENGCFG"
-report "a config file cannot point at engines" "$SIBLINGS" "$(engines_verb UT_CONFIG="$ENGCFG")"
+printf 'TING_ENGINE_DIR=%s\n' "$PLUG" > "$ENGCFG"
+report "a config file cannot point at engines" "$SIBLINGS" "$(engines_verb TING_CONFIG="$ENGCFG")"
 # The TUI reads that answer and nothing else, so in every environment above the two agree —
 # the check that catches ting misreading the verb (a dropped line, a split field).
 _eng_agree=0
-for _env in "" "PATH=$PATH_ENG:$PATH" "UT_ENGINE_DIR=$PLUG" "XDG_DATA_HOME=$XDG_HOME" "UT_CONFIG=$ENGCFG"; do
+for _env in "" "PATH=$PATH_ENG:$PATH" "TING_ENGINE_DIR=$PLUG" "XDG_DATA_HOME=$XDG_HOME" "TING_CONFIG=$ENGCFG"; do
     [ "$(engines_verb $_env)" = "$(engine_list $_env shell/ting)" ] && _eng_agree=$((_eng_agree + 1))
 done
 report "ting's registry is t-play --engines" 5 "$_eng_agree"
 # THE PLAYER finds by the same three places: an engine that was FOUND gets as far as the host
 # gate, one that was not names the places it looked. Both exit 1.
 report "the player finds a plugin engine"  yes \
-    "$(viz_reaches_engine zz UT_ENGINE_DIR="$PLUG" shell/t-play --engine zz -- "$VIZ_URL")"
+    "$(viz_reaches_engine zz TING_ENGINE_DIR="$PLUG" shell/t-play --engine zz -- "$VIZ_URL")"
 report "…by the same XDG default"          yes \
     "$(viz_reaches_engine zz XDG_DATA_HOME="$XDG_HOME" shell/t-play --engine zz -- "$VIZ_URL")"
 report "…and a config file cannot aim it"  no \
-    "$(viz_reaches_engine zz UT_CONFIG="$ENGCFG" shell/t-play --engine zz -- "$VIZ_URL")"
+    "$(viz_reaches_engine zz TING_CONFIG="$ENGCFG" shell/t-play --engine zz -- "$VIZ_URL")"
 # …and forwards by them: an engine verb asked of the plugin engine reaches it.
 report "an engine verb reaches a plugin engine" 0 \
-    "$(jq_ok '.status=="ok"' env UT_ENGINE_DIR="$PLUG" shell/t-play --engine zz --auth -j)"
+    "$(jq_ok '.status=="ok"' env TING_ENGINE_DIR="$PLUG" shell/t-play --engine zz --auth -j)"
 # The path is what a call would RUN. With `yt` in the plugin dir too (the shadow case), the
 # built-in copy is the one named; `zz` exists only in the plugin dir and is named there.
-_eng_paths=$(env UT_ENGINE_DIR="$PLUG" shell/t-play --engines -j 2>/dev/null)
+_eng_paths=$(env TING_ENGINE_DIR="$PLUG" shell/t-play --engines -j 2>/dev/null)
 report "…naming the file a call would run" "$PWD/shell/t-engine-yt $PLUG/t-engine-zz" \
     "$(printf '%s' "$_eng_paths" | jq -r '[(.engines[] | select(.name=="yt") | .bin),
                                           (.engines[] | select(.name=="zz") | .bin)] | join(" ")')"
@@ -2172,41 +2172,47 @@ CFG="$CFGD/config"
 # the error text says which value won — a real gate on a real entry point, no parsing of an
 # internal. A naive loader that exported over the environment would answer "file" to the
 # second, and one that ran before argv parsing would answer "env" to the third.
-printf 'UT_DEFAULT_ENGINE=cfgwins\n' > "$CFG"
-eng() { UT_CONFIG="$CFG" "$@" 2>&1 | sed -n "s/.*unknown engine '\([^']*\)'.*/\1/p"; }
+printf 'TING_DEFAULT_ENGINE=cfgwins\n' > "$CFG"
+eng() { TING_CONFIG="$CFG" "$@" 2>&1 | sed -n "s/.*unknown engine '\([^']*\)'.*/\1/p"; }
 report "config file sets the default engine" "cfgwins" \
     "$(eng shell/t-play -- https://x/y)"
 report "environment beats the config file" "envwins" \
-    "$(UT_DEFAULT_ENGINE=envwins eng shell/t-play -- https://x/y)"
+    "$(TING_DEFAULT_ENGINE=envwins eng shell/t-play -- https://x/y)"
 report "TING_DEFAULT_ENGINE environment works" "envwins" \
     "$(TING_DEFAULT_ENGINE=envwins eng shell/t-play -- https://x/y)"
 report "the flag beats both" "flagwins" \
-    "$(UT_DEFAULT_ENGINE=envwins eng shell/t-play --engine flagwins -- https://x/y)"
+    "$(TING_DEFAULT_ENGINE=envwins eng shell/t-play --engine flagwins -- https://x/y)"
 
-# ── THE TWO SPELLINGS. Every knob answers to a TING_ name and to the pre-rename UT_ one, and
-# "both work" is the easy half — the half that a mirroring loop gets wrong without anything
-# else noticing is the case where BOTH are set at once. There is only one right answer to
-# that (the new name is the one the suite documents, so it is the one that wins), and until
-# this check existed the loop shipped with the opposite one: it filled in whichever side was
-# missing and left UT_ standing when neither was.
+# ── THE OLD SPELLINGS. For one version every renamed key still answers to its pre-rename
+# name, and "the old name works" is the easy half — the half a fallback gets wrong without
+# anything else noticing is the case where BOTH are set at once. There is only one right
+# answer to that (the new name is the one the suite documents, so it is the one that wins),
+# and an earlier two-name loop shipped with the opposite one.
+report "an old UT_ name in the environment still reads" "utwins" \
+    "$(UT_DEFAULT_ENGINE=utwins eng shell/t-play -- https://x/y)"
 report "TING_ beats UT_ when both are set" "tingwins" \
     "$(TING_DEFAULT_ENGINE=tingwins UT_DEFAULT_ENGINE=utwins eng shell/t-play -- https://x/y)"
+printf 'UT_DEFAULT_ENGINE=utcfg\n' > "$CFG"
+report "an old UT_ name in the config file still reads" "utcfg" \
+    "$(eng shell/t-play -- https://x/y)"
 printf 'TING_DEFAULT_ENGINE=tingcfg\n' > "$CFG"
 report "a TING_ key in the config file is read" "tingcfg" \
     "$(eng shell/t-play -- https://x/y)"
 report "…and the environment still beats it" "envwins" \
-    "$(UT_DEFAULT_ENGINE=envwins eng shell/t-play -- https://x/y)"
+    "$(TING_DEFAULT_ENGINE=envwins eng shell/t-play -- https://x/y)"
 
-# TING_CONFIG is not in that loop — it is the name that says WHICH FILE the loop then reads,
-# so it is resolved before it, by hand, in all ten entry points. Same rule, proved separately.
+# TING_CONFIG is not on the rename table — it is the name that says WHICH FILE is then read,
+# so it is resolved before it, by hand, in every entry point. Same rule, proved separately.
 CFG_TING="$CFGD/relocated"
-printf 'UT_DEFAULT_ENGINE=relocated\n' > "$CFG_TING"
+printf 'TING_DEFAULT_ENGINE=relocated\n' > "$CFG_TING"
 engv() { "$@" 2>&1 | sed -n "s/.*unknown engine '\([^']*\)'.*/\1/p"; }
 report "TING_CONFIG relocates the file" "relocated" \
     "$(TING_CONFIG="$CFG_TING" engv shell/t-play -- https://x/y)"
+report "the old UT_CONFIG alone still relocates it" "relocated" \
+    "$(engv env -u TING_CONFIG UT_CONFIG="$CFG_TING" shell/t-play -- https://x/y)"
 report "TING_CONFIG beats UT_CONFIG" "relocated" \
     "$(TING_CONFIG="$CFG_TING" UT_CONFIG="$CFG" engv shell/t-play -- https://x/y)"
-printf 'UT_DEFAULT_ENGINE=cfgwins\n' > "$CFG"
+printf 'TING_DEFAULT_ENGINE=cfgwins\n' > "$CFG"
 
 # ── THE PRE-RENAME PATHS, which are the actual promise. A user who ran the suite under its
 # old name has a config at .../uting/config and a store at .../uting, and neither moved when
@@ -2215,14 +2221,14 @@ printf 'UT_DEFAULT_ENGINE=cfgwins\n' > "$CFG"
 # discriminating input has to be built here: an XDG root that holds ONLY the old spelling.
 XDGD=$(mktemp -d "${TMPDIR:-/tmp}/ting-xdg.XXXXXX")
 mkdir -p "$XDGD/uting"
-printf 'UT_DEFAULT_ENGINE=legacycfg\n' > "$XDGD/uting/config"
+printf 'TING_DEFAULT_ENGINE=legacycfg\n' > "$XDGD/uting/config"
 report "a pre-rename config is still read" "legacycfg" \
-    "$(env -u UT_CONFIG -u TING_CONFIG "XDG_CONFIG_HOME=$XDGD" \
+    "$(env -u TING_CONFIG -u UT_CONFIG "XDG_CONFIG_HOME=$XDGD" \
         shell/t-play -- https://x/y 2>&1 | sed -n "s/.*unknown engine '\([^']*\)'.*/\1/p")"
 mkdir -p "$XDGD/ting"
-printf 'UT_DEFAULT_ENGINE=newcfg\n' > "$XDGD/ting/config"
+printf 'TING_DEFAULT_ENGINE=newcfg\n' > "$XDGD/ting/config"
 report "…and the new path wins when both exist" "newcfg" \
-    "$(env -u UT_CONFIG -u TING_CONFIG "XDG_CONFIG_HOME=$XDGD" \
+    "$(env -u TING_CONFIG -u UT_CONFIG "XDG_CONFIG_HOME=$XDGD" \
         shell/t-play -- https://x/y 2>&1 | sed -n "s/.*unknown engine '\([^']*\)'.*/\1/p")"
 
 # The store side of the same promise, and the same shape of discriminator: a state root that
@@ -2230,12 +2236,12 @@ report "…and the new path wins when both exist" "newcfg" \
 XSTATE=$(mktemp -d "${TMPDIR:-/tmp}/ting-xstate.XXXXXX")
 mkdir -p "$XSTATE/uting"
 printf '%s' "$ENV_JSON" |
-    env -u UT_STATE_DIR -u TING_STATE_DIR "XDG_STATE_HOME=$XSTATE" \
+    env -u TING_STATE_DIR -u UT_STATE_DIR "XDG_STATE_HOME=$XSTATE" \
         shell/t-playlist --add legacystore >/dev/null 2>&1
 report "a pre-rename store is still written" 0 \
     "$([ -f "$XSTATE/uting/playlists/legacystore.json" ] && echo 0 || echo 1)"
 report "…and read back from there" 1 \
-    "$(env -u UT_STATE_DIR -u TING_STATE_DIR "XDG_STATE_HOME=$XSTATE" \
+    "$(env -u TING_STATE_DIR -u UT_STATE_DIR "XDG_STATE_HOME=$XSTATE" \
         shell/t-playlist --ls -j | jq '.playlists|length')"
 
 # TING_STATE_DIR, with the UT_ name pointed at a DIFFERENT directory in the same command —
@@ -2253,13 +2259,13 @@ report "…and the UT_ name set beside it did not get it" 1 \
 # that could be sourced would run the command substitution below and set PATH from a file the
 # suite never audited; the check is that nine characters arrive as nine characters and that
 # the file cannot name anything outside the suite's own namespaces.
-printf 'PATH=/nonexistent\nLD_PRELOAD=/evil.so\nlowercase_key=x\nUT_INJECT=$(touch %s/PWNED)\n' \
+printf 'PATH=/nonexistent\nLD_PRELOAD=/evil.so\nlowercase_key=x\nTING_INJECT=$(touch %s/PWNED)\n' \
     "$CFGD" > "$CFG"
 # Asserted through a command that NEEDS its PATH after the file is read: `t-play --status -j`
 # runs jq, so a PATH=/nonexistent that got through would fail it. `ting --version` could not
 # — it answers from a builtin printf, and was green whether the key was inert or not.
 report "a config key outside TING_/UT_ is inert" "0" \
-    "$(UT_CONFIG="$CFG" rc shell/t-play --status -j)"
+    "$(TING_CONFIG="$CFG" rc shell/t-play --status -j)"
 report "command substitution is never executed" "absent" \
     "$([ -e "$CFGD/PWNED" ] && echo present || echo absent)"
 
@@ -2267,7 +2273,7 @@ report "command substitution is never executed" "absent" \
 # UT_VERSION is the constant from VERSION; a config file cannot overwrite it.
 printf 'UT_VERSION=fake\n' > "$CFG"
 report "UT_VERSION in config is refused" "$UT_VER" \
-    "$(UT_CONFIG="$CFG" shell/ting --version | awk '{print $NF}')"
+    "$(TING_CONFIG="$CFG" shell/ting --version | awk '{print $NF}')"
 
 # MERGED KEYS: the old name still reads, one version, into the key that replaced it. Each old
 # cookie name reaches EVERY engine, which is what the merge is — one browser, one key.
@@ -2275,33 +2281,33 @@ for old in YT_COOKIE_BROWSER BILI_COOKIE_BROWSER NE_COOKIE_BROWSER; do
     printf '%s=none\n' "$old" > "$CFG"
     for n in $ENGINES; do
         report "$old in a file reaches $n" none \
-            "$(UT_CONFIG="$CFG" $(verb_cmd "$n") --auth -j 2>/dev/null | jq -r '.cookie_browser')"
+            "$(TING_CONFIG="$CFG" $(verb_cmd "$n") --auth -j 2>/dev/null | jq -r '.cookie_browser')"
     done
 done
 report "…and from the environment" none \
     "$(env YT_COOKIE_BROWSER=none $(verb_cmd bili) --auth -j 2>/dev/null | jq -r '.cookie_browser')"
 report "…and the new name wins over it" chrome \
-    "$(env YT_COOKIE_BROWSER=none UT_COOKIE_BROWSER=chrome $(verb_cmd bili) --auth -j 2>/dev/null | jq -r '.cookie_browser')"
+    "$(env YT_COOKIE_BROWSER=none TING_COOKIE_BROWSER=chrome $(verb_cmd bili) --auth -j 2>/dev/null | jq -r '.cookie_browser')"
 # 0 is the discriminating value: the shipped 20 starts, so only a loader that folded the old
 # name in reaches the -n gate.
 printf 'UT_START_RESULTS=0\n' > "$CFG"
-CFG_OUT=$(UT_CONFIG="$CFG" shell/ting q </dev/null 2>&1 || true)
+CFG_OUT=$(TING_CONFIG="$CFG" shell/ting q </dev/null 2>&1 || true)
 case "$CFG_OUT" in
-*"-n must be a positive integer (UT_SEARCH_RESULTS)"*) CFG_HIT=yes ;;
+*"-n must be a positive integer (TING_SEARCH_RESULTS)"*) CFG_HIT=yes ;;
 *) CFG_HIT=no ;;
 esac
-report "UT_START_RESULTS in a file reads as UT_SEARCH_RESULTS" yes "$CFG_HIT"
+report "UT_START_RESULTS in a file reads as TING_SEARCH_RESULTS" yes "$CFG_HIT"
 # RENAMED KEYS take the same road. A theme no gate accepts is the discriminating value: only a
 # loader that renamed the old name reaches the theme gate (mode); one that dropped it starts (tty).
 printf 'YT_THEME=__nope__\n' > "$CFG"
-report "YT_THEME in a file reads as TING_THEME" mode "$(ting_gate UT_CONFIG="$CFG" shell/ting q)"
+report "YT_THEME in a file reads as TING_THEME" mode "$(ting_gate TING_CONFIG="$CFG" shell/ting q)"
 report "…and from the environment" mode "$(ting_gate YT_THEME=__nope__ shell/ting q)"
 report "…and the new name wins over it" tty "$(ting_gate YT_THEME=__nope__ TING_THEME=nord shell/ting q)"
 
 # `custom` WAS A THEME, and the t key wrote it into user configs. Such a file must still start:
 # it reads as minimal for one version. Without that, the theme gate answers `mode`, not `tty`.
 printf 'TING_THEME=custom\n' > "$CFG"
-report "a config still naming custom starts" tty "$(ting_gate UT_CONFIG="$CFG" shell/ting q)"
+report "a config still naming custom starts" tty "$(ting_gate TING_CONFIG="$CFG" shell/ting q)"
 # --theme takes ONE name. The membership test is an exact compare over the name list, not a
 # substring of it: "gruvbox onedark" IS a substring of that list and a substring gate would
 # pass it, then fall off the end of set_theme's case with no accent set at all.
@@ -2386,19 +2392,19 @@ else
     # inherits the tmux SERVER's environment, not this shell's, so the value is passed into
     # the command line rather than exported — the same reason the TUI section spells it out.
     PS_STATE=$(mktemp -d "${TMPDIR:-/tmp}/ting-paste.XXXXXX")
-    # UT_CONFIG rides along for the same reason and one more: the three greps below name an
+    # TING_CONFIG rides along for the same reason and one more: the three greps below name an
     # ENGLISH chrome string, and this pane's language comes from whichever config it reads.
     # The export at the top of this file reaches a pane only when THIS run happens to start
     # the tmux server; a developer who already had tmux open gets a server without it, the
     # pane reads their own config, and a `TING_LANG=zh` in it draws 搜索 where the grep wants
     # Search — three checks red on their machine and green here (reproduced 2026-09-03 with
-    # `env -u UT_CONFIG tmux -L … new-session`). TING_LANG=en is pinned beside it because the
+    # `env -u TING_CONFIG tmux -L … new-session`). TING_LANG=en is pinned beside it because the
     # config is only one of the two ways the language is decided: blank means auto-detect,
     # so a zh* locale would draw the same 搜索 through an empty file. Both spelled out, the
     # way the TUI section spells its knobs out, so the pane's language is an input.
     tmux kill-session -t "$PS_TS" 2>/dev/null
     tmux new-session -d -s "$PS_TS" -x 80 -y 20 \
-        "UT_STATE_DIR='$PS_STATE' TING_STATE_DIR='$PS_STATE' TMPDIR='$TMPDIR' UT_CONFIG='$UT_CONFIG' TING_CONFIG='$UT_CONFIG' TING_LANG=en UT_HISTORY=0 '$PWD/shell/ting'; echo __GONE__; sleep 5" 2>/dev/null
+        "TING_STATE_DIR='$PS_STATE' TMPDIR='$TMPDIR' TING_CONFIG='$TING_CONFIG' TING_LANG=en TING_HISTORY=0 '$PWD/shell/ting'; echo __GONE__; sleep 5" 2>/dev/null
     pasted=0
     i=0
     while [ $i -lt 100 ]; do
@@ -2453,7 +2459,7 @@ YT_WATCH="https://www.youtube.com/watch?v=$MEDIA_ID"
 # cookie knob is set, so each engine reads chrome from the scratch HOME whichever it is.
 CK_ERR="$UT_TEST_TMP/cookie.err"
 ck() { local h=$1; shift
-       HOME="$CK_BASE/$h" UT_COOKIE_BROWSER=chrome \
+       HOME="$CK_BASE/$h" TING_COOKIE_BROWSER=chrome \
            http_proxy=$NOPROXY https_proxy=$NOPROXY "$@" 2>"$CK_ERR" | jq -r '.reason // "none"' 2>/dev/null; }
 ck_said() { grep -c "$1" "$CK_ERR" 2>/dev/null | awk '{print ($1 > 0) ? 1 : 0}'; }
 report "search retries without an unreadable store" network "$(ck missing shell/t-play --engine yt --search -j -n 3 -- lofi)"
@@ -2479,7 +2485,7 @@ done
 # --auth: the decision was always `cookie` whenever the folder existed; the new field is
 # whether the store can be read, in both directions so an always-false field fails too —
 # over every engine that has --auth.
-ck_auth() { HOME="$CK_BASE/$1" UT_COOKIE_BROWSER=chrome \
+ck_auth() { HOME="$CK_BASE/$1" TING_COOKIE_BROWSER=chrome \
                 $(verb_cmd "$2") --auth -j 2>/dev/null | jq -r '.cookie_readable'; }
 for n in $ENGINES; do
     report "$n --auth: a missing store is not readable" false "$(ck_auth missing "$n")"
@@ -2493,7 +2499,7 @@ if tmux_ok; then
     CK_STATE=$(mktemp -d "${TMPDIR:-/tmp}/ting-cookie.XXXXXX")
     tmux kill-session -t "$CK_TS" 2>/dev/null
     tmux new-session -d -s "$CK_TS" -x 200 -y 20 \
-        "HOME='$CK_BASE/missing' UT_COOKIE_BROWSER=chrome http_proxy='$NOPROXY' https_proxy='$NOPROXY' UT_STATE_DIR='$CK_STATE' TING_STATE_DIR='$CK_STATE' TMPDIR='$TMPDIR' UT_CONFIG='$UT_CONFIG' TING_CONFIG='$UT_CONFIG' TING_LANG=en UT_HISTORY=0 '$PWD/shell/ting' lofi; echo __GONE__; sleep 5" 2>/dev/null
+        "HOME='$CK_BASE/missing' TING_COOKIE_BROWSER=chrome http_proxy='$NOPROXY' https_proxy='$NOPROXY' TING_STATE_DIR='$CK_STATE' TMPDIR='$TMPDIR' TING_CONFIG='$TING_CONFIG' TING_LANG=en TING_HISTORY=0 '$PWD/shell/ting' lofi; echo __GONE__; sleep 5" 2>/dev/null
     said=0
     i=0
     while [ $i -lt 200 ]; do
@@ -2520,8 +2526,8 @@ if [ "$OFFLINE" = 1 ]; then
     summary
 fi
 
-export UT_STATE_DIR
-UT_STATE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/ting-live-store.XXXXXX")
+export TING_STATE_DIR
+TING_STATE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/ting-live-store.XXXXXX")
 
 # ---- the quiet half of the cookie fallback, which needs the site ------------------------
 # The offline block proves a blocked store fails loudly. The case the user actually sat in
@@ -2536,7 +2542,7 @@ if tmux_ok; then
     CQ_STATE=$(mktemp -d "${TMPDIR:-/tmp}/ting-cookieq.XXXXXX")
     tmux kill-session -t "$CQ_TS" 2>/dev/null
     tmux new-session -d -s "$CQ_TS" -x 200 -y 24 \
-        "HOME='$CK_BASE/missing' UT_COOKIE_BROWSER=chrome UT_STATE_DIR='$CQ_STATE' TING_STATE_DIR='$CQ_STATE' TMPDIR='$TMPDIR' UT_CONFIG='$UT_CONFIG' TING_CONFIG='$UT_CONFIG' TING_LANG=en UT_HISTORY=0 '$PWD/shell/ting' lofi; echo __GONE__; sleep 30" 2>/dev/null && CQ_UP=1
+        "HOME='$CK_BASE/missing' TING_COOKIE_BROWSER=chrome TING_STATE_DIR='$CQ_STATE' TMPDIR='$TMPDIR' TING_CONFIG='$TING_CONFIG' TING_LANG=en TING_HISTORY=0 '$PWD/shell/ting' lofi; echo __GONE__; sleep 30" 2>/dev/null && CQ_UP=1
 fi
 
 # ---- fetch once, assert many, and fetch them ALL AT ONCE ------------------------------
@@ -2596,7 +2602,7 @@ spawn() {
 out() { cat "$LIVE/$1.out" 2>/dev/null; }
 src() { cat "$LIVE/$1.rc" 2>/dev/null; }
 
-printf 'UT_SEARCH_RESULTS=4\n'     > "$UT_TEST_TMP/cfg-dflt"
+printf 'TING_SEARCH_RESULTS=4\n'   > "$UT_TEST_TMP/cfg-dflt"
 # The searches go first and are waited on BY PID, because one thing downstream needs an
 # answer out of them (the offset block's handle) and everything else does not. Waiting on the
 # whole batch to start that one would serialise the two slowest calls in the file behind each
@@ -2608,7 +2614,7 @@ for n in $ENGINES; do
 done
 for n in $ENGINES; do
     spawn "searchJ-$n"   shell/t-engine-$n --search --raw -n 5  -- lofi
-    spawn "dflt-$n"      env UT_CONFIG="$UT_TEST_TMP/cfg-dflt" $(search_cmd "$n") -j -- lofi
+    spawn "dflt-$n"      env TING_CONFIG="$UT_TEST_TMP/cfg-dflt" $(search_cmd "$n") -j -- lofi
 done
 spawn yt-resolve   shell/t-engine-yt --stream -j -- "$MEDIA_ID"
 spawn yt-info      shell/t-play --engine yt --info -j -- "$MEDIA_ID"
@@ -2695,7 +2701,7 @@ echo "── the config file, on a real fetch ───────────�
 # of them would be green while another kept its own default.
 for n in $ENGINES; do
     # The shared default really is shared. No -n at all, so the count comes from
-    # UT_SEARCH_RESULTS — the check that would have caught the drift the centralisation was
+    # TING_SEARCH_RESULTS — the check that would have caught the drift the centralisation was
     # for: an engine still carrying its own inlined 25 answers with more than 4 here.
     report "$n --search takes -n from the config" "true" \
         "$(out "dflt-$n" | jq -r '(.results | length) <= 4' 2>/dev/null)"
@@ -3360,13 +3366,13 @@ else
     TUI_STATE=$(mktemp -d "${TMPDIR:-/tmp}/ting-tuistore.XXXXXX")
     # Seed the stores from real command envelopes ($YT_R and $YT_S) — real command output,
     # never synthetic JSON.
-    printf '%s' "$YT_R" | UT_STATE_DIR="$TUI_STATE" shell/t-history --record - -j >/dev/null 2>&1
-    [ "$(UT_STATE_DIR="$TUI_STATE" shell/t-history --ls -j 2>/dev/null | jq -r '.count // 0')" = 1 ] ||
+    printf '%s' "$YT_R" | TING_STATE_DIR="$TUI_STATE" shell/t-history --record - -j >/dev/null 2>&1
+    [ "$(TING_STATE_DIR="$TUI_STATE" shell/t-history --ls -j 2>/dev/null | jq -r '.count // 0')" = 1 ] ||
         { echo "contract.sh: the log did not seed — suite error, not a failure" >&2; exit 1; }
-    printf '%s' "$YT_S" | UT_STATE_DIR="$TUI_STATE" shell/t-playlist --add seeded-list -j >/dev/null 2>&1
-    [ "$(UT_STATE_DIR="$TUI_STATE" shell/t-playlist --ls -j 2>/dev/null | jq -r '.count // 0')" -ge 1 ] ||
+    printf '%s' "$YT_S" | TING_STATE_DIR="$TUI_STATE" shell/t-playlist --add seeded-list -j >/dev/null 2>&1
+    [ "$(TING_STATE_DIR="$TUI_STATE" shell/t-playlist --ls -j 2>/dev/null | jq -r '.count // 0')" -ge 1 ] ||
         { echo "contract.sh: the playlist did not seed — suite error, not a failure" >&2; exit 1; }
-    # A config file of the pane's own. No staged behavior keys: UT_ROW_INDEX and UT_LIST_MODE
+    # A config file of the pane's own. No staged behavior keys: TING_ROW_INDEX and TING_LIST_MODE
     # start unset and are driven by real keystrokes.
     # It is a SYMLINK to the real file to verify the preference write-back preserves symlinks.
     # Its third and fourth lines are a merged and a renamed key under their OLD names, at the
@@ -3374,9 +3380,9 @@ else
     # place, not append a second.
     TUI_CFG="$UT_TEST_TMP/tui-config"
     TUI_CFG_REAL="$UT_TEST_TMP/tui-config.real"
-    printf '%s\n' '# a config a human wrote' 'UT_PLAY_MODE=audio    # keep me' 'UT_START_RESULTS=20' 'YT_THEME=minimal' >"$TUI_CFG_REAL"
+    printf '%s\n' '# a config a human wrote' 'TING_PLAY_MODE=audio  # keep me' 'UT_START_RESULTS=20' 'YT_THEME=minimal' >"$TUI_CFG_REAL"
     ln -s "$TUI_CFG_REAL" "$TUI_CFG"
-    # UT_SORT_FIELD in the pane's ENVIRONMENT is the discriminating input for the refusal:
+    # TING_SORT_FIELD in the pane's ENVIRONMENT is the discriminating input for the refusal:
     # the environment beats the file at every startup, so a ting that wrote this key would
     # record view_count and then discard it on the next run. The value it would write
     # (view_count) differs from the pinned one (relevance), so the check cannot pass by
@@ -3388,7 +3394,7 @@ else
     # below need to name one (the `i` view's own label, and a field the list cannot hold), so
     # the language becomes an input rather than an accident. Nothing else in the
     # section reads a chrome string, so nothing else changes.
-    # UT_IMAGE=on, and it is the discriminating value rather than the realistic one: `auto`
+    # TING_IMAGE=on, and it is the discriminating value rather than the realistic one: `auto`
     # under tmux returns before sending a byte, so it would prove nothing, while `on` runs
     # the whole cover path — the cell-size query, the fetch, the transcode, the emit — on a
     # pane this block already drives through a resize, a filter and nine preference keys.
@@ -3412,11 +3418,12 @@ else
     #     Interrupted system call` — again fatal under set -e.
     # Every one of them shows up here as this block's own boot / key / quit assertions going
     # red, which is why the value of forcing `on` is not that it draws but that it runs.
-    # BOTH names of every redirection, in every pane of this file. The loader reads TING_ before
-    # UT_, and a pane gets the tmux SERVER's environment, not this shell's — so the `unset` at
-    # the top cannot reach it, and a server started from a shell that exported TING_CONFIG or
-    # TING_STATE_DIR would have walked this pane's R and D y onto the user's own playlists.
-    TUI_CMD="cd '$PWD' && env -u NO_COLOR TING_SYNC=0 UT_IMAGE=on TMPDIR='$TMPDIR' UT_STATE_DIR='$TUI_STATE' TING_STATE_DIR='$TUI_STATE' UT_CONFIG='$TUI_CFG' TING_CONFIG='$TUI_CFG' UT_SORT_FIELD=relevance TING_LANG=en shell/ting 'lofi hip hop'"
+    # Every redirection is set on the pane's own command line, in every pane of this file: a
+    # pane gets the tmux SERVER's environment, not this shell's — so the `unset` at the top
+    # cannot reach it, and a server started from a shell that exported TING_CONFIG or
+    # TING_STATE_DIR would have walked this pane's R and D y onto the user's own playlists. The
+    # TING_ name alone is enough: an inherited old UT_ name only fills in an unset TING_ one.
+    TUI_CMD="cd '$PWD' && env -u NO_COLOR TING_SYNC=0 TING_IMAGE=on TMPDIR='$TMPDIR' TING_STATE_DIR='$TUI_STATE' TING_CONFIG='$TUI_CFG' TING_SORT_FIELD=relevance TING_LANG=en shell/ting 'lofi hip hop'"
     TUI_CMD="$TUI_CMD"'; printf "RC=%s\n" $?'
     TUI_CMD="$TUI_CMD"'; stty -a </dev/tty | tr " " "\n" | grep -E "^-?(echo|icanon)$" | tr "\n" " " | sed "s/^/FLAGS= /"; echo; sleep 20'
     tmux new-session -d -s "$TS" -x 100 -y 30 "$TUI_CMD"
@@ -3503,28 +3510,28 @@ else
     report "…and names i by what it opens" 1 \
         "$(tmux capture-pane -t "$TS" -p -J 2>/dev/null | grep -c 'i chapters')"
     # The EIGHTH preference key, on the same deferred write as the seven below. The config
-    # carries no UT_KEYS line, so this can only APPEND — and the value is asserted in BOTH
+    # carries no TING_KEYS line, so this can only APPEND — and the value is asserted in BOTH
     # directions, because a tier that wrote itself once and then stopped would leave the file
     # saying `full` on a screen that had gone back to core.
-    wrote=$(poll_until 10 cfg_has '^UT_KEYS=full$')
+    wrote=$(poll_until 10 cfg_has '^TING_KEYS=full$')
     report "? writes the tier to your config" 1 "$wrote"
     tmux send-keys -t "$TS" '?'
     hidden=$(poll_until 10 pane_lacks '[-]/= volume')
     report "? switches to hidden tier" 1 "$hidden"
     report "…and drops the key block entirely" 0 \
         "$(tmux capture-pane -t "$TS" -p -J 2>/dev/null | grep -cE '\? keys')"
-    wrote=$(poll_until 10 cfg_has '^UT_KEYS=hidden$')
+    wrote=$(poll_until 10 cfg_has '^TING_KEYS=hidden$')
     report "…and writes hidden to your config" 1 "$wrote"
     tmux send-keys -t "$TS" '?'
     restored=$(poll_until 10 pane_has '\? keys')
     report "? cycles back to core tier" 1 "$restored"
-    wrote=$(poll_until 10 cfg_has '^UT_KEYS=core$')
+    wrote=$(poll_until 10 cfg_has '^TING_KEYS=core$')
     report "…and the file follows it back" 1 "$wrote"
     # Row numbers start off by default. Press # to turn them on via real keypress.
     tmux send-keys -t "$TS" '#'
     shown=$(poll_until 10 pane_has '^[[:space:]>▶▎]*1\. ')
     report "# puts the row numbers on" 1 "$shown"
-    wrote=$(poll_until 10 cfg_has '^UT_ROW_INDEX=on$')
+    wrote=$(poll_until 10 cfg_has '^TING_ROW_INDEX=on$')
     report "…and writes that to your config" 1 "$wrote"
 
     # Switch to page mode with Tab via a real keystroke — no pre-staged config keys.
@@ -3533,7 +3540,7 @@ else
     report "Tab enters page mode" 1 "$shown"
     shown_arr=$(poll_until 10 pane_has '(←→|←/→) page')
     report "…and the arrows spend a cell" 1 "$shown_arr"
-    wrote=$(poll_until 10 cfg_has '^UT_LIST_MODE=page$')
+    wrote=$(poll_until 10 cfg_has '^TING_LIST_MODE=page$')
     report "…and writes the mode to your config" 1 "$wrote"
 
     # j/k are ↓/↑ in the list view and nowhere else. Ten presses is the page (10 rows on this
@@ -3545,7 +3552,7 @@ else
     # THE COVER IS READ OFF THE WIRE HERE, and it retires this section's own stated blind
     # spot. `capture-pane` renders the GRID, and a kitty placement is not in the grid — which
     # is why the note above says the picture is the one thing this block cannot see, and why
-    # forcing UT_IMAGE=on was worth doing only for what it RUNS. `pipe-pane` is the other
+    # forcing TING_IMAGE=on was worth doing only for what it RUNS. `pipe-pane` is the other
     # end: it copies the bytes the program WROTE, before tmux decides what to do with them,
     # so the graphics escapes are readable even though tmux never passes them on. Nothing is
     # simulated and no key is added — the two windows below wrap keystrokes this block was
@@ -3588,12 +3595,12 @@ else
     tmux send-keys -t "$TS" '#'
     gone=$(poll_until 10 pane_lacks '^[[:space:]>▶▎]*1\. ')
     report "# takes the row numbers off" 1 "$gone"
-    wrote=$(poll_until 10 cfg_has '^UT_ROW_INDEX=off$')
+    wrote=$(poll_until 10 cfg_has '^TING_ROW_INDEX=off$')
     report "…and writes that to your config" 1 "$wrote"
     tmux send-keys -t "$TS" '#'
     shown=$(poll_until 10 pane_has '^[[:space:]>▶▎]*1\. ')
     report "# puts them back" 1 "$shown"
-    wrote=$(poll_until 10 cfg_has '^UT_ROW_INDEX=on$')
+    wrote=$(poll_until 10 cfg_has '^TING_ROW_INDEX=on$')
     report "…and the file follows it back" 1 "$wrote"
     tmux pipe-pane -t "$TS"
     if [ "$img_drew" = 1 ]; then
@@ -3624,20 +3631,21 @@ else
     tmux send-keys -t "$TS" Left Left Left Left Left Left
     results_not20() { local n; n=$(pane_results); [ -n "$n" ] && [ "$n" != 20 ]; }
     report "and stops at a screenful" 0 "$(poll_until 1 results_not20)"
-    appended=$(poll_until 6 cfg_has '^UT_SEARCH_RESULTS=20$')
+    appended=$(poll_until 6 cfg_has '^TING_SEARCH_RESULTS=20$')
     report "the count lands in its own key" 1 "$appended"
-    report "…renamed in place from its old name" UT_SEARCH_RESULTS=20 "$(sed -n 3p "$TUI_CFG")"
+    report "…renamed in place from its old name" TING_SEARCH_RESULTS=20 "$(sed -n 3p "$TUI_CFG")"
     report "…which is gone" 0 "$(grep -c '^UT_START_RESULTS' "$TUI_CFG")"
     report "a renamed key's line is renamed in place too" TING_THEME "$(sed -n 4p "$TUI_CFG" | cut -d= -f1)"
-    report "and not in the step key" 0 "$(grep -c '^UT_FETCH_BATCH' "$TUI_CFG")"
+    report "and not in the step key" 0 "$(grep -c '^TING_FETCH_BATCH' "$TUI_CFG")"
 
     # ---- the page counter across a tier change, and keys that arrive as one burst --------
     # 22 rows is short enough that the full block takes rows from the page and hidden gives
     # them back, so the page size moves under the counter. The counter is printed before the
     # reflow decides that size, and it used to divide by the previous frame's — `page 1/3`
-    # over a list of ten. It is read off the FIRST frame without the block, not polled: with
-    # a preference write pending, the one-second tick redraws within a second and a poll
-    # would have caught the next, corrected frame and passed the bug.
+    # over a list of ten. It is read within half a second of the first frame without the
+    # block, not polled for long: with a preference write pending, the one-second tick
+    # redraws within a second, and a long poll would have caught that corrected frame and
+    # passed the bug.
     pane_rows()  { printf '%s\n' "$1" | grep -cE '^[[:space:]>▶▎]*[0-9]+\. '; }
     pane_pages() { printf '%s\n' "$1" | grep -oE 'page [0-9]+/[0-9]+' | head -1 | cut -d/ -f2; }
     frame_without_block() {
@@ -3651,11 +3659,24 @@ else
     tmux send-keys -t "$TS" '?'
     FRAME=""
     poll_until 10 frame_without_block >/dev/null
-    hid_rows=$(pane_rows "$FRAME"); hid_pages=$(pane_pages "$FRAME")
+    hid_rows=$(pane_rows "$FRAME")
     report "hidden gives page mode back the rows full took" 1 \
         "$([ "$hid_rows" -gt "$full_rows" ] && echo 1 || echo 0)"
-    report "…and its first frame counts pages by the rows it shows" 1 \
-        "$([ "$hid_rows" -gt 0 ] && [ "$hid_pages" = $(( (20 + hid_rows - 1) / hid_rows )) ] && echo 1 || echo 0)"
+    # Re-read for half a second, not once: display_menu fixes the counter with a second pass
+    # inside the same call, and with TING_SYNC=0 under tmux the first pass is visible to a
+    # capture that lands between the two. The bug this guards stayed wrong until the idle
+    # tick, a second after the key — far outside this window.
+    counter_true() {
+        local r
+        frame_without_block && r=$(pane_rows "$FRAME") && [ "$r" -gt 0 ] &&
+            [ "$(pane_pages "$FRAME")" = $(( (20 + r - 1) / r )) ]
+    }
+    counter_ok=0; i=0
+    while [ $i -lt 10 ]; do
+        counter_true && { counter_ok=1; break; }
+        sleep 0.05; i=$((i + 1))
+    done
+    report "…and its first frame counts pages by the rows it shows" 1 "$counter_ok"
 
     # Two presses in one tmux write land in the tty together, inside the unbracketed-paste
     # probe's window — which is also what a held key or a quick double-tap looks like. One
@@ -3684,7 +3705,7 @@ else
     report "Tab leaves page mode" 1 "$gone"
     gone_arr=$(poll_until 10 pane_lacks '(←→|←/→) page')
     report "…and the arrows stop spending a cell" 1 "$gone_arr"
-    wrote=$(poll_until 10 cfg_has '^UT_LIST_MODE=scroll$')
+    wrote=$(poll_until 10 cfg_has '^TING_LIST_MODE=scroll$')
     report "…and the file follows it back" 1 "$wrote"
 
     # THE ELEVENTH preference key, and the one that changes what the next Enter LAUNCHES.
@@ -3698,7 +3719,7 @@ else
     tmux send-keys -t "$TS" 'r'
     shown=$(poll_until 10 pane_has 'loop seq')
     report "r puts the loop mode on the status line" 1 "$shown"
-    wrote=$(poll_until 10 cfg_has '^UT_LOOP_MODE=seq$')
+    wrote=$(poll_until 10 cfg_has '^TING_LOOP_MODE=seq$')
     report "…and writes it to your config" 1 "$wrote"
     tmux send-keys -t "$TS" 'r'
     shown=$(poll_until 10 pane_has 'loop one')
@@ -3706,7 +3727,7 @@ else
     tmux send-keys -t "$TS" 'r'
     gone=$(poll_until 10 pane_lacks 'loop (seq|one)')
     report "…and the default state spends no width" 1 "$gone"
-    wrote=$(poll_until 10 cfg_has '^UT_LOOP_MODE=off$')
+    wrote=$(poll_until 10 cfg_has '^TING_LOOP_MODE=off$')
     report "…and the file follows it back" 1 "$wrote"
 
     # THE SCROLLBAR, in both modes and on every visible row: the gutter is what replaced the
@@ -3745,16 +3766,16 @@ else
     # `results=40`. The unit word is what keeps it from matching any other number on the line,
     # and TING_LANG=en (pinned in TUI_CMD) is what makes naming that word safe here.
     tmux send-keys -t "$TS" v
-    wrote=$(poll_until 10 cfg_has '^UT_PLAY_MODE=video')
+    wrote=$(poll_until 10 cfg_has '^TING_PLAY_MODE=video')
     report "v writes the mode to your config" 1 "$wrote"
     report "the comment on that line survived" 1 "$(grep -c '# keep me' "$TUI_CFG")"
     report "your config is still the symlink" 1 "$(test -L "$TUI_CFG" && echo 1 || echo 0)"
     report "and the real file behind it moved" 1 \
-        "$(grep -c '^UT_PLAY_MODE=video' "$TUI_CFG_REAL")"
+        "$(grep -c '^TING_PLAY_MODE=video' "$TUI_CFG_REAL")"
 
     # The SEVENTH preference key, on the same pane and the same deferred write. Two
     # discriminators, neither of which a naive implementation gets for free:
-    #   * the config has no UT_PLAY_QUALITY line, so this key can only APPEND — the mode
+    #   * the config has no TING_PLAY_QUALITY line, so this key can only APPEND — the mode
     #     check above only proves the in-place edit;
     #   * `auto` is deliberately NOT printed on the status line (a field sitting at its
     #     default is pure width — the rule min=/max= already follow), so the line is grepped
@@ -3769,7 +3790,7 @@ else
     report "the quality tier is absent at auto" 0 \
         "$(tmux capture-pane -t "$TS" -p -J 2>/dev/null | grep -cE 'quality (auto|medium|high)')"
     tmux send-keys -t "$TS" f
-    wrote=$(poll_until 10 cfg_has '^UT_PLAY_QUALITY=medium$')
+    wrote=$(poll_until 10 cfg_has '^TING_PLAY_QUALITY=medium$')
     report "f writes the quality tier to your config" 1 "$wrote"
     shown=$(poll_until 10 pane_has 'quality medium')
     report "…and the status line says so" 1 "$shown"
@@ -3804,13 +3825,13 @@ else
     # read the file's value and throw it away. The notice names the key, which is what makes
     # this greppable in either chrome language.
     tmux send-keys -t "$TS" o
-    said=$(poll_until 15 pane_has 'UT_SORT_FIELD')
+    said=$(poll_until 15 pane_has 'TING_SORT_FIELD')
     report "a pinned key is refused out loud" 1 "$said"
-    report "and never reaches the file" 0 "$(grep -c '^UT_SORT_FIELD' "$TUI_CFG")"
+    report "and never reaches the file" 0 "$(grep -c '^TING_SORT_FIELD' "$TUI_CFG")"
     # A notice is a frame line and ANY key clears it; Space is inert here (there is no player
     # to pause), so this is a plain "get the unadorned frame back" step and asserts nothing.
     tmux send-keys -t "$TS" Space
-    poll_until 5 pane_lacks 'UT_SORT_FIELD' >/dev/null
+    poll_until 5 pane_lacks 'TING_SORT_FIELD' >/dev/null
 
     # `c` on a YouTube row: the key is offered, because every engine has --items and a video's
     # parts are its items, but one YouTube id is one file — so the ENGINE refuses the row (its
@@ -3857,8 +3878,8 @@ else
     # it, because the check above needs rows and this one needs none: the two claims disagree
     # about the store's state, not about the pane. Deterministic either way — no query decides
     # whether this door is closed, which is what the `i` walk below cannot say for itself.
-    UT_STATE_DIR="$TUI_STATE" shell/t-history --clear -j >/dev/null 2>&1
-    [ "$(UT_STATE_DIR="$TUI_STATE" shell/t-history --ls -j 2>/dev/null | jq -r '.count // 0')" = 0 ] ||
+    TING_STATE_DIR="$TUI_STATE" shell/t-history --clear -j >/dev/null 2>&1
+    [ "$(TING_STATE_DIR="$TUI_STATE" shell/t-history --ls -j 2>/dev/null | jq -r '.count // 0')" = 0 ] ||
         { echo "contract.sh: the log did not clear — suite error, not a failure" >&2; exit 1; }
     tmux send-keys -t "$TS" h
     said=$(poll_until 10 pane_has 'nothing listened to yet')
@@ -3941,7 +3962,7 @@ else
     del_backed=$(poll_until 10 pane_back "playlist='" "query='")
     report "D deletes the playlist and returns to search" 1 "$del_backed"
     report "…without asking first" 1 "$(pane_lacks 'y/N' && echo 1 || echo 0)"
-    del_stored=$(UT_STATE_DIR="$TUI_STATE" shell/t-playlist --ls -j 2>/dev/null | jq -r '.count // 0')
+    del_stored=$(TING_STATE_DIR="$TUI_STATE" shell/t-playlist --ls -j 2>/dev/null | jq -r '.count // 0')
     report "…and the playlist file is deleted from store" 0 "$del_stored"
 
     # `i` — the fifth row source, and its whole round trip. Three claims in one sequence, and
@@ -4160,7 +4181,7 @@ else
         cp -R shell config VERSION "$RL_BASE/inst/"
         tmux kill-session -t "$TS" 2>/dev/null
         tmux new-session -d -s "$TS" -x 100 -y 30 \
-            "env PATH='$1' TING_SYNC=0 UT_HISTORY=0 TMPDIR='$TMPDIR' UT_STATE_DIR='$RL_BASE/state' TING_STATE_DIR='$RL_BASE/state' UT_CONFIG='$RL_BASE/cfg' TING_CONFIG='$RL_BASE/cfg' TING_LANG=en '$RL_BASE/inst/shell/ting' --volume 0 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
+            "env PATH='$1' TING_SYNC=0 TING_HISTORY=0 TMPDIR='$TMPDIR' TING_STATE_DIR='$RL_BASE/state' TING_CONFIG='$RL_BASE/cfg' TING_LANG=en '$RL_BASE/inst/shell/ting' --volume 0 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
         poll_until 40 pane_has "query='" >/dev/null
         tmux send-keys -t "$TS" Enter
         [ "$(poll_until 40 pane_has 'Playing: ')" = 1 ] || return 1
@@ -4202,11 +4223,11 @@ else
     ADOPT_STATE=$(mktemp -d "${TMPDIR:-/tmp}/ting-adopt.XXXXXX")
     # An EMPTY config, and empty is the point: it stages nothing, it is only somewhere for the
     # pane's preference write-back to land that is not the developer's real file — the same
-    # isolation UT_STATE_DIR gives the stores. TING_LANG=en beside it because three checks below
+    # isolation TING_STATE_DIR gives the stores. TING_LANG=en beside it because three checks below
     # name an English chrome string, and a blank config would let the machine's locale decide.
     ADOPT_CFG="$UT_TEST_TMP/adopt-config"
     : >"$ADOPT_CFG"
-    # TMPDIR is the suite's, deliberately and unlike UT_STATE_DIR: the players directory lives
+    # TMPDIR is the suite's, deliberately and unlike TING_STATE_DIR: the players directory lives
     # under it, so this shell and the pane have to share one — that shared dir IS how the pane
     # can see a player this shell started. The EXIT trap's `--stop --all` reaps whatever any
     # check below leaves behind.
@@ -4220,7 +4241,7 @@ else
     adopt_boot() {
         tmux kill-session -t "$ADOPT_TS" 2>/dev/null
         tmux new-session -d -s "$ADOPT_TS" -x 100 -y 30 \
-            "cd '$PWD' && env TING_SYNC=0 UT_HISTORY=0 TMPDIR='$TMPDIR' UT_STATE_DIR='$ADOPT_STATE' TING_STATE_DIR='$ADOPT_STATE' UT_CONFIG='$ADOPT_CFG' TING_CONFIG='$ADOPT_CFG' TING_LANG=en shell/ting 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
+            "cd '$PWD' && env TING_SYNC=0 TING_HISTORY=0 TMPDIR='$TMPDIR' TING_STATE_DIR='$ADOPT_STATE' TING_CONFIG='$ADOPT_CFG' TING_LANG=en shell/ting 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
         # The header's own count word, the same first-frame marker the section above waits on:
         # the spinner line that precedes it says `searching "…"` and never `results`.
         poll_until 40 pane_has 'results'
@@ -4241,7 +4262,7 @@ else
     # The queue view's playlist (the refusal check below), written by the REAL store from the
     # REAL search envelope this suite already fetched. Nothing here is staged: t-playlist
     # produces the file it is later asked to read.
-    printf '%s' "$YT_S" | UT_STATE_DIR="$ADOPT_STATE" TING_STATE_DIR="$ADOPT_STATE" shell/t-playlist --add qv-list -j >/dev/null 2>&1
+    printf '%s' "$YT_S" | TING_STATE_DIR="$ADOPT_STATE" shell/t-playlist --add qv-list -j >/dev/null 2>&1
     qv_len()  { shell/t-play --queue-show -j 2>/dev/null | jq -r '.len // 0'; }
     qv_urls() { shell/t-play --queue-show -j 2>/dev/null | jq -c '[.items[].url]'; }
     qv_is()   { [ "$(qv_len)" = "$1" ]; }
@@ -4400,7 +4421,7 @@ else
         echo "  skip  (no multi-part video came back from --items — no parts view to open)"
     else
         # Its own config and its own state dir, not the section's above: the `#` check up
-        # there TOGGLES UT_ROW_INDEX and writes it back, so borrowing that file would make
+        # there TOGGLES TING_ROW_INDEX and writes it back, so borrowing that file would make
         # the row cursor readable or not depending on which checks ran before this one.
         PTS_CFG="$UT_TEST_TMP/parts-config"
         : >"$PTS_CFG"
@@ -4408,7 +4429,7 @@ else
         TS="ctest-parts-$$"          # the helpers above read $TS; the first session is gone
         tmux kill-session -t "$TS" 2>/dev/null
         tmux new-session -d -s "$TS" -x 100 -y 30 \
-            "cd '$PWD' && env TING_SYNC=0 TMPDIR='$TMPDIR' UT_STATE_DIR='$PTS_STATE' TING_STATE_DIR='$PTS_STATE' UT_CONFIG='$PTS_CFG' TING_CONFIG='$PTS_CFG' TING_LANG=en shell/ting --engine $PARTS_ENG -n 10 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
+            "cd '$PWD' && env TING_SYNC=0 TMPDIR='$TMPDIR' TING_STATE_DIR='$PTS_STATE' TING_CONFIG='$PTS_CFG' TING_LANG=en shell/ting --engine $PARTS_ENG -n 10 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
         up=$(poll_until 30 pane_has "query='")
         if [ "$up" != 1 ]; then
             report "the parts pane came up" 1 "$up"
@@ -4503,7 +4524,7 @@ else
         tmux send-keys -t "$TS" q 2>/dev/null
         poll_until 5 pane_has 'RC=0' >/dev/null
         tmux kill-session -t "$TS" 2>/dev/null
-        UT_STATE_DIR="$PTS_STATE" shell/t-play --stop --all >/dev/null 2>&1
+        TING_STATE_DIR="$PTS_STATE" shell/t-play --stop --all >/dev/null 2>&1
         rm -rf "$PTS_STATE"
     fi
 fi

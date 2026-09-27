@@ -75,17 +75,21 @@ if [[ -z "$TING_CONFIG" ]]; then
         TING_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/uting/config"
     fi
 fi
-UT_CONFIG="$TING_CONFIG"
-for _v in STATE_DIR ENGINE_DIR HISTORY VOLUME IMAGE KEYS RESOURCE PLAY_QUALITY VIZ_STYLE VIZ_COLOR DEFAULT_ENGINE; do
-    eval "[[ -n \"\${TING_$_v+x}\" ]] && UT_$_v=\"\$TING_$_v\" || true"
-    eval "[[ -n \"\${UT_$_v+x}\" && -z \"\${TING_$_v+x}\" ]] && TING_$_v=\"\$UT_$_v\" || true"
-done
 # Renamed and merged keys, OLD:NEW. The old name still reads, one version, into the key that
-# replaced it: from the environment here, from a file in ut_read_config, and ting's write-back
-# renames the line in place. Lower-level than a knob, so it is not spelled with a key prefix.
-CFG_RENAMED="UT_START_RESULTS:UT_SEARCH_RESULTS YT_COOKIE_BROWSER:UT_COOKIE_BROWSER \
-    BILI_COOKIE_BROWSER:UT_COOKIE_BROWSER NE_COOKIE_BROWSER:UT_COOKIE_BROWSER YT_THEME:TING_THEME \
-    YT_LANG:TING_LANG YT_ASCII:TING_ASCII YT_ASCII_VO:TING_ASCII_VO \
+# replaced it: from the environment here (only while the new name is unset, so the new name
+# wins), from a file in ut_read_config, and ting's write-back renames the line in place. A
+# renamed name comes before a merged one, so when both are set the renamed one wins. Not a
+# knob, so not spelled TING_.
+CFG_RENAMED="UT_STATE_DIR:TING_STATE_DIR UT_ENGINE_DIR:TING_ENGINE_DIR UT_HISTORY:TING_HISTORY \
+    UT_DEFAULT_ENGINE:TING_DEFAULT_ENGINE UT_SEARCH_RESULTS:TING_SEARCH_RESULTS \
+    UT_COOKIE_BROWSER:TING_COOKIE_BROWSER UT_SORT_FIELD:TING_SORT_FIELD \
+    UT_PLAY_MODE:TING_PLAY_MODE UT_VOLUME:TING_VOLUME UT_PLAY_QUALITY:TING_PLAY_QUALITY \
+    UT_VIZ_STYLE:TING_VIZ_STYLE UT_VIZ_COLOR:TING_VIZ_COLOR UT_PAGE_ROWS:TING_PAGE_ROWS \
+    UT_FETCH_BATCH:TING_FETCH_BATCH UT_LOOP_MODE:TING_LOOP_MODE UT_RESOURCE:TING_RESOURCE \
+    UT_KEYS:TING_KEYS UT_LIST_MODE:TING_LIST_MODE UT_ROW_INDEX:TING_ROW_INDEX UT_IMAGE:TING_IMAGE \
+    UT_START_RESULTS:TING_SEARCH_RESULTS YT_COOKIE_BROWSER:TING_COOKIE_BROWSER \
+    BILI_COOKIE_BROWSER:TING_COOKIE_BROWSER NE_COOKIE_BROWSER:TING_COOKIE_BROWSER \
+    YT_THEME:TING_THEME YT_LANG:TING_LANG YT_ASCII:TING_ASCII YT_ASCII_VO:TING_ASCII_VO \
     YT_MPV_INPUT_CONF:TING_MPV_INPUT_CONF YT_BG:TING_BG YT_SYNC:TING_SYNC \
     YT_AMBIG_WIDE:TING_AMBIG_WIDE YT_AUDIO_FORMAT:TING_YT_AUDIO_FORMAT \
     YT_VIDEO_FORMAT:TING_YT_VIDEO_FORMAT YT_VIDEO_FORMAT_FAST:TING_YT_VIDEO_FORMAT_FAST \
@@ -98,7 +102,7 @@ for _v in $CFG_RENAMED; do
 done
 UT_DEFAULTS="$SCRIPT_DIR/../config"
 ut_read_config() {
-    local file="$1" line key val _ting_k _ut_k
+    local file="$1" line key val _new
     [[ -r "$file" ]] || return 0
     while IFS= read -r line || [[ -n "$line" ]]; do
         line="${line%%#*}"
@@ -111,29 +115,21 @@ ut_read_config() {
         while [[ "$val" == [[:space:]]* ]]; do val="${val#[[:space:]]}"; done
         case " $CFG_RENAMED " in
         *" $key:"*)
-            _ut_k=" $CFG_RENAMED"
-            _ut_k="${_ut_k#* $key:}"
-            key="${_ut_k%% *}"
+            _new=" $CFG_RENAMED"
+            _new="${_new#* $key:}"
+            key="${_new%% *}"
             ;;
         esac
-        [[ "$key" =~ ^(TING|UT)_[A-Z0-9_]+$ ]] || continue
+        [[ "$key" =~ ^TING_[A-Z0-9_]+$ ]] || continue
         case "$key" in
-        TING_CONFIG | TING_DEFAULTS | TING_ENGINE_DIR | TING_VERSION | UT_CONFIG | UT_DEFAULTS | UT_ENGINE_DIR | UT_VERSION) continue ;;
+        TING_CONFIG | TING_ENGINE_DIR) continue ;;
         esac
         if [[ ${#val} -ge 2 ]] && { [[ "$val" == \"*\" ]] || [[ "$val" == \'*\' ]]; }; then
             val="${val#?}"
             val="${val%?}"
         fi
         [[ "$val" == "~/"* ]] && val="$HOME/${val#\~/}"
-        if [[ "$key" == TING_* ]]; then
-            _ut_k="UT_${key#TING_}"
-            eval "[[ -n \"\${$key+x}\" ]] || $key=\$val"
-            eval "[[ -n \"\${$_ut_k+x}\" ]] || $_ut_k=\$val"
-        else
-            _ting_k="TING_${key#UT_}"
-            eval "[[ -n \"\${$key+x}\" ]] || $key=\$val"
-            eval "[[ -n \"\${$_ting_k+x}\" ]] || $_ting_k=\$val"
-        fi
+        eval "[[ -n \"\${$key+x}\" ]] || $key=\$val"
     done < "$file"
 }
 # FAIL FAST AND SAY WHY. There is deliberately no escape hatch for --version or --help: they
@@ -146,7 +142,7 @@ if [[ ! -r "$UT_DEFAULTS" ]]; then
         "$(basename "$0")" "$UT_DEFAULTS" >&2
     exit 2
 fi
-ut_read_config "$UT_CONFIG"
+ut_read_config "$TING_CONFIG"
 ut_read_config "$UT_DEFAULTS"
 
 # The engine's own name, as it appears in every envelope AND as the suffix of this file's
@@ -162,7 +158,7 @@ PROG="t-engine-bili"
 # THE ENDPOINTS. Every one of them is a public web endpoint, and none takes a credential.
 #
 # UNPREFIXED, every one: the prefix IS config reachability — ut_read_config accepts every
-# TING_/UT_ name that is not in its refusal list, and every old name on CFG_RENAMED — so a
+# TING_ name that is not in its refusal list, and every old name on CFG_RENAMED — so a
 # TING_BILI_ spelling would be taken off disk and then silently overwritten by the line that
 # declares it. A constant must not
 # wear a settable name. ARCHITECTURE.md「两个根数据文件」.
@@ -262,11 +258,11 @@ TING_BILI_BUVID="${TING_BILI_BUVID:-}"
 # verbs. On this site they buy AUDIO QUALITY rather than access: an account — more so a
 # premium one — is offered Hi-Res / Dolby / lossless renditions an anonymous client is not.
 # Public videos resolve fine without them, so an absent profile degrades to anonymous.
-# Set UT_COOKIE_BROWSER=none to force anonymous-only (skips the keychain read).
+# Set TING_COOKIE_BROWSER=none to force anonymous-only (skips the keychain read).
 COOKIE_ARGS=()
-if [[ -n "${UT_COOKIE_BROWSER:-}" && "$UT_COOKIE_BROWSER" != "none" ]]; then
+if [[ -n "${TING_COOKIE_BROWSER:-}" && "$TING_COOKIE_BROWSER" != "none" ]]; then
     browser_exists=0
-    case "$UT_COOKIE_BROWSER" in
+    case "$TING_COOKIE_BROWSER" in
     chrome|chromium|brave)
         if [[ "$(uname -s)" == "Darwin" ]]; then
             if [[ -d "$HOME/Library/Application Support/Google/Chrome" || -d "$HOME/Library/Application Support/BraveSoftware" || -d "$HOME/Library/Application Support/Chromium" ]]; then
@@ -317,7 +313,7 @@ if [[ -n "${UT_COOKIE_BROWSER:-}" && "$UT_COOKIE_BROWSER" != "none" ]]; then
     esac
 
     if ((browser_exists)); then
-        COOKIE_ARGS=(--cookies-from-browser "$UT_COOKIE_BROWSER")
+        COOKIE_ARGS=(--cookies-from-browser "$TING_COOKIE_BROWSER")
     fi
 fi
 
@@ -329,16 +325,16 @@ SEGMENTS=0           # --segments: the transcript envelope keeps its timed cues
 
 # --search. The `-n` and --sort defaults are cross-engine: a caller who wants a different
 # result count by default wants it from whichever source they asked. ARCH-cli-contract.md「配置面」.
-NUM_RESULTS=$UT_SEARCH_RESULTS
+NUM_RESULTS=$TING_SEARCH_RESULTS
 MIN_DURATION=0
 MAX_DURATION=0
-SORT_FIELD="$UT_SORT_FIELD"
+SORT_FIELD="$TING_SORT_FIELD"
 QUERY=""
 FILTERED_JSON=""
 
 # --stream. The `-f` default is cross-engine too: a user who listens rather than watches
 # says so once.
-PLAYBACK_MODE="$UT_PLAY_MODE"
+PLAYBACK_MODE="$TING_PLAY_MODE"
 QUALITY="auto"       # auto | low | medium | high — the tier abstraction (--quality)
 FMT=""               # the yt-dlp format string the mode resolves to
 
@@ -702,7 +698,7 @@ terminal_app() {
 # ONE line on stderr that says what was lost, why, and the fix. stderr and not the envelope:
 # it is prose for a person, and the -j envelope keeps its shape (ARCH-cli-contract.md).
 cookie_diagnosis() {
-    local b=${UT_COOKIE_BROWSER:-} first="" app prog="$PROG" knob="UT_COOKIE_BROWSER"
+    local b=${TING_COOKIE_BROWSER:-} first="" app prog="$PROG" knob="TING_COOKIE_BROWSER"
     cookie_probe "$b"
     first=$(printf '%s\n' "$1" | grep -m1 'ERROR' | sed 's/^ERROR: //') || first=""
     case "$COOKIE_STATE" in
@@ -1561,7 +1557,7 @@ stream_run() {
         stream_fail "$rc_c"
     fi
 
-    # Anonymous-only (UT_COOKIE_BROWSER=none, or no profile on this machine).
+    # Anonymous-only (TING_COOKIE_BROWSER=none, or no profile on this machine).
     raw_a=$(dump_once) || rc_a=$?
     if ((rc_a == 0)) && [[ -n "$raw_a" ]]; then
         emit_stream "$raw_a" 0
@@ -2054,7 +2050,7 @@ auth_run() {
         # A profile folder that exists is not a store this process may read (cookie_probe),
         # and a status line that said "signed in" over a blocked read was the whole bug.
         # null = no probe for this browser, so no claim either way.
-        cookie_probe "$UT_COOKIE_BROWSER"
+        cookie_probe "$TING_COOKIE_BROWSER"
         case "$COOKIE_STATE" in
         readable) readable=true ;;
         unknown) readable=null ;;
@@ -2063,15 +2059,15 @@ auth_run() {
     fi
     if [[ "$OUTPUT_MODE" == "json" ]]; then
         jq -nc --arg engine "$ENGINE_NAME" --arg auth "$auth" \
-            --arg browser "$UT_COOKIE_BROWSER" --argjson found "$found" --argjson readable "$readable" \
+            --arg browser "$TING_COOKIE_BROWSER" --argjson found "$found" --argjson readable "$readable" \
             '{status: "ok", engine: $engine, auth: $auth,
               cookie_browser: $browser, profile_found: $found, cookie_readable: $readable}'
         return 0
     fi
     if [[ "$auth" == "cookie" && "$readable" == "false" ]]; then
-        printf 'cookie (%s, unreadable: %s)\n' "$UT_COOKIE_BROWSER" "$COOKIE_STATE"
+        printf 'cookie (%s, unreadable: %s)\n' "$TING_COOKIE_BROWSER" "$COOKIE_STATE"
     elif [[ "$auth" == "cookie" ]]; then
-        printf 'cookie (%s)\n' "$UT_COOKIE_BROWSER"
+        printf 'cookie (%s)\n' "$TING_COOKIE_BROWSER"
     else
         printf 'anonymous\n'
     fi
@@ -2124,7 +2120,7 @@ There is no --transcript: this site's videos carry no caption track.
 Exit codes: 0 ok · 1 usage/validation · 2+ a missing dependency, or the site / yt-dlp did
             not answer usefully (see .reason)
 
-Environment: UT_COOKIE_BROWSER (default chrome; "none" = anonymous), TING_BILI_AUDIO_FORMAT,
+Environment: TING_COOKIE_BROWSER (default chrome; "none" = anonymous), TING_BILI_AUDIO_FORMAT,
   TING_BILI_VIDEO_FORMAT, TING_BILI_VIDEO_FORMAT_FAST, TING_BILI_UA, TING_BILI_BUVID — defaults in
   <checkout>/config, see ARCH-cli-contract.md「配置面」.
 EOF

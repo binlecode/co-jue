@@ -435,7 +435,7 @@ agent 面的答案，再加一个 TUI 标记是重复而不是补充。
 出去。`bili-resolve` 没有探测 —— 该站没有 PO token 的对应物 —— 这正是"第二个引擎可以干脆没有
 某样东西"的范本。
 
-**登录默认是开的（`UT_COOKIE_BROWSER=chrome`）** —— 这是只有**引擎**才读的设置 —— 所以
+**登录默认是开的（`TING_COOKIE_BROWSER=chrome`）** —— 这是只有**引擎**才读的设置 —— 所以
 需要登录 / 会员 / 年龄限制的视频（匿名客户端根本看不见）能放。代价是：带上 cookie 之后，yt-dlp
 会切到 YouTube 的已认证客户端集，而那一组的 googlevideo 媒体 URL 可能需要一个 **GVS
 Proof-of-Origin（PO）token**，由 Google 的 BotGuard 证明机制签发（见 yt-dlp 的 PO Token Guide；
@@ -461,14 +461,14 @@ ranged 请求**（`curl -I -r 0-`）：206/200 ⇒ 有权；403 ⇒ 缺 PO token
          两边都取不到，但带 cookie 那次解析成功 ► emit_stream(raw_c, 0)
                                                  # 保留 cookie，让 mpv 去吐真错误与真退出码
          都不成 ────────────────────────────► resolve_fail(rc)
-      无 cookie（UT_COOKIE_BROWSER=none，或本机没有该 profile）：
+      无 cookie（TING_COOKIE_BROWSER=none，或本机没有该 profile）：
          无从权衡，所以也不探 —— dump_once(匿名) → emit_stream(raw_a, 0) 或 resolve_fail
 ```
 
 裁决以 `retried` 出现在**解析**信封里，`t-play` 把它**转述**进播放信封，而不是自己去观察。
 代价：每次播放多一次解析 + 一个 1 字节 GET（cookie-403 的视频是两次）。`curl` 是软依赖 ——
 没有它就跳过探测、走回老的"播-失败-重播"（错误糊屏的回归也只在那条路上出现）。
-`UT_COOKIE_BROWSER=none` 强制只走匿名（不读钥匙串、不探测）；配了浏览器但本机没有 profile 时
+`TING_COOKIE_BROWSER=none` 强制只走匿名（不读钥匙串、不探测）；配了浏览器但本机没有 profile 时
 自动降级为匿名，而不是报错。
 
 **profile 在、却读不出来，是第三种情况，而且只有运行时才知道。** 存在性检查只看目录；

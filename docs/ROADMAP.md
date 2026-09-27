@@ -171,9 +171,9 @@
 - **【中高 ROI · 待决】第四媒体源选型 —— SoundCloud (`sc`) vs 开放播客 (`pod`)。**
   **收益**：中高。扩展纯音频生态位（独立音乐/混音 DJ 电台 或 开放播客长音频），进一步验证引擎对解耦架构。
   **成本**：中。SoundCloud 的搜索、单曲解析与播放已实测贯通，但 Set 的 yt-dlp flat 条目缺时长，尚未闭合 `--items` 契约与请求预算；开放播客另有去中心化 host、Apple 200 集上限与 RSS 身份问题。
-  **待决核心**：SoundCloud 能否在不复制私有 API、不新增依赖且不触发请求风暴的前提下，产出完整、可分页的容器信封？失败则转为 `$UT_ENGINE_DIR` 的仓外候选，第四内置源继续开放。
+  **待决核心**：SoundCloud 能否在不复制私有 API、不新增依赖且不触发请求风暴的前提下，产出完整、可分页的容器信封？失败则转为 `$TING_ENGINE_DIR` 的仓外候选，第四内置源继续开放。
   **评审草案**：当前建议优先 SoundCloud，但只有容器完整性、请求预算、冻结契约与内置源五项判据全部通过后才确认；开放播客仍是后续候选，不预先命名为第五内置源。详见 [`docs/PLAN-fourth-media-source-selection.md`](PLAN-fourth-media-source-selection.md)。
-  **前置问题**：已定 —— 进仓判据住在 `ARCHITECTURE.md`「站点知识的边界」，仓外那条路由 `$UT_ENGINE_DIR` 接住。
+  **前置问题**：已定 —— 进仓判据住在 `ARCHITECTURE.md`「站点知识的边界」，仓外那条路由 `$TING_ENGINE_DIR` 接住。
 
 - **【中 ROI · 待做】队列条目的标题回填 —— `--queue-show` 会对在播的那一条报 `title:null`。**
   **收益**：中。一个从裸句柄起的播放器（在搜索行上按 `Enter` 就是）写下的队列条目只有 url；

@@ -346,14 +346,14 @@ t-play -f viz -- "https://music.163.com/song?id=1824020871"
 ```ini
 # bars = 频谱柱状图（默认，窄终端里最好认）
 # wave = 声音波形
-UT_VIZ_STYLE=bars
+TING_VIZ_STYLE=bars
 ```
 
 **颜色也能自己挑。** 默认是青色，可以换成任何你喜欢的颜色：
 
 ```ini
 # 可以填颜色名（cyan、magenta、green、yellow、orange、white…）
-UT_VIZ_COLOR=magenta
+TING_VIZ_COLOR=magenta
 ```
 
 也可以只在这一次换个颜色，配置文件不用动：
@@ -366,7 +366,7 @@ t-play --viz-color green -f viz -- "URL"
 
 ```ini
 # ✅ 在配置文件里，十六进制必须写成 0x 开头
-UT_VIZ_COLOR=0xff6188
+TING_VIZ_COLOR=0xff6188
 
 # ❌ 写成 #ff6188 不会报错，但它会被当成注释整行吃掉，颜色悄悄变回青色
 ```
@@ -402,7 +402,7 @@ UT_VIZ_COLOR=0xff6188
 
 ```ini
 # 设置默认启动音源：bili（B站）、ne（网易云）、yt（YouTube）
-UT_DEFAULT_ENGINE=bili
+TING_DEFAULT_ENGINE=bili
 
 # 设置默认主题（可填 minimal, tokyonight, nord, gruvbox, catppuccin 等）
 TING_THEME=nord
@@ -411,14 +411,14 @@ TING_THEME=nord
 TING_LANG=zh
 
 # 默认音质档位：auto（自动）、medium（中等）、high（高品质）
-UT_PLAY_QUALITY=high
+TING_PLAY_QUALITY=high
 
 # 启动搜索结果数量
-UT_SEARCH_RESULTS=25
+TING_SEARCH_RESULTS=25
 
 # 音频可视化（-f viz）的画法与颜色
-UT_VIZ_STYLE=bars
-UT_VIZ_COLOR=magenta
+TING_VIZ_STYLE=bars
+TING_VIZ_COLOR=magenta
 ```
 
 ### 5.4 解锁更高音质：关联浏览器登录凭据
@@ -428,7 +428,7 @@ UT_VIZ_COLOR=magenta
 在 `~/.config/ting/config` 中追加：
 ```ini
 # 三个音源解析时都借用 Chrome 的登录状态（出厂默认就是 chrome；也可以填 safari, edge, firefox 等）
-UT_COOKIE_BROWSER=chrome
+TING_COOKIE_BROWSER=chrome
 ```
 *(如果不希望读取浏览器凭据，可设为 `none`)*。
 
@@ -446,7 +446,7 @@ UT_COOKIE_BROWSER=chrome
 
 ### Q2: 为什么有些歌曲播放不了？
 **解答**：
-1. **网易云 VIP 限制**：网易云音乐的大量歌曲受版权保护，游客账号仅提供 30 秒试听。建议在配置文件中配置 `UT_COOKIE_BROWSER=chrome` 关联已登录账号；
+1. **网易云 VIP 限制**：网易云音乐的大量歌曲受版权保护，游客账号仅提供 30 秒试听。建议在配置文件中配置 `TING_COOKIE_BROWSER=chrome` 关联已登录账号；
 2. **地区或网络受限**：YouTube 音源需要稳定的国际互联网连接。如果连接受限，建议在界面中按 `e` 切换到 B 站或网易云音源。
 
 ---

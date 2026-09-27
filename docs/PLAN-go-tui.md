@@ -62,7 +62,7 @@ yt-dlp/mpv 在任何语言里都是子进程，生命周期的回归无法二分
 | `-`/`=` 音量走 `send_mpv_ipc`，先 `get_property volume` 再 set | 按住连发：socket 10 ms/次，`--set-volume` 60 ms/次 | Go 端合并连按（只保留最新目标值、同一时刻最多一个在途调用），走 `--set-volume`；当前音量来自 `--watch` |
 | 封面：TUI 自己起一个 `mpv --vo=image` 做转码 | bash 解不了图 | Go 解码搜索信封里的 `thumbnail`，自己发 Kitty 协议；mpv 从 TUI 里消失（细节见 §5「封面」） |
 | `--parts` / `--info` 支不支持，靠调一次、嗅 stderr 的用法错 | 没有发现动词 | 先是 `<engine>-resolve --capabilities -j`（§4.2）；之后归 `t-play --engines -j` 的 `flags[]`（PLAN-single-entry.md §2） |
-| 引擎发现：本目录 → `UT_ENGINE_DIR` → PATH 三处扫描，与 `t-play` 各写一份 | 没有动词答这个 | `t-play --engines -j`（§4.3）；之后 Go 根本不执行引擎文件，引擎动词一律经 `t-play` 转发（PLAN-single-entry.md） |
+| 引擎发现：本目录 → `TING_ENGINE_DIR` → PATH 三处扫描，与 `t-play` 各写一份 | 没有动词答这个 | `t-play --engines -j`（§4.3）；之后 Go 根本不执行引擎文件，引擎动词一律经 `t-play` 转发（PLAN-single-entry.md） |
 
 **已经干净、原样沿用的**：起播/停止/暂停/seek/循环/队列八个动词、`--undo --owner PID`
 （Go 进程传自己的 PID）、`--status` 接管已在跑的播放器、`t-playlist` / `t-history` 全部动词。
@@ -129,10 +129,10 @@ yt-dlp/mpv 在任何语言里都是子进程，生命周期的回归无法二分
 > `bin` 只供诊断，Go 不执行它。下文记的是已落地的 0.17.0 形状。
 
 - **形状（已定 2026-09-25）**：`{status, engines:[{name, search, resolve}]}`，发现顺序，两条都是
-  一次播放真正会跑的绝对路径。放在 `t-play`：它本来就拥有 resolver 查找与 `UT_ENGINE_DIR`，
+  一次播放真正会跑的绝对路径。放在 `t-play`：它本来就拥有 resolver 查找与 `TING_ENGINE_DIR`，
   bash `ting` 退役后 shell 里没有别的家。代价是启动时多 fork 一次（全 PATH 扫描实测 9 ms）。
 - **为什么不在 Go 里复刻**：复刻之后规矩仍是两份，只是换成两种语言；动词让它只剩一份，
-  Go 也不必知道 `UT_ENGINE_DIR` 的 XDG 默认链与旧名兜底。agent 同时得到"装了哪些源"。
+  Go 也不必知道 `TING_ENGINE_DIR` 的 XDG 默认链与旧名兜底。agent 同时得到"装了哪些源"。
 - **已落地**（ARCH-cli-contract.md「命令规格」`t-play` 一节、「数据契约」、「加一个引擎」）：
   门与 `--capabilities` 同一种，不要 `jq`；bash `ting` 暂时照旧自己扫，套件断言两者同表同序。
 
@@ -162,7 +162,7 @@ yt-dlp/mpv 在任何语言里都是子进程，生命周期的回归无法二分
   按契约降级，不是启动失败。
 - **配置面**：Go 实现同一条继承链（flag > 环境变量 > 用户配置 > 出厂配置）与
   偏好键的原地写回。键名按 PLAN-single-entry.md §4 统一为 `TING_*`（旧名兜底一个版本，写回时原地改成新名），
-  所以 Go 的配置移植在那份计划的第 5 步之后按新键表重做，「TING_ 只认改名清单」的怪癖随之消失。文件格式是既有契约，不改。写回不用任何配置库（它们会在
+  Go 的配置移植已按新键表重做（一张旧名 → 新名表，与 shell 载入块的 `CFG_RENAMED` 同一份），「TING_ 只认改名清单」的怪癖随之消失。文件格式是既有契约，不改。写回不用任何配置库（它们会在
   反序列化-序列化之间丢掉注释），逐行搬运，并保住今天 bash 版的每一条保证：
   值后面的行内注释与它的对齐空白原样保留；文件里还没有的键追加到末尾；文件不存在时
   带说明头新建；写临时文件后 rename，且保持原文件权限（今天是 `cp -p`）；环境变量里
@@ -170,7 +170,7 @@ yt-dlp/mpv 在任何语言里都是子进程，生命周期的回归无法二分
 - **封面**：YouTube 的 `hq720.jpg` 实际以 `image/webp` 返回（实测 content-type），
   bili 与 ne 是 JPEG，所以需要 `golang.org/x/image/webp`（构建依赖）。Kitty 负载按块发送
   （今天的 `m=1` 分块），重排与退出时删除 placement。tmux 下保持关闭——今天
-  `UT_IMAGE=auto` 在 tmux 下就是关的，并没有 tmux 穿透可移植。
+  `TING_IMAGE=auto` 在 tmux 下就是关的，并没有 tmux 穿透可移植。
 
 ### 功能对齐清单（工作清单，不是合入门槛）
 
@@ -188,7 +188,7 @@ ASCII 模式、亮暗背景探测；同步重绘（今天是 DCS `1q/2q`，tmux 
 2. **`--capabilities -j`**（shell）：三个引擎 + 契约段的跨引擎门。bump。
 3. **Go 骨架**：先落 `t-play --engines -j`（shell，bump）；再 `verb` 包、`--watch` 消费、配置链，先能搜、能播、能停。
    **已落地**：`cmd/ting`、`internal/verb`（`Error` 按退出码分三类；`Watch` 把 `--watch` 放进自己的进程组，
-   `Close` 连 nc/jq 一起收走，播放器不受影响）、`internal/config`（读链，含 TING_ 环境名只认那张改名清单的怪癖）、
+   `Close` 连 nc/jq 一起收走，播放器不受影响）、`internal/config`（读链，含旧名兜底那张改名表）、
    `internal/tui`（搜 / 播 / 暂停 / 停 / 换源 / 新搜索，启动时接管最新那个在跑的播放器，退出只停本会话起的）。
    `go test ./...` 驱动真实命令；带网络与 mpv 的两例在 `-short` 下跳过。测试的 `TMPDIR` 放在仓内 `tmp/`：
    Go 每个测试的临时目录会把 mpv 的 socket 路径推过上限，mpv 于是**不建 socket 就起播**；

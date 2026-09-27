@@ -42,7 +42,7 @@
 | 冻结契约 | 新脚本通过所有动态跨引擎门；不新增 flag、信封键、reason 或退出码语义 |
 | 内置源判据 | 双半边、零新增全局依赖、bash 3.2、mpv 原生直链、匿名弱风控五项全部有测试证据 |
 
-任一门失败，SoundCloud 不以缩水契约进入 `shell/`；它转为 `$UT_ENGINE_DIR` 的仓外引擎候选，第四内置源议题继续开放。
+任一门失败，SoundCloud 不以缩水契约进入 `shell/`；它转为 `$TING_ENGINE_DIR` 的仓外引擎候选，第四内置源议题继续开放。
 
 ### 2.2 不在本计划里预先决定的事项
 
@@ -64,7 +64,7 @@
 - 新增引擎级配置：
   - `SC_COOKIE_BROWSER=chrome`：供 `--auth` 与 resolve 的 cookie 决定使用；`none` 强制匿名。
   - `SC_AUDIO_FORMAT=ba/b`：SoundCloud 只提供音频，五种规范 `-f` 模式都落到此格式。
-- 搜索条数、上限与排序继续读套件级 `UT_SEARCH_RESULTS`、`UT_SORT_FIELD`（上限是引擎自己的常量）；不得新增 `SC_SEARCH_LIMIT` 形成第二份默认值。
+- 搜索条数、上限与排序继续读套件级 `TING_SEARCH_RESULTS`、`TING_SORT_FIELD`（上限是引擎自己的常量）；不得新增 `SC_SEARCH_LIMIT` 形成第二份默认值。
 - `--quality` 必须接受 `auto|low|medium|high`。实施前以匿名格式表和可获得的 OAuth 格式表实测 (mode, tier) 到 `--format-sort` 的映射；`auto` 不发 sort，`-S` 继续压过 tier。
 
 ### 3.2 `sc-search`

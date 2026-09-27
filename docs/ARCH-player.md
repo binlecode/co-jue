@@ -43,13 +43,13 @@
    |                        -> t-history 记录 |   |   lock-<id>/            操作文件互斥锁   |
    +----+--------------------------------------+   +-----------------------------------------+
         |
-        v t-history --record - (管道行写回，UT_HISTORY=0 可关闭)
+        v t-history --record - (管道行写回，TING_HISTORY=0 可关闭)
    +-----------------------------------------------------------------------------------------+
-   | 持久化存储层: $UT_STATE_DIR/（用户级数据，与站点及播放状态解耦）                       |
+   | 持久化存储层: $TING_STATE_DIR/（用户级数据，与站点及播放状态解耦）                     |
    |   [t-playlist 歌单库]                                                                   |
-   |     $UT_STATE_DIR/playlists/<name>.json (mkdir 互斥锁 + 临时文件原子替换原子覆盖)       |
+   |     $TING_STATE_DIR/playlists/<name>.json (mkdir 互斥锁 + 临时文件原子替换原子覆盖)     |
    |   [t-history 收听日志]                                                                  |
-   |     $UT_STATE_DIR/history/<YYYY-MM>.jsonl (无锁 O_APPEND，单行强制限制 < 4096 字节)     |
+   |     $TING_STATE_DIR/history/<YYYY-MM>.jsonl (无锁 O_APPEND，单行强制限制 < 4096 字节)   |
    |   存储数据模型: 一条记录 = {engine, url, title...} = 等价于一次 t-play 完整可播调用     |
    +-----------------------------------------------------------------------------------------+
 ```
@@ -76,7 +76,7 @@ prose 会腐烂，检查会红。
 
 ```sh
 t-play -f viz -- URL                               # 已证 · 最小调用
-UT_VIZ_STYLE=wave t-play -f viz -- URL             # 已证 · 这一次换风格（默认 bars，两个都跑过）
+TING_VIZ_STYLE=wave t-play -f viz -- URL           # 已证 · 这一次换风格（默认 bars，两个都跑过）
 t-play -f viz --volume 0 -- URL                    # 已证 · 只要画面
 t-play -f viz --start 90 --quality low -- URL      # 已证 · 起播偏移 + 低码率（可视化不看画质）
 t-play --engine bili -f viz -- BV…                 # 已证 · 换引擎，同一个 mode
@@ -159,7 +159,7 @@ resolve` —— 也就是每个 flag 都被收下了、这个组合合法、调�
   video                TING_YT_VIDEO_FORMAT (bv*+ba/b)        默认 VO
   fast                 TING_YT_VIDEO_FORMAT_FAST              默认 VO（渐进式）
   ascii                TING_YT_VIDEO_FORMAT                   --vo=<TING_ASCII_VO> --profile=sw-fast
-  viz                  TING_YT_AUDIO_FORMAT                   --vo=tct + 一条 lavfi 链（UT_VIZ_STYLE 选）
+  viz                  TING_YT_AUDIO_FORMAT                   --vo=tct + 一条 lavfi 链（TING_VIZ_STYLE 选）
                        （给了 -S SORT 时原样转发为 --format-sort）
 ```
 
@@ -180,7 +180,7 @@ resolve` —— 也就是每个 flag 都被收下了、这个组合合法、调�
 返回任何凭据类的头（`Cookie`、`Authorization`）。这是一条**对引擎的契约**，在这里说一次，
 在 ARCH-cli-contract.md「数据契约」说一次。**cookie 完全不是 mpv 的事**：mpv 自己抽取时 cookie
 要经 `--ytdl-raw-options` 传进去，而这里 cookie 的决定完全归发起 yt-dlp 调用的那个引擎
-（ARCH-engine.md「先探后播」）—— 播放器没有 cookie 代码、不读 `UT_COOKIE_BROWSER`、
+（ARCH-engine.md「先探后播」）—— 播放器没有 cookie 代码、不读 `TING_COOKIE_BROWSER`、
 也没有任何一条能把它泄出去的路径。
 
 ### 终端噪声压制与视口保护
@@ -226,8 +226,8 @@ OSD/OSC 与终端进度条都保持稳定：
 两种颜色，在两者一致的地方就是白，而一首立体声混音大部分地方都一致。降成单声道也让读数诚实——
 一列一根柱，不是两根叠加。
 
-**颜色是键也是标志，风格只是键。** `UT_VIZ_COLOR` 有 `--viz-color` 这个出口，
-`UT_VIZ_STYLE` 没有，这个不对称不是随手给的：柱状图还是波形是一次性的口味，
+**颜色是键也是标志，风格只是键。** `TING_VIZ_COLOR` 有 `--viz-color` 这个出口，
+`TING_VIZ_STYLE` 没有，这个不对称不是随手给的：柱状图还是波形是一次性的口味，
 定完就不再动；颜色要跟的是**这一次画在哪块终端上**（同一台机器上的浅底与深底 pane 要的不是同一个色），
 所以它需要一个按调用生效的出口，风格不需要。
 
@@ -256,7 +256,7 @@ user+sys）：整张表都落在单核的 5–10%，所以**取舍从来不是 C
 `t-play` 实现了轻量级 URL 快速嗅探：
 1. **纯 bash 3.2 模式匹配**：通过 `${var#*://}` 与 `${var%%/*}` 等原生参数扩展提取 host，使用 `case` 模式精确匹配已知站点的根域与通配子域（YouTube: `*.youtube.com`, `youtu.be`；Bilibili: `*.bilibili.com`, `b23.tv`；网易云: `*.music.163.com`, `163cn.tv`），0 额外子进程开销；
 2. **显式覆盖最高**：调用方显式传递 `--engine NAME` 时，`ENGINE_SPECIFIED` 锁死该意图，不触发嗅探覆写；
-3. **退让与错误契约不变**：裸媒体 ID（如 11 位 YouTube ID 或纯数字）及未被任何引擎认领的未知 Host（如测试桩 `https://x/y`）不进行猜测，统一安全回退至 `$UT_DEFAULT_ENGINE` / `$TING_DEFAULT_ENGINE`，交由下游白名单或引擎门控拦截，确保离线契约与四级退出码确定性不变。
+3. **退让与错误契约不变**：裸媒体 ID（如 11 位 YouTube ID 或纯数字）及未被任何引擎认领的未知 Host（如测试桩 `https://x/y`）不进行猜测，统一安全回退至 `$TING_DEFAULT_ENGINE`，交由下游白名单或引擎门控拦截，确保离线契约与四级退出码确定性不变。
 
 ### 输出模式与错误分类
 
@@ -463,7 +463,7 @@ stdin 重定向到 `/dev/null` —— 但只在作业控制**关**的时候，�
 
 > **这条边界活过了范围变更，也因此更要紧。** 收听历史按 ARCHITECTURE.md「两个存储」是一个**功能**、
 > 并且已经落地（「收听日志」），所以"`failed[]` 不是历史"不再是一条"缺席"规矩，而是一条**分离**
-> 规矩，两边都是真实文件：历史是持久的、用户级的、每一首都记，住在 `$UT_STATE_DIR`；`failed[]`
+> 规矩，两边都是真实文件：历史是持久的、用户级的、每一首都记，住在 `$TING_STATE_DIR`；`failed[]`
 > 仍是易失的、有界的、只记失败，住在 `$TMPDIR`。两者由同一个子进程在同一瞬间写下，不是重复。
 > 把这个数组长成历史功能，等于把一份面向用户的记录放进一个重启即清的目录。
 
@@ -495,7 +495,7 @@ N 条互相独立的控制通道。于是多播放器完全是**这一层**的�
 实测 mpv 0.41 / macOS，102 字节建得出 socket，103 字节只记一行 "Could not create IPC socket"，
 然后**照样播**——没有 IPC 的播放器，每个 socket 动词都退 4，`--watch` 永远等不到能连的 socket，
 而启动信封却说 `started`。路径只由 `$TMPDIR` 决定（id 恒为 mktemp 的六个字符），所以在铸 id、
-建目录之前就能判定；按**字节**算（内核数的是字节），错误信息点名 `TMPDIR`。与 `UT_VIZ_STYLE`
+建目录之前就能判定；按**字节**算（内核数的是字节），错误信息点名 `TMPDIR`。与 `TING_VIZ_STYLE`
 这类环境值同一种门，退 1。Linux 的 106 是同一条规矩套在它的 108 上，已实测（mpv 0.40 / Linux 7.0，
 Debian trixie 容器，2026-09-26）：106 字节建得出 socket，107 建不出。
 暴露它的是 Go 的测试：每个测试的临时目录把这条路径推到 111 字节。
@@ -867,7 +867,7 @@ SIGUSR1，绝不发给整个组 —— USR1 的默认处置是终止，所以一
 从第二个、独立的存储开始：
 
 ```
-   $UT_STATE_DIR/                      默认 ${XDG_STATE_HOME:-~/.local/state}/ting
+   $TING_STATE_DIR/                    默认 ${XDG_STATE_HOME:-~/.local/state}/ting
      playlists/<name>.json             一个播放列表一个文件，原子 temp+mv
      playlists/.lock-<name>/           mkdir 锁，与 lock_player_state 同一个原语
      undo/playlist-<owner>/            一个调用进程的撤销副本（「撤销副本」）
@@ -930,7 +930,7 @@ ARCHITECTURE.md「站点知识的边界」，那是一个硬性的用法错误�
 播放列表是人放进去的。日志是播放器写下的。它们共享状态根目录与条目记录，此外没有任何共享：
 
 ```
-   $UT_STATE_DIR/history/<YYYY-MM>.jsonl      只追加，一次收听一行
+   $TING_STATE_DIR/history/<YYYY-MM>.jsonl    只追加，一次收听一行
 ```
 
 **用 JSONL，而这是全套件唯一一处打破"一个实体一个文件"的地方。** 一次收听不是一个实体，它是一个
@@ -964,7 +964,7 @@ ARCHITECTURE.md「站点知识的边界」，那是一个硬性的用法错误�
 `--transcript`。这次写发生在一个**先**忽略了 INT 与 TERM 的子 shell 里，而 `SIG_IGN` 能活过
 `exec`，所以一旦它被 fork 出来，哪怕产出它的子进程一毫秒后就被杀，那一行照样落地。
 
-**`UT_HISTORY=0` 关掉它，而默认是开的** —— 一份出厂即关的历史不是历史，因为在这个功能产出过任何
+**`TING_HISTORY=0` 关掉它，而默认是开的** —— 一份出厂即关的历史不是历史，因为在这个功能产出过任何
 一行之前，没有人会去找那个开关。它买到的东西是有意有界的：一个本地文件、在这台机器上、带一个属于
 它自己的 `--clear` 动词。重开条件是**共享账号**，那时"这个登录名听过什么"就不再是一个人的记录了。
 
