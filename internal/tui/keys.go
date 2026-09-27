@@ -507,7 +507,7 @@ func (m *Model) updatePrompt(k tea.KeyMsg) tea.Cmd {
 			}
 			if u := urlTarget(v); u != "" {
 				if m.all == nil {
-					m.query, m.all, m.rows = u, []row{}, []row{}
+					m.query = u
 				}
 				return m.loadURL(u)
 			}
@@ -541,7 +541,7 @@ func pickName(v string, pick []verb.Playlist) string {
 func (m *Model) cancelPrompt() tea.Cmd {
 	m.prompting, m.pick = false, nil
 	m.input.Blur()
-	if m.all == nil && m.pending == nil {
+	if m.all == nil && m.pending == nil && m.busy == "" {
 		return tea.Quit
 	}
 	return nil

@@ -64,7 +64,7 @@ type Watcher struct {
 // takes its netcat and jq with it: the TUI owns this child, and a reader that stops reading
 // while the player is paused would otherwise leave it waiting for the next event.
 func (s *Suite) Watch(ctx context.Context, id string) (*Watcher, error) {
-	argv := []string{s.TPlay, "--watch", "-j", "--id", id}
+	argv := []string{relocate(s.TPlay), "--watch", "-j", "--id", id}
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	stdout, err := cmd.StdoutPipe()

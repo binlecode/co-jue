@@ -36,6 +36,7 @@ type Options struct {
 	TrueColor bool
 	Pinned    func(key string) bool // set by the environment: never written back
 	Cover     Cover
+	Save      func([]config.Pref) error // writes preferences back; nil = never
 	Lang      string
 	ASCII     bool
 	AmbigWide bool
@@ -159,8 +160,10 @@ type Model struct {
 
 	cover coverState
 
-	dirty map[string]bool // preferences a key changed, written back on the way out
-	said  map[string]bool // pinned keys already told about
+	dirty    map[string]bool // preferences a key changed and the file does not have yet
+	said     map[string]bool // pinned keys already told about
+	flushing bool            // a write-back is scheduled
+	saveOff  bool            // the file could not be written: say so once, stop trying
 
 	spin    int
 	ticking bool
@@ -417,9 +420,8 @@ func (m *Model) Init() tea.Cmd {
 	case m.prompting:
 		cmds = append(cmds, textinput.Blink)
 	case urlTarget(m.query) != "":
-		u := urlTarget(m.query)
-		m.query, m.all, m.rows = u, []row{}, []row{}
-		cmds = append(cmds, m.loadURL(u))
+		m.query = urlTarget(m.query)
+		cmds = append(cmds, m.loadURL(m.query))
 	default:
 		cmds = append(cmds, m.fetch(fetchNew, m.query, m.opt.Engine, m.opt.Search,
 			m.s.Searching+` "`+m.query+`"`+m.g.Ell))
@@ -450,7 +452,38 @@ func (m *Model) Init() tea.Cmd {
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	_, cmd := m.update(msg)
-	return m, tea.Batch(cmd, m.coverCmd())
+	return m, tea.Batch(cmd, m.coverCmd(), m.flushCmd())
+}
+
+type flushMsg struct{}
+
+// flushCmd writes the changed preferences back a second after the last change: late enough
+// that a burst of t or l presses is one rewrite, soon enough that the file holds the choice
+// while the session is still open.
+func (m *Model) flushCmd() tea.Cmd {
+	if m.flushing || len(m.dirty) == 0 || m.opt.Save == nil || m.saveOff {
+		return nil
+	}
+	m.flushing = true
+	return tea.Tick(time.Second, func(time.Time) tea.Msg { return flushMsg{} })
+}
+
+// SaveFailed is whether a write-back failed this session, which the way out repeats: the
+// notice was on a frame that is gone.
+func (m *Model) SaveFailed() bool { return m.saveOff }
+
+// Flush writes whatever is still unwritten; the way out calls it last.
+func (m *Model) Flush() error {
+	prefs := m.Prefs()
+	if len(prefs) == 0 || m.opt.Save == nil || m.saveOff {
+		return nil
+	}
+	if err := m.opt.Save(prefs); err != nil {
+		m.saveOff = true
+		return err
+	}
+	m.dirty = map[string]bool{}
+	return nil
 }
 
 // coverCmd starts the focused row's cover when the frame would draw one and it is neither
@@ -473,6 +506,13 @@ func (m *Model) coverCmd() tea.Cmd {
 
 func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case flushMsg:
+		m.flushing = false
+		if m.Flush() != nil {
+			m.notice(m.s.PrefAct+":", m.s.PrefFailed)
+		}
+		return m, nil
+
 	case coverMsg:
 		m.cover.inFlight = ""
 		if msg.img != nil {
@@ -580,6 +620,17 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// Keys typed faster than one read — a double-tapped ?, 12j at speed, a held key —
+		// arrive as one message carrying every rune. They are keystrokes, not text: a paste
+		// comes bracketed. So each rune is its own key.
+		if msg.Type == tea.KeyRunes && !msg.Paste && len(msg.Runes) > 1 {
+			var cmds []tea.Cmd
+			for _, r := range msg.Runes {
+				_, c := m.update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}, Alt: msg.Alt})
+				cmds = append(cmds, c)
+			}
+			return m, tea.Batch(cmds...)
+		}
 		// A notice is the frame's content until the next key, which clears it.
 		m.noticeL, m.noticeT = "", ""
 		var cmd tea.Cmd
@@ -602,26 +653,45 @@ func (m *Model) searchDone(msg searchDoneMsg) tea.Cmd {
 	}
 	m.pending, m.busy = nil, ""
 	req := msg.req
+	eng := m.opt.Engines[req.engine].Name
 	if msg.err != nil {
-		// A search that came back empty-handed (2) is a notice, never a dead session: the
-		// n / e / b keys that fix it all need the menu loop. Anything else on the very first
-		// search has nothing on screen to steer, so it ends the session with its reason.
+		// Under -j an engine says WHY in the envelope and what a person can do about it on
+		// stderr; the reason leads and the advice follows. A first search that broke has
+		// nothing on screen to steer, so it ends the session with that line.
+		text := errText(msg.err)
 		var ve *verb.Error
-		empty := errors.As(msg.err, &ve) && ve.Code == 2
-		if req.kind == fetchNew && m.all == nil && !empty {
-			m.fatal = msg.err
+		if errors.As(msg.err, &ve) {
+			note := verb.EngineMsg(eng, ve.Stderr)
+			switch {
+			case ve.Reason != "" && note != "":
+				text = "search failed (" + ve.Reason + "): " + note
+			case ve.Reason != "":
+				text = "search failed (" + ve.Reason + ")"
+			case note != "":
+				text = note
+			}
+		}
+		if req.kind == fetchNew && m.all == nil {
+			m.fatal = errors.New(text)
 			return tea.Quit
 		}
-		text := errText(msg.err)
-		if empty {
-			text = "no results"
-			if req.kind == fetchNew && req.query != "" {
-				text = `no results for "` + req.query + `"`
-			}
+		m.notice(m.s.SearchAct+":", text)
+		return nil
+	}
+	if msg.res.Note != "" {
+		m.notice(m.s.SearchAct+":", msg.res.Note)
+	}
+	if len(msg.res.Results) == 0 {
+		// Nothing matched: a notice, and the rows on screen stay — except on the first
+		// search, where there are none to keep and the list is simply empty, with the n / e
+		// / b keys that fix it all still there.
+		text := "no results"
+		if req.kind == fetchNew {
+			text = `no results for "` + req.query + `"`
 		}
 		m.notice(m.s.SearchAct+":", text)
 		if m.all == nil {
-			m.all, m.rows = []row{}, []row{}
+			m.all, m.rows, m.query = []row{}, []row{}, req.query
 		}
 		return nil
 	}

@@ -865,6 +865,10 @@ func (m *Model) loadURL(u string) tea.Cmd {
 }
 
 func (m *Model) urlDone(msg urlMsg) {
+	if m.all == nil {
+		// A URL given at startup: whatever it turns out to be, the list exists from here on.
+		m.all, m.rows = []row{}, []row{}
+	}
 	switch {
 	case msg.err != nil:
 		label := m.s.URLAct

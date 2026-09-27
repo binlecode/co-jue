@@ -112,11 +112,34 @@ func LocateIn(dir string) (*Suite, error) {
 // prints one line; the last is the envelope even if something chatted before it). A non-zero
 // exit is an *Error, with the envelope's status/reason when there is one.
 func run(ctx context.Context, argv []string, out any) error {
-	return runIn(ctx, argv, nil, out)
+	_, err := runErr(ctx, argv, nil, out)
+	return err
 }
 
-// runIn is run with stdin: the queue verbs read their items there.
 func runIn(ctx context.Context, argv []string, stdin []byte, out any) error {
+	_, err := runErr(ctx, argv, stdin, out)
+	return err
+}
+
+// relocate is a tool's path, or — when an upgrade has deleted it under a running session —
+// the same name found on PATH, where a package manager keeps the current version. One stat
+// per call and never a second lookup while the file is there, so a session talks to the same
+// tool from start to end; but the stop that q sends is the call that must not silently fail,
+// and a deleted path would leave the player running with nothing attached.
+func relocate(p string) string {
+	if _, err := os.Stat(p); err == nil {
+		return p
+	}
+	if q, err := exec.LookPath(filepath.Base(p)); err == nil {
+		return q
+	}
+	return p
+}
+
+// runErr is run with stdin (the queue verbs read their items there), and it also hands back
+// what a verb that SUCCEEDED said on stderr: an engine's advice rides there under -j.
+func runErr(ctx context.Context, argv []string, stdin []byte, out any) (string, error) {
+	argv = append([]string{relocate(argv[0])}, argv[1:]...)
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	if stdin != nil {
 		cmd.Stdin = bytes.NewReader(stdin)
@@ -138,18 +161,18 @@ func runIn(ctx context.Context, argv []string, stdin []byte, out any) error {
 				ve.Reason = *env.Reason
 			}
 		}
-		return ve
+		return "", ve
 	}
 	if err != nil {
-		return fmt.Errorf("%s: %w", filepath.Base(argv[0]), err)
+		return "", fmt.Errorf("%s: %w", filepath.Base(argv[0]), err)
 	}
 	if out == nil {
-		return nil
+		return stderr.String(), nil
 	}
 	if err := json.Unmarshal(line, out); err != nil {
-		return fmt.Errorf("%s: unreadable envelope: %w", filepath.Base(argv[0]), err)
+		return "", fmt.Errorf("%s: unreadable envelope: %w", filepath.Base(argv[0]), err)
 	}
-	return nil
+	return stderr.String(), nil
 }
 
 func lastLine(b []byte) []byte {
@@ -205,8 +228,9 @@ type Result struct {
 	Thumbnail   string   `json:"thumbnail"`
 }
 
-// SearchResult is the search envelope.
+// SearchResult is the search envelope, plus Note: what the engine advised on stderr.
 type SearchResult struct {
+	Note    string   `json:"-"`
 	Status  string   `json:"status"`
 	Engine  string   `json:"engine"`
 	Query   string   `json:"query"`
@@ -239,9 +263,11 @@ func (s *Suite) Search(ctx context.Context, engine, query string, o SearchOpts) 
 	}
 	argv = append(argv, "--", query)
 	var r SearchResult
-	if err := run(ctx, argv, &r); err != nil {
+	stderr, err := runErr(ctx, argv, nil, &r)
+	if err != nil {
 		return nil, err
 	}
+	r.Note = EngineMsg(engine, stderr)
 	return &r, nil
 }
 
@@ -398,4 +424,15 @@ func (s *Suite) Status(ctx context.Context) ([]Player, error) {
 		return nil, err
 	}
 	return env.Players, nil
+}
+
+// EngineMsg is the one line a person reads from an engine's stderr: its last line, less the
+// "Error: " and "ting-engine-<name>: " prefixes the label on screen already says.
+func EngineMsg(engine, stderr string) string {
+	m := strings.TrimRight(stderr, "\n")
+	if i := strings.LastIndexByte(m, '\n'); i >= 0 {
+		m = m[i+1:]
+	}
+	m = strings.TrimPrefix(m, "Error: ")
+	return strings.TrimPrefix(m, "ting-engine-"+engine+": ")
 }

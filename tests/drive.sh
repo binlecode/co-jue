@@ -8,7 +8,7 @@
 #   1. `ting` refuses a non-TTY (exit 1), so it cannot be run from a pipe or a Bash tool
 #      call. tmux is the terminal.
 #   2. The pane size must be set AT SESSION CREATION (-x/-y). LINES/COLUMNS do nothing — the
-#      TUI reads the real ioctl via `stty size </dev/tty` (term_size in shell/ting), so a harness
+#      TUI reads the real ioctl (TIOCGWINSZ), so a harness
 #      that skips TIOCSWINSZ gets a 0x0 terminal and a one-row list whose frames still look
 #      plausible enough to trust.
 #   3. `Enter` starts mpv DETACHED, in its own process group. Killing the tmux session does
@@ -58,6 +58,9 @@ while [ $# -gt 0 ]; do
 done
 
 command -v tmux >/dev/null 2>&1 || { echo "drive.sh: tmux is required (ting needs a real tty)" >&2; exit 1; }
+# The TUI is the Go binary, built from this checkout beside the scripts (dot-named, so no
+# shell/* glob reads it).
+go build -o shell/.ting-go ./cmd/ting || { echo "drive.sh: go build ./cmd/ting failed" >&2; exit 1; }
 
 # ---- a state dir of this run's own --------------------------------------------------
 # Why, once, for all three files under tests/: contract.sh's header. What is specific
@@ -146,7 +149,7 @@ while IFS= read -r line; do
 done < <(env)
 
 tmux new-session -d -s "$S" -x "$COLS" -y "$ROWS" \
-    "cd '$PWD' && TING_HISTORY=0$env_prefix TMPDIR='$TMPDIR' TING_CONFIG='$DRIVE_CFG' TING_SYNC=0 shell/ting '$QUERY'"
+    "cd '$PWD' && TING_HISTORY=0$env_prefix TMPDIR='$TMPDIR' TING_CONFIG='$DRIVE_CFG' TING_SYNC=0 shell/.ting-go '$QUERY'"
 
 # Wait on the ready MARKER, never on a sleep: a captured spinner frame is a picture of the
 # loading state, not of the layout. A cold yt-dlp search takes ~10s.
@@ -200,7 +203,7 @@ fi
 # move the bias. A frame torn that way does not look torn, which is what makes it expensive:
 # the top is the view you asked for and the bottom is the view you left, so it reads as a
 # renderer that forgot to erase. It is not. `ting` repaints in place — every line erases its
-# own tail and the render ends on \033[J (display_list_menu in shell/ting).
+# own tail and the render ends where the frame does.
 #
 # THE NUMBER THIS IS SIZED AGAINST, measured 2026-08-30 at 100x30 by sampling the pane every
 # 0.1s from the keypress: `i` on a row with 28 chapters spends 2.7s on the fetch (the spinner,
@@ -212,7 +215,7 @@ fi
 # stall itself was 0.88s when this was written and is 0.20s since disp_fits bounded the
 # measurement; the window is not re-tuned down, because what it is sized against is the SLOW
 # machine, not this one. For scale, the list frame whose 15-24ms repaint display_list_menu
-# in shell/ting records is two orders of magnitude away from this one.
+# in the TUI records is two orders of magnitude away from this one.
 #
 # So: unchanged across a 1.5s window, not a 1.5s sleep. On this machine the two would behave
 # the same; they part on a slower one, where the stall grows and a fixed sleep goes back to

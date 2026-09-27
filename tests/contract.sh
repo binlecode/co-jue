@@ -104,6 +104,14 @@ TING_TEST_TMP=$(mktemp -d "${TMPDIR:-/tmp}/ting-contract.XXXXXX") || exit 1
 export TMPDIR="$TING_TEST_TMP"
 STATE_DIR="$TMPDIR/ting-$(id -u)"
 
+# ---- the TUI under test: the Go binary, built from this checkout --------------------------
+# Beside the scripts, so it finds its siblings and the checkout's VERSION and config the way an
+# install does, and dot-named, so no shell/* glob (bash -n, the hooks, the entry-point lists
+# below) ever reads a binary. Built once, before anything runs it: a Go toolchain is a build
+# dependency, and a checkout that cannot build its own TUI cannot pass its own suite.
+TING_TUI="$PWD/shell/.ting-go"
+go build -o "$TING_TUI" ./cmd/ting || { echo "contract.sh: go build ./cmd/ting failed" >&2; exit 1; }
+
 # ---- the config file, pointed somewhere disposable ----------------------------------
 # The same argument as TMPDIR above, one layer out. Every command in the suite now reads
 # ${XDG_CONFIG_HOME:-~/.config}/ting/config, so without this line a developer whose real
@@ -337,7 +345,7 @@ undo_pane() {
     TS="ctest-undo-$$"
     tmux kill-session -t "$TS" 2>/dev/null
     tmux new-session -d -s "$TS" -x 100 -y 30 \
-        "cd '$PWD' && env TING_SYNC=0 TING_HISTORY=0 TMPDIR='$TMPDIR' TING_STATE_DIR='$UNDO_STATE' TING_CONFIG='$UNDO_CFG' TING_LANG=en shell/ting --volume 0 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
+        "cd '$PWD' && env TING_SYNC=0 TING_HISTORY=0 TMPDIR='$TMPDIR' TING_STATE_DIR='$UNDO_STATE' TING_CONFIG='$UNDO_CFG' TING_LANG=en '$TING_TUI' --volume 0 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
     undo_up=$(poll_until 40 pane_has "query='")
     report "the undo pane paints a list" 1 "$undo_up"
     if [ "$undo_up" = 1 ]; then
@@ -566,7 +574,7 @@ undo_pane() {
         # frame and after z, the two places it appears.
         tmux kill-session -t "$TS" 2>/dev/null
         tmux new-session -d -s "$TS" -x 100 -y 30 \
-            "cd '$PWD' && env TING_SYNC=0 TING_HISTORY=0 TMPDIR='$TMPDIR' TING_STATE_DIR='$UNDO_STATE' TING_CONFIG='$UNDO_CFG' TING_LANG=zh shell/ting 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
+            "cd '$PWD' && env TING_SYNC=0 TING_HISTORY=0 TMPDIR='$TMPDIR' TING_STATE_DIR='$UNDO_STATE' TING_CONFIG='$UNDO_CFG' TING_LANG=zh '$TING_TUI' 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
         if [ "$(poll_until 40 pane_has "query='")" = 1 ]; then
             tmux send-keys -t "$TS" b
             poll_until 10 pane_has '[0-9]\. undo-list' >/dev/null
@@ -1163,6 +1171,8 @@ for f in shell/*; do
     head -n 1 "$f" | grep -q '^#!' || continue      # VERSION is data, not a command
     ENTRY_POINTS="$ENTRY_POINTS $f"
 done
+# …and the TUI, which is a binary built beside them rather than a script in the glob.
+ENTRY_POINTS="$ENTRY_POINTS $TING_TUI"
 # No separate count check: an empty ENTRY_POINTS makes the `sort -u | wc -l` below 0, not 1,
 # so the vacuous case is already caught by the check that does the work.
 report "one version, every entry point" 1 \
@@ -1177,7 +1187,10 @@ report "one version, every entry point" 1 \
 TING_VER=$(cat VERSION)
 LINKDIR="$TING_TEST_TMP/bin"
 mkdir -p "$LINKDIR"
-for c in $ENTRY_POINTS; do ln -sf "$PWD/$c" "$LINKDIR/$(basename "$c")"; done
+for c in $ENTRY_POINTS; do
+    case "$c" in /*) _src=$c ;; *) _src=$PWD/$c ;; esac
+    ln -sf "$_src" "$LINKDIR/$(basename "$c")"
+done
 report "…and it is VERSION, via a symlink" "$TING_VER" \
     "$(for c in "$LINKDIR"/*; do "$c" --version | awk '{print $NF}'; done | sort -u | tr -d '\n')"
 
@@ -1335,7 +1348,7 @@ report "ting-play --quality keeps the engine gate" 1 \
 # TTY gate a few lines further down the same file, so an exit code alone cannot separate
 # "refused the value" from "refused the pipe" and the check could not fail.
 for spec in TING_PLAY_QUALITY=bogus TING_KEYS=bogus TING_BG=sideways TING_RESOURCE=maybe TING_IMAGE=bogus; do
-    KNOB_OUT=$(env "$spec" shell/ting </dev/null 2>&1 || true)
+    KNOB_OUT=$(env "$spec" "$TING_TUI" </dev/null 2>&1 || true)
     case "$KNOB_OUT" in
     *"${spec%%=*}"*) KNOB_HIT=yes ;;
     *) KNOB_HIT=no ;;
@@ -1493,7 +1506,7 @@ for _m in ascii viz; do
     # the mode could never reach a terminal — and there the claim has to be the MESSAGE: the
     # TTY gate a few lines further into `ting` also exits 1, so an exit code cannot separate
     # "refused the mode" from "refused the pipe". Captured then matched, per this file's rule.
-    case "$(shell/ting -f "$_m" q </dev/null 2>&1 || true)" in
+    case "$("$TING_TUI" -f "$_m" q </dev/null 2>&1 || true)" in
     *"must be one of"*) _mhit=yes ;;
     *) _mhit=no ;;
     esac
@@ -1552,14 +1565,14 @@ ting_gate() { # <env assignments and argv…> — which gate answered
     *) echo other ;;
     esac
 }
-report "ting: no query reaches the TTY gate" tty "$(ting_gate shell/ting)"
-report "…a bare query too"          tty "$(ting_gate shell/ting "lofi hip hop")"
-report "…search args forwarded"     tty "$(ting_gate shell/ting --engine bili -n 40 "周杰伦")"
+report "ting: no query reaches the TTY gate" tty "$(ting_gate "$TING_TUI")"
+report "…a bare query too"          tty "$(ting_gate "$TING_TUI" "lofi hip hop")"
+report "…search args forwarded"     tty "$(ting_gate "$TING_TUI" --engine bili -n 40 "周杰伦")"
 # The legal -f, and the half that pins the order: identical stdin to the `-f viz` check above,
 # a different gate in the answer. A ting that checked the tty first would answer `tty` up
 # there too and this pair would say nothing.
-report "…menu args, and -f is legal" tty "$(ting_gate shell/ting -f video --volume 60 "lofi")"
-report "…chrome args"               tty "$(ting_gate TING_LANG=zh shell/ting --theme nord "lofi")"
+report "…menu args, and -f is legal" tty "$(ting_gate "$TING_TUI" -f video --volume 60 "lofi")"
+report "…chrome args"               tty "$(ting_gate TING_LANG=zh "$TING_TUI" --theme nord "lofi")"
 
 # ── WHERE A THIRD-PARTY ENGINE MAY LIVE: three places, one order. `ting` once scanned PATH
 # only when the sibling glob came up empty, which made the one situation an installed
@@ -1577,7 +1590,7 @@ report "…chrome args"               tty "$(ting_gate TING_LANG=zh shell/ting -
 # have comes back as "must be one of: <the registry, in discovery order>" — so the checks hold
 # the verb's answer AND the TUI's reading of it; the ORDER in them is what pins precedence.
 engine_list() { # <env assignments and argv…> — the TUI's registry, in discovery order
-    env "$@" shell/ting --engine zzz-none q </dev/null 2>&1 | sed -n 's/.*must be one of: //p'
+    env "$@" "$TING_TUI" --engine zzz-none q </dev/null 2>&1 | sed -n 's/.*must be one of: //p'
 }
 engines_verb() { # <env assignments…> — the verb's names, in its order
     env "$@" shell/ting-play --engines -j 2>/dev/null | jq -r '[.engines[].name] | join(" ")' 2>/dev/null
@@ -1618,7 +1631,7 @@ report "a config file cannot point at engines" "$SIBLINGS" "$(engines_verb TING_
 # the check that catches ting misreading the verb (a dropped line, a split field).
 _eng_agree=0
 for _env in "" "PATH=$PATH_ENG:$PATH" "TING_ENGINE_DIR=$PLUG" "XDG_DATA_HOME=$XDG_HOME" "TING_CONFIG=$ENGCFG"; do
-    [ "$(engines_verb $_env)" = "$(engine_list $_env shell/ting)" ] && _eng_agree=$((_eng_agree + 1))
+    [ "$(engines_verb $_env)" = "$(engine_list $_env "$TING_TUI")" ] && _eng_agree=$((_eng_agree + 1))
 done
 report "ting's registry is ting-play --engines" 5 "$_eng_agree"
 # THE PLAYER finds by the same three places: an engine that was FOUND gets as far as the host
@@ -2187,20 +2200,20 @@ report "command substitution is never executed" "absent" \
 # TING_VERSION is the constant from VERSION; a config file cannot overwrite it.
 printf 'TING_VERSION=fake\n' > "$CFG"
 report "TING_VERSION in config is refused" "$TING_VER" \
-    "$(TING_CONFIG="$CFG" shell/ting --version | awk '{print $NF}')"
+    "$(TING_CONFIG="$CFG" "$TING_TUI" --version | awk '{print $NF}')"
 
 # --theme takes ONE name. The membership test is an exact compare over the name list, not a
 # substring of it: "gruvbox onedark" IS a substring of that list and a substring gate would
 # pass it, then fall off the end of set_theme's case with no accent set at all.
-report "--theme rejects two names at once" mode "$(ting_gate shell/ting --theme "gruvbox onedark" q)"
+report "--theme rejects two names at once" mode "$(ting_gate "$TING_TUI" --theme "gruvbox onedark" q)"
 
 # PROSE AND THE DOOR MAY NOT DIVERGE. The theme names used to be spelled four times; they are
 # one constant now, but usage() stays literal English and can still drift from it. Both sides
 # here are things the COMMAND said — the gate's own refusal message and its own --help — so
 # this compares two live surfaces rather than grepping the source for the constant.
-THEME_GATE_SET=$(shell/ting --theme __not_a_theme__ </dev/null 2>&1 |
+THEME_GATE_SET=$("$TING_TUI" --theme __not_a_theme__ </dev/null 2>&1 |
     sed -n 's/.*must be one of: //p' | tr -d ' ' | tr ',' '\n' | sort | tr '\n' ' ')
-THEME_HELP=$(shell/ting -h 2>&1 || true)
+THEME_HELP=$("$TING_TUI" -h 2>&1 || true)
 THEME_USAGE_FLAG=$(printf '%s\n' "$THEME_HELP" | tr '\n' ' ' |
     sed -e 's/.*Palette: //' -e 's/\. Every theme.*//' -e 's/(default)//' |
     tr '|' '\n' | tr -d ' ' | grep -v '^$' | sort | tr '\n' ' ')
@@ -2285,7 +2298,7 @@ else
     # way the TUI section spells its knobs out, so the pane's language is an input.
     tmux kill-session -t "$PS_TS" 2>/dev/null
     tmux new-session -d -s "$PS_TS" -x 80 -y 20 \
-        "TING_STATE_DIR='$PS_STATE' TMPDIR='$TMPDIR' TING_CONFIG='$TING_CONFIG' TING_LANG=en TING_HISTORY=0 '$PWD/shell/ting'; echo __GONE__; sleep 5" 2>/dev/null
+        "TING_STATE_DIR='$PS_STATE' TMPDIR='$TMPDIR' TING_CONFIG='$TING_CONFIG' TING_LANG=en TING_HISTORY=0 '$TING_TUI'; echo __GONE__; sleep 5" 2>/dev/null
     pasted=0
     i=0
     while [ $i -lt 100 ]; do
@@ -2380,7 +2393,7 @@ if tmux_ok; then
     CK_STATE=$(mktemp -d "${TMPDIR:-/tmp}/ting-cookie.XXXXXX")
     tmux kill-session -t "$CK_TS" 2>/dev/null
     tmux new-session -d -s "$CK_TS" -x 200 -y 20 \
-        "HOME='$CK_BASE/missing' TING_COOKIE_BROWSER=chrome http_proxy='$NOPROXY' https_proxy='$NOPROXY' TING_STATE_DIR='$CK_STATE' TMPDIR='$TMPDIR' TING_CONFIG='$TING_CONFIG' TING_LANG=en TING_HISTORY=0 '$PWD/shell/ting' lofi; echo __GONE__; sleep 5" 2>/dev/null
+        "HOME='$CK_BASE/missing' TING_COOKIE_BROWSER=chrome http_proxy='$NOPROXY' https_proxy='$NOPROXY' TING_STATE_DIR='$CK_STATE' TMPDIR='$TMPDIR' TING_CONFIG='$TING_CONFIG' TING_LANG=en TING_HISTORY=0 '$TING_TUI' lofi; echo __GONE__; sleep 5" 2>/dev/null
     said=0
     i=0
     while [ $i -lt 200 ]; do
@@ -2423,7 +2436,7 @@ if tmux_ok; then
     CQ_STATE=$(mktemp -d "${TMPDIR:-/tmp}/ting-cookieq.XXXXXX")
     tmux kill-session -t "$CQ_TS" 2>/dev/null
     tmux new-session -d -s "$CQ_TS" -x 200 -y 24 \
-        "HOME='$CK_BASE/missing' TING_COOKIE_BROWSER=chrome TING_STATE_DIR='$CQ_STATE' TMPDIR='$TMPDIR' TING_CONFIG='$TING_CONFIG' TING_LANG=en TING_HISTORY=0 '$PWD/shell/ting' lofi; echo __GONE__; sleep 30" 2>/dev/null && CQ_UP=1
+        "HOME='$CK_BASE/missing' TING_COOKIE_BROWSER=chrome TING_STATE_DIR='$CQ_STATE' TMPDIR='$TMPDIR' TING_CONFIG='$TING_CONFIG' TING_LANG=en TING_HISTORY=0 '$TING_TUI' lofi; echo __GONE__; sleep 30" 2>/dev/null && CQ_UP=1
 fi
 
 # ---- fetch once, assert many, and fetch them ALL AT ONCE ------------------------------
@@ -3328,7 +3341,7 @@ else
     # cannot reach it, and a server started from a shell that exported TING_CONFIG or
     # TING_STATE_DIR would have walked this pane's R and D y onto the user's own playlists. The
     # The pane's own command line is the only place its redirections can come from.
-    TUI_CMD="cd '$PWD' && env -u NO_COLOR TING_SYNC=0 TING_IMAGE=on TMPDIR='$TMPDIR' TING_STATE_DIR='$TUI_STATE' TING_CONFIG='$TUI_CFG' TING_SORT_FIELD=relevance TING_LANG=en shell/ting 'lofi hip hop'"
+    TUI_CMD="cd '$PWD' && env -u NO_COLOR TING_SYNC=0 TING_IMAGE=on TMPDIR='$TMPDIR' TING_STATE_DIR='$TUI_STATE' TING_CONFIG='$TUI_CFG' TING_SORT_FIELD=relevance TING_LANG=en '$TING_TUI' 'lofi hip hop'"
     TUI_CMD="$TUI_CMD"'; printf "RC=%s\n" $?'
     TUI_CMD="$TUI_CMD"'; stty -a </dev/tty | tr " " "\n" | grep -E "^-?(echo|icanon)$" | tr "\n" " " | sed "s/^/FLAGS= /"; echo; sleep 20'
     tmux new-session -d -s "$TS" -x 100 -y 30 "$TUI_CMD"
@@ -4083,7 +4096,7 @@ else
         cp -R shell config VERSION "$RL_BASE/inst/"
         tmux kill-session -t "$TS" 2>/dev/null
         tmux new-session -d -s "$TS" -x 100 -y 30 \
-            "env PATH='$1' TING_SYNC=0 TING_HISTORY=0 TMPDIR='$TMPDIR' TING_STATE_DIR='$RL_BASE/state' TING_CONFIG='$RL_BASE/cfg' TING_LANG=en '$RL_BASE/inst/shell/ting' --volume 0 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
+            "env PATH='$1' TING_SYNC=0 TING_HISTORY=0 TMPDIR='$TMPDIR' TING_STATE_DIR='$RL_BASE/state' TING_CONFIG='$RL_BASE/cfg' TING_LANG=en '$RL_BASE/inst/shell/.ting-go' --volume 0 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
         poll_until 40 pane_has "query='" >/dev/null
         tmux send-keys -t "$TS" Enter
         [ "$(poll_until 40 pane_has 'Playing: ')" = 1 ] || return 1
@@ -4143,7 +4156,7 @@ else
     adopt_boot() {
         tmux kill-session -t "$ADOPT_TS" 2>/dev/null
         tmux new-session -d -s "$ADOPT_TS" -x 100 -y 30 \
-            "cd '$PWD' && env TING_SYNC=0 TING_HISTORY=0 TMPDIR='$TMPDIR' TING_STATE_DIR='$ADOPT_STATE' TING_CONFIG='$ADOPT_CFG' TING_LANG=en shell/ting 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
+            "cd '$PWD' && env TING_SYNC=0 TING_HISTORY=0 TMPDIR='$TMPDIR' TING_STATE_DIR='$ADOPT_STATE' TING_CONFIG='$ADOPT_CFG' TING_LANG=en '$TING_TUI' 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
         # The header's own count word, the same first-frame marker the section above waits on:
         # the spinner line that precedes it says `searching "…"` and never `results`.
         poll_until 40 pane_has 'results'
@@ -4331,7 +4344,7 @@ else
         TS="ctest-parts-$$"          # the helpers above read $TS; the first session is gone
         tmux kill-session -t "$TS" 2>/dev/null
         tmux new-session -d -s "$TS" -x 100 -y 30 \
-            "cd '$PWD' && env TING_SYNC=0 TMPDIR='$TMPDIR' TING_STATE_DIR='$PTS_STATE' TING_CONFIG='$PTS_CFG' TING_LANG=en shell/ting --engine $PARTS_ENG -n 10 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
+            "cd '$PWD' && env TING_SYNC=0 TMPDIR='$TMPDIR' TING_STATE_DIR='$PTS_STATE' TING_CONFIG='$PTS_CFG' TING_LANG=en '$TING_TUI' --engine $PARTS_ENG -n 10 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
         up=$(poll_until 30 pane_has "query='")
         if [ "$up" != 1 ]; then
             report "the parts pane came up" 1 "$up"

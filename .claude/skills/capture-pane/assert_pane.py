@@ -87,7 +87,7 @@ def cells(s, ambig_wide=False):
 # prefix AND a duration rail at the end of the line; neither half identifies one alone.
 # `▎ ` is the cursor as of the accent-bar refresh (137e76b); `> ` is what ASCII mode
 # narrows it to, and `▶ ` is the shape it had before that commit — kept so an older
-# captured frame still parses. GL_CURSOR in shell/ting is the authority.
+# captured frame still parses. glyphsUTF.Cursor in internal/tui/text.go is the authority.
 ROW = re.compile(r"^(▎ |▶ |> |  )( *\d+\. )?(?=\S)")
 # The rail, and after it the scrollbar cell that now closes every row. The gutter is part of
 # the match rather than stripped beforehand so that one regex still identifies a row — and

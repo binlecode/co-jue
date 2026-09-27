@@ -513,7 +513,19 @@ func (m *Model) View() string {
 		return b.String()
 	}
 
+	if m.all == nil {
+		// Before the first search lands there is no list to draw — just what is happening.
+		// The title line is the ready marker (query='…'), so it must not appear early.
+		return m.p.Dim + m.g.Spin[m.spin%len(m.g.Spin)] + " " + m.busy + m.p.Reset
+	}
+
+	// The page readout reads the page size off the previous frame; the first frame, or one
+	// after a resize, lays out twice so its own count is right.
+	ps := m.psize
 	f := m.layout()
+	if m.psize != ps {
+		f = m.layout()
+	}
 
 	// Title line, with the status segment right-aligned when it fits.
 	lead := brand(m.opt.Lang, m.opt.ASCII)

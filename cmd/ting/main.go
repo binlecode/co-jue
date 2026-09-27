@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"errors"
 	"fmt"
 	"os"
@@ -36,27 +37,10 @@ func installDir() string {
 	return filepath.Dir(filepath.Dir(exe))
 }
 
-const usage = `ting — interactive terminal browser for the installed engines (Go build, in progress)
-
-Usage:
-  ting [options] [search query]
-
-Search options (forwarded to ting-play --search):
-  -n NUM              Number of results to fetch (default: TING_SEARCH_RESULTS)
-  --min-duration SEC  Minimum duration in seconds
-  --max-duration SEC  Maximum duration in seconds
-  --sort FIELD        relevance | view_count | duration (default: TING_SORT_FIELD)
-  --engine NAME       Which source to search (default: TING_DEFAULT_ENGINE, else the first installed)
-
-Menu options:
-  -f MODE        Playback mode: audio | video | fast (default: TING_PLAY_MODE)
-  --volume N     mpv startup volume, 0-100
-  -p NUM         Rows per page (default: TING_PAGE_ROWS, capped to the terminal height)
-  --color MODE   auto | always | never (default: auto)
-  --theme NAME   Palette family (default: TING_THEME)
-  -h             This help
-  -V             Print the suite version
-`
+// usage is the help: the key table and the environment, stated once, here.
+//
+//go:embed usage.txt
+var usage string
 
 type flags struct {
 	engine, mode, volume, n, sort, minDur, maxDur, pageRows, color, theme string
@@ -286,6 +270,9 @@ func main() {
 	if !ok || batch < 1 {
 		die(1, "TING_FETCH_BATCH must be a positive integer")
 	}
+	if sy := cfg.Value("TING_SYNC"); sy != "" && !oneOf(sy, "0", "1", "auto") {
+		die(1, "TING_SYNC must be 0, 1 or auto (got '%s')", sy)
+	}
 	ambig := cfg.Value("TING_AMBIG_WIDE") == "1"
 	lang, ok := tui.DetectLang(cfg.Value("TING_LANG"), os.Getenv)
 	if !ok {
@@ -331,6 +318,7 @@ func main() {
 		TrueColor: ct == "truecolor" || ct == "24bit",
 		Pinned:    cfg.Pinned,
 		Cover:     cover,
+		Save:      cfg.WriteBack,
 		Lang:      lang,
 		ASCII:     tui.DetectASCII(cfg.Value("TING_ASCII"), os.Getenv),
 		AmbigWide: ambig,
@@ -340,7 +328,7 @@ func main() {
 	m.Close()
 	tui.ClearCover(cover)
 	m.Discard()
-	if err := cfg.WriteBack(m.Prefs()); err != nil {
+	if err := m.Flush(); err != nil || m.SaveFailed() {
 		fmt.Println("Config: could not be written — this session's preferences were not saved")
 	}
 	cancel()

@@ -1,0 +1,145 @@
+ting — interactive terminal browser for the installed engines
+
+Usage:
+  ting [options] [search query]
+
+With no query, prompts for one (interactive). Requires a terminal.
+
+Search options (forwarded to ting-play --search):
+  -n NUM    Number of results to fetch (default: 20)
+  --min-duration SEC  Minimum duration in seconds
+  --max-duration SEC  Maximum duration in seconds
+  --sort FIELD        relevance | view_count | duration (default: TING_SORT_FIELD)
+  --engine NAME  Which source to search. Defaults to TING_DEFAULT_ENGINE (the same variable
+            ting-play reads), falling back to the first one installed. An engine is one
+            ting-engine-<name> file, as 'ting-play --engines' lists them — nothing here lists
+            them, so whatever is installed is what the e key offers.
+
+Menu options:
+  -f MODE   Playback mode (default: audio): audio | video | fast
+            (playback is detached — ascii/viz need a terminal to draw on)
+  --volume N  mpv startup volume, 0-100 (default: unset -> mpv's own default);
+              -/= change it live on the running player
+  -p NUM    Rows per page (default: 10, capped to the terminal height)
+  --color MODE  Color: auto | always | never (default: auto)
+  --theme NAME  Palette: minimal (default) | mono | catppuccin | tokyonight | nord
+                | gruvbox | onedark | dracula | rosepine | everforest | kanagawa
+                | solarized | monokai. Every theme = a signature accent
+                plus its own play/pause status hues; mono = gray hierarchy only,
+                no hue. Community themes emit 24-bit color when
+                COLORTERM=truecolor, else ANSI-16 fallbacks.
+                Light/dark picks the theme's own light variant (see TING_BG below).
+  -h        This help
+  -V        Print the suite version
+
+Keys (List View):
+  ↑/↓      move selection              ←/→  change page (→ past the last page
+           fetches one batch more; ← on page 1 drops one, no re-fetch)
+  j / k    the same two, for the hand that already lives on them (List View only —
+           with / open they are text you are typing). `j` is also what ends a row
+           number typed with the digits — see 0 - 9 below
+  Enter    play / switch track (non-blocking background playback); on a chapter row,
+           play FROM that chapter — a seek if that item is already playing
+  Space    pause / resume playback
+  s        stop playback
+  - / =    volume down / up (via IPC)
+  0 - 9    type a row number; `j` jumps to it — `12j` goes to row 12, `3j` to row 3.
+           The number is the ABSOLUTE one `#` prints, counted from the top of the
+           list and not of the window; out of range does nothing. There is no
+           timeout: any other key drops the number and then does its own job
+  #        row numbers on / off (TING_ROW_INDEX). It is the jump's partner: the
+           address `Nj` takes is only on screen while this is on
+  Tab      list mode: scroll <-> page (TING_LIST_MODE)
+  [ / ]    seek backward / forward 10s (via IPC)
+  v        cycle playback mode: audio → video → fast (applies to next play)
+  f        cycle quality tier: auto → medium → high (applies to next play; the
+           engine reads it against the mode, so `high` is 1080p for video and a
+           bitrate for audio). low is not on the cycle: set it with --quality
+  l        switch chrome language (en <-> zh)
+  t        cycle palette family live (minimal → catppuccin → tokyonight → nord →
+           gruvbox → onedark → mono); no-op when colors are off
+  n        new search (fetch a different query without interrupting music)
+  o        rotate sort field / order (relevance → view_count → duration), re-fetch
+  e        switch source, re-fetch the same query (only when >1 engine is installed)
+  a        add the focused row to a playlist               (needs ting-playlist)
+  b        open a stored playlist as the row source; b again
+           returns to the search results                    (needs ting-playlist)
+  d        remove the focused row from the playlist on screen; removing the last
+           one leaves the list, empty. Stops the player when it was on that row,
+           once the undo has closed; playlist rows only     (needs ting-playlist)
+  D        delete the entire playlist on screen; stops playback when active, once
+           the undo has closed; playlist rows only          (needs ting-playlist)
+  R        rename the playlist on screen;
+           playlist rows only                               (needs ting-playlist)
+  z        undo the last d / D / R / a / + / x / X, for 3 seconds after it — the
+           frame says "z to undo" for exactly as long as it can. Nothing asks
+           "are you sure" first; this is what replaced that question
+  h        open the listening log as the row source; h again
+           returns to the search results                    (needs ting-history)
+  c        open the focused row's parts as the row source; c again returns to the
+           search results          (only when the engine has --items)
+  i        open the focused row's CHAPTERS as the row source, with one metadata
+           fetch (upload date and likes land on the status line); i again returns
+           to the search results. A chapter row is a call: Enter plays from it,
+           + queues from it, a stores it
+                              (only when the engine has --info; the shipped ones all do)
+  r        cycle what happens when a track ends: off → seq → one. off plays the row you
+           picked and stops; seq plays the rows from the cursor DOWN, in order, by handing
+           the player a queue — so they keep playing after this UI exits; one repeats the
+           track. off/one take effect on a player that is already running; seq shapes the
+           next Enter, and says so
+  +        append the focused row to the running player's queue (nothing playing: says so)
+  >        skip to the next queued track
+  /        live filter — type to narrow instantly; ↑/↓ select, Enter play, Esc clear
+  ?        show more / fewer keys (also ？). The hint block has three tiers:
+           `core` is this view's own job, `full` is every key above, and `hidden`
+           drops the hint block entirely for maximum content rows. TING_KEYS pins it
+  u        open the running player's queue as the row source (when it holds more than
+           one track); u again returns to the search results. With the queue on screen:
+           Enter plays the focused track now, x removes it, X clears every waiting track,
+           p / P move it one slot earlier / later
+  p        paste from the system clipboard (Ctrl+V too): a URL opens what it names, any
+           other text opens the search prompt with it. With the queue on screen p moves
+  q        quit, and stop the player on the banner — one this session started or one it
+           adopted when it opened (a player running before ting opened is adopted)
+  Q        quit and leave it playing; the next ting adopts it
+
+  The eleven settings these keys change — engine, sort field, playback mode, quality tier,
+  theme, chrome language, the result count, the key-hint tier, row numbers, the list mode
+  and the loop mode — are written back to YOUR config file
+  (${XDG_CONFIG_HOME:-~/.config}/ting/config), in place: comments and layout are kept,
+  only the value moves. The shipped defaults file is never written. A key you have pinned
+  in the environment is left alone, and says so once.
+
+Environment:
+  Defaults for every knob below live in <checkout>/config, declared once for the whole
+  suite. Override per user in ${XDG_CONFIG_HOME:-~/.config}/ting/config (KEY=value, one
+  per line, # comments); TING_CONFIG relocates it. Chain: flag > environment > your
+  config > the shipped defaults. See ARCH-cli-contract.md「配置面」.
+  TING_ENGINE_DIR  Extra directory scanned for ting-engine-<name> files, after ting-play's own
+                   directory and before PATH; an engine there is a source the
+                   e key rotates through. A name already installed beside this file wins,
+                   so a plugin cannot replace a built-in engine. ENVIRONMENT ONLY — it
+                   names programs this UI runs, so neither config file can set it.
+                   Default: ${XDG_DATA_HOME:-~/.local/share}/ting/engines
+  TING_ASCII=1     Use ASCII glyphs (♫ ● ○ ❯ · ▶ ❚❚ • … → — arrows → ASCII) for
+                   terminals whose font can't draw them. Auto-on for non-UTF-8 locales.
+                   Shared with the rest of the suite.
+  TING_LANG=en|zh  Language of the menu chrome. Default: zh under a zh* locale,
+                   English otherwise (help text and errors are always English).
+  TING_THEME=minimal|mono|catppuccin|tokyonight|nord|gruvbox|onedark|dracula
+          |rosepine|everforest|kanagawa|solarized|monokai
+                   Palette family (same as --theme; default: minimal).
+  TING_BG=auto|light|dark  Background mode. auto: $COLORFGBG, then an OSC 11 terminal
+                   query, then dark. For minimal/mono, light swaps cyan for blue; for
+                   community themes it picks the theme's own light variant.
+  TING_SYNC=0|1|auto  Accepted, and has no effect in this build: its renderer writes each
+                   frame's changed lines in one write, which is what the shell build's
+                   synchronized redraws (DCS 1q/2q) were for.
+  TING_IMAGE=auto|on|off  Cover art for the focused row, over the terminal's graphics
+                    protocol. auto probes the terminal and is off under tmux; off sends
+                    no byte at all.
+  NO_COLOR=1       Disables color in --color auto mode (an explicit --color wins).
+  TING_AMBIG_WIDE=1  Measure East-Asian-Ambiguous glyphs (· — • … arrows ─ ━ ○ ● ▶) as
+                   TWO cells. Only needed if your terminal is set to treat ambiguous
+                   width as double-width; every terminal ships with that option off.
