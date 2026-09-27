@@ -35,7 +35,7 @@ type Event struct {
 	} `json:"queue"`
 }
 
-// Watcher owns one `t-play --watch` process. Events closes after the `end` line, or when the
+// Watcher owns one `ting-play --watch` process. Events closes after the `end` line, or when the
 // process dies; Err then says why when it was not a clean end.
 type Watcher struct {
 	Events <-chan Event

@@ -47,7 +47,7 @@
 ### 2.2 不在本计划里预先决定的事项
 
 - 不把开放播客直接命名为第五内置源；先单独裁决“Apple 站点引擎”还是“开放 RSS 引擎”，以及后者如何遵守 host 白名单。
-- 不在 `t-history` 中直接增加 `playback_position`；持久 schema、写入频率和恢复策略需要自己的 Plan。
+- 不在 `ting-history` 中直接增加 `playback_position`；持久 schema、写入频率和恢复策略需要自己的 Plan。
 - 不预定 Shift+方向键或 `i`/`c` 的新语义；TUI 键位必须先实测终端输入，再与 Agent 动词同时设计。
 - 不依据纽约网络探测推导中国大陆可达性；区域结论需要对应网络环境的独立测量。
 
@@ -60,7 +60,7 @@
 ### 3.1 引擎文件与配置
 
 - 引擎标识符：`sc`
-- 可执行文件：`shell/t-engine-sc`（一个文件，只由 `t-play` 调用）
+- 可执行文件：`shell/ting-engine-sc`（一个文件，只由 `ting-play` 调用）
 - 新增引擎级配置：
   - cookie 来源读套件键 `TING_COOKIE_BROWSER`，供 `--auth` 与 `--stream` 的 cookie 决定使用；`none` 强制匿名。
   - `TING_SC_AUDIO_FORMAT=ba/b`：SoundCloud 只提供音频，五种规范 `-f` 模式都落到此格式。
@@ -118,7 +118,7 @@
 
 ### Milestone 2：实现引擎
 
-- 先增加能复现预期失败的真实契约检查，再实现 `t-engine-sc`。
+- 先增加能复现预期失败的真实契约检查，再实现 `ting-engine-sc`。
 - 严守 bash 3.2；不得使用关联数组、大小写展开、`mapfile`、负数组下标或空数组的不安全展开。
 - 临时文件全部位于 `$TMPDIR/ting-<uid>/`；不引入第六个运行时依赖。
 - 在出厂 `config` 一次声明 `TING_SC_AUDIO_FORMAT`（cookie 走套件键；文件里只读 `TING_` 键，载入块不用动）；不增加搜索专属默认条数。
@@ -127,12 +127,12 @@
 
 动态跨引擎循环会自动覆盖部分门，但不能把它当作完整接入。至少补齐：
 
-- 离线内置引擎顺序期望（`t-play --engines -j`）与 `TING_SC_*` 配置读取；
+- 离线内置引擎顺序期望（`ting-play --engines -j`）与 `TING_SC_*` 配置读取；
 - SoundCloud host 正例、子域正例及 userinfo/尾点/相似域反例；
-- 经 `t-play` 的 `-j` 搜索行、`--info`、`--auth`，引擎自检的 `--raw` 与内部 `--stream` 的键集与一行 JSON；
+- 经 `ting-play` 的 `-j` 搜索行、`--info`、`--auth`，引擎自检的 `--raw` 与内部 `--stream` 的键集与一行 JSON；
 - `?t=601`、`?t=0`、无偏移和 `#t=1:30`；
 - Set 的完整信封、空/不存在/过滤、游标往返与两批不重叠；
-- 搜索行经 `t-play -d --engine sc` 到真实 playhead 的端到端播放；
+- 搜索行经 `ting-play -d --engine sc` 到真实 playhead 的端到端播放；
 - SoundCloud 直链在 `mpv --no-ytdl` 下解码，且播放器正确应用 `http_headers`。
 
 ### Milestone 4：文档闭环与版本

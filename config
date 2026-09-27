@@ -43,7 +43,7 @@
 #   which a flat KEY=value file cannot express:
 #     TING_STATE_DIR    ${XDG_STATE_HOME:-$HOME/.local/state}/ting — flattening it to a
 #                       literal path would silently drop the XDG support ARCH-cli-contract.md「配置面」 promises. It
-#                       stays inline in t-playlist and t-history.
+#                       stays inline in ting-playlist and ting-history.
 #   Set it in your own config or the environment to override.
 #
 #   NOT HERE AND NOT IN YOUR CONFIG EITHER: TING_ENGINE_DIR — the environment is the only place
@@ -53,7 +53,7 @@
 #                       suite's own directory and before PATH, so a third-party engine has
 #                       somewhere to live that is neither the source tree nor all of PATH.
 #                       Its default chains through XDG_DATA_HOME like TING_STATE_DIR above, and
-#                       it stays inline in ting and t-play. But it also names EXECUTABLES
+#                       it stays inline in ting and ting-play. But it also names EXECUTABLES
 #                       this suite runs: a config file that could set it would be PATH under
 #                       another spelling, and the promise four lines into this header would
 #                       stop being true. A name already installed beside the suite wins, so
@@ -62,7 +62,7 @@
 # ── scope: suite ────────────────────────────────────────────────────────────────────────
 TING_HISTORY=1                      # 0 = a detached player writes no listening row
 TING_DEFAULT_ENGINE=yt              # which engine --engine defaults to
-TING_SEARCH_RESULTS=20              # the -n default for t-play --search, and the rows
+TING_SEARCH_RESULTS=20              # the -n default for ting-play --search, and the rows
                                     # ting's first fetch asks for; one bili page. ting's
                                     # → and ← move it and write it back here
 TING_COOKIE_BROWSER=chrome          # browser profile every engine reads cookies from;
@@ -79,7 +79,7 @@ TING_PLAY_QUALITY=auto              # the --quality default: auto | low | medium
                                     # both are given.
                                     # ting's f key rotates it live and writes it back here
 
-# ── scope: player (t-play) ─────────────────────────────────────────────────────────────
+# ── scope: player (ting-play) ──────────────────────────────────────────────────────────
 TING_ASCII_VO=tct                   # mpv --vo for ASCII video
 TING_VIZ_STYLE=bars                 # what -f viz draws: bars = log-scaled spectrum bars,
                                     # one per terminal column | wave = the waveform. Both
@@ -105,7 +105,7 @@ TING_LOOP_MODE=off                  # off|seq|one: what happens when a track end
                                     # them over as a QUEUE, so they keep playing after the UI
                                     # exits); one = the track you picked repeats. The r key
                                     # rotates it live and writes it back here.
-                                    # t-play's own --loop takes only off and one: `seq` is
+                                    # ting-play's own --loop takes only off and one: `seq` is
                                     # how ting SHAPES a launch, not a state a player can be
                                     # in — a queue of ten looks the same to the player
                                     # whether it came from seq or from ten presses of +
@@ -158,7 +158,7 @@ TING_BILI_VIDEO_FORMAT=bv*+ba/b
 TING_BILI_VIDEO_FORMAT_FAST=b[height<=720]/bv*[height<=720]+ba/b
 # A browser User-Agent; must not contain curl or python — the site refuses those.
 TING_BILI_UA=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36
-TING_BILI_BUVID=                    # a device id; t-engine-bili's search only, generated per process when unset
+TING_BILI_BUVID=                    # a device id; ting-engine-bili's search only, generated per process when unset
 
 # ── scope: engine ne ────────────────────────────────────────────────────────────────────
 TING_NE_AUDIO_FORMAT=ba/b           # this site serves audio only; every -f mode lands here

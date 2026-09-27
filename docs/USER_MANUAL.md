@@ -22,9 +22,9 @@
   - [3.7 颜值即正义：13 款精美主题皮肤与双语切换（t / l）](#37-颜值即正义13-款精美主题皮肤与双语切换t--l)
   - [3.8 实时过滤与粘贴链接智能识别（/ 与 粘贴）](#38-实时过滤与粘贴链接智能识别--与-粘贴)
 - [4. 进阶玩法：后台听歌与命令行控制](#4-进阶玩法后台听歌与命令行控制)
-  - [4.1 终端关闭也能听：后台脱离播放（t-play -d）](#41-终端关闭也能听后台脱离播放t-play--d)
+  - [4.1 终端关闭也能听：后台脱离播放（ting-play -d）](#41-终端关闭也能听后台脱离播放ting-play--d)
   - [4.2 查状态、调音量与切歌](#42-查状态调音量与切歌)
-  - [4.3 翻阅收听历史（t-history）](#43-翻阅收听历史t-history)
+  - [4.3 翻阅收听历史（ting-history）](#43-翻阅收听历史ting-history)
   - [4.4 边听边看：终端里的音频可视化（-f viz）](#44-边听边看终端里的音频可视化-f-viz)
 - [5. 个人偏好定制：配置属于你的 ting](#5-个人偏好定制配置属于你的-ting)
   - [5.1 自动记住你的操作（就地写回）](#51-自动记住你的操作就地写回)
@@ -67,9 +67,9 @@ brew install binlecode/actop/ting
 git clone git@github.com:binlecode/ting.git ~/.ting
 
 # 2. 将四个公开命令加入个人命令路径（~/.local/bin 或 ~/bin）
-#    t-engine-* 不用链：t-play 在自己的真实目录里找到它们
+#    ting-engine-* 不用链：ting-play 在自己的真实目录里找到它们
 mkdir -p ~/.local/bin
-for c in ting t-play t-playlist t-history; do ln -sf ~/.ting/shell/$c ~/.local/bin/; done
+for c in ting ting-play ting-playlist ting-history; do ln -sf ~/.ting/shell/$c ~/.local/bin/; done
 
 # 3. 确保你的环境变量 PATH 包含了 ~/.local/bin
 # （若已包含可跳过这步；若未包含，将下行写入你的 ~/.zshrc 或 ~/.bashrc）
@@ -126,7 +126,7 @@ ting 的界面设计遵循**单视图极简**理念：没有弹窗遮挡，没�
 | `-` / `=` | 音量 - / + | 每次微调音量 |
 | `[` / `]` | 快退 10 秒 / 快进 10 秒 | 方便跳过前奏或反复回味 |
 | `q` | 退出并停止 | 退出 ting 并自动干净停止音乐 |
-| `Q` | 退出并保持 | 退出 ting，音乐在后台继续播放（可用 t-play 或下次 ting 接管） |
+| `Q` | 退出并保持 | 退出 ting，音乐在后台继续播放（可用 ting-play 或下次 ting 接管） |
 
 ---
 
@@ -270,23 +270,23 @@ ting 内置了 13 款主流终端流行配色，敲击 **`t`** 键即可实时�
 
 ## 4. 进阶玩法：后台听歌与命令行控制
 
-如果你喜欢把听歌彻底当成系统的背景音，或者希望在脚本里控制音乐，ting 提供了极简的后台命令行工具 `t-play`。
+如果你喜欢把听歌彻底当成系统的背景音，或者希望在脚本里控制音乐，ting 提供了极简的后台命令行工具 `ting-play`。
 
-### 4.1 终端关闭也能听：后台脱离播放（`t-play -d`）
+### 4.1 终端关闭也能听：后台脱离播放（`ting-play -d`）
 
 想要音乐在后台静默播放，把当前终端窗口关了也不受影响？
 使用带有 `-d`（detach）参数的命令：
 
 ```sh
 # 播放网易云单曲
-t-play -d -- "https://music.163.com/song?id=1824020871"
+ting-play -d -- "https://music.163.com/song?id=1824020871"
 
 # 播放 B 站视频音频
-t-play -d -- "https://www.bilibili.com/video/BV1xx411c7mD"
+ting-play -d -- "https://www.bilibili.com/video/BV1xx411c7mD"
 ```
 敲下回车后命令立刻返回，音乐在后台自动开始播放，终端完全释放给你干别的事！
 
-> **暖心小设计**：如果你在后台开着 `t-play -d`，然后再打开 `ting` 界面，`ting` 会**自动发现并接管**后台正在播放的声音；关掉 `ting` 界面时，系统也不会错误杀掉你原本就在听的这首歌！
+> **暖心小设计**：如果你在后台开着 `ting-play -d`，然后再打开 `ting` 界面，`ting` 会**自动发现并接管**后台正在播放的声音；关掉 `ting` 界面时，系统也不会错误杀掉你原本就在听的这首歌！
 
 ---
 
@@ -296,37 +296,37 @@ t-play -d -- "https://www.bilibili.com/video/BV1xx411c7mD"
 
 ```sh
 # 1. 看看后台在放什么歌、当前播了多少秒
-t-play --status
+ting-play --status
 
 # 2. 暂停 / 继续
-t-play --pause
-t-play --resume
+ting-play --pause
+ting-play --resume
 
 # 3. 调音量（例如调到 70%）
-t-play --set-volume 70
+ting-play --set-volume 70
 
 # 4. 快进 30 秒 / 后退 15 秒
-t-play --seek +30
-t-play --seek -15
+ting-play --seek +30
+ting-play --seek -15
 
 # 5. 彻底停止播放
-t-play --stop
+ting-play --stop
 ```
 
 ---
 
-### 4.3 翻阅收听历史（`t-history`）
+### 4.3 翻阅收听历史（`ting-history`）
 
 ting 会在本地轻量记录你听过的内容。你想找回刚才听过但忘了名字的旋律？
 
 ```sh
 # 查看最近听过的 10 首歌曲
-t-history --ls -n 10
+ting-history --ls -n 10
 ```
 
 甚至可以直接用一行管道，把你最近听过的 20 首歌重新做成播放队列再放一遍：
 ```sh
-t-history --ls -n 20 -j | t-play -d --queue -
+ting-history --ls -n 20 -j | ting-play -d --queue -
 ```
 
 ---
@@ -337,7 +337,7 @@ t-history --ls -n 20 -j | t-play -d --queue -
 
 ```sh
 # 一边听，一边在终端里看频谱跳动
-t-play -f viz -- "https://music.163.com/song?id=1824020871"
+ting-play -f viz -- "https://music.163.com/song?id=1824020871"
 ```
 
 按 `q` 退出，音乐和画面一起结束。
@@ -360,7 +360,7 @@ TING_VIZ_COLOR=magenta
 也可以只在这一次换个颜色，配置文件不用动：
 
 ```sh
-t-play --viz-color green -f viz -- "URL"
+ting-play --viz-color green -f viz -- "URL"
 ```
 
 想指定精确的颜色，用十六进制。**注意这里有个坑**：
@@ -440,7 +440,7 @@ TING_COOKIE_BROWSER=chrome
 ### Q1: 运行播放后听不到声音？
 **解答**：
 1. 请先检查系统静音状态，或者在终端运行 `mpv` 播放一个本地音频文件测试系统输出是否正常；
-2. 尝试调大音量：在 ting 界面中按键盘 `=` 号调大，或在命令行运行 `t-play --set-volume 90`；
+2. 尝试调大音量：在 ting 界面中按键盘 `=` 号调大，或在命令行运行 `ting-play --set-volume 90`；
 3. 如果是 Linux 用户，请确保系统已配置好 PipeWire 或 PulseAudio 声音服务。
 
 ---
@@ -465,7 +465,7 @@ TING_COOKIE_BROWSER=chrome
 **解答**：
 如果你之前在后台启动过多次播放，想让所有声音立刻安静下来，只需在终端敲入：
 ```sh
-t-play --stop --all
+ting-play --stop --all
 ```
 所有 ting 相关的播放器会瞬间干净关闭。
 

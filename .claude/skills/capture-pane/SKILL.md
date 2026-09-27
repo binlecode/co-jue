@@ -67,7 +67,7 @@ rm -f "$CAPCFG"
 ```
 
 If the frame will show playback, kill the player the way `tests/drive.sh`'s EXIT trap does —
-`shell/t-play --stop --all` — the player survives the session kill.
+`shell/ting-play --stop --all` — the player survives the session kill.
 
 ## 3. Clean
 

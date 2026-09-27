@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# t-engine-ne — the NetEase Cloud Music ENGINE: everything this suite knows about one site, in
+# ting-engine-ne — the NetEase Cloud Music ENGINE: everything this suite knows about one site, in
 # one file.
 #
 # An engine is one file per SITE, not one per operation. The User-Agent, the Referer, the
@@ -7,11 +7,11 @@
 # a fact about NetEase, and when searching and resolving lived in two files each was written
 # twice. The verbs below share them; they share nothing with any other engine.
 #
-# This file is BELOW the public contract. `t-play` is the one entry point: it forwards its
+# This file is BELOW the public contract. `ting-play` is the one entry point: it forwards its
 # engine verbs (--search --info --items --transcript --auth) here verbatim and calls --stream
 # itself to turn a handle into bytes. So the argv here is an internal protocol between two
 # files of this suite, and the flag gate lives in exactly one place — this one. --capabilities
-# publishes that gate so `t-play --engines` can answer for it. docs/ARCHITECTURE.md「命令拓扑」.
+# publishes that gate so `ting-play --engines` can answer for it. docs/ARCHITECTURE.md「命令拓扑」.
 #
 # THREE TRANSPORTS, and each verb uses the one that works (measured, not preferred):
 #   --search             the weapi endpoint, an AES-wrapped POST — the only verb that needs
@@ -56,7 +56,7 @@ fi
 
 # CONFIGURATION — the chain is flag > environment > the user's config > the shipped defaults
 # in `<checkout>/config`, which is where every default value in the suite is declared once.
-# Duplicated VERBATIM in every entry point — see the same block in t-play for why, and
+# Duplicated VERBATIM in every entry point — see the same block in ting-play for why, and
 # ARCH-cli-contract.md「配置面」 for the keys.
 TING_CONFIG="${TING_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/ting/config}"
 TING_DEFAULTS="$SCRIPT_DIR/../config"
@@ -98,10 +98,10 @@ ting_read_config "$TING_CONFIG"
 ting_read_config "$TING_DEFAULTS"
 
 # The engine's own name, as it appears in every envelope AND as the suffix of this file's
-# name. Name == suffix is deliberate: it lets `t-play --engine ne` find `t-engine-ne` by string
+# name. Name == suffix is deliberate: it lets `ting-play --engine ne` find `ting-engine-ne` by string
 # concatenation, with no name->command registry to keep in sync. docs/ARCHITECTURE.md「命令拓扑」.
 ENGINE_NAME="ne"
-PROG="t-engine-ne"
+PROG="ting-engine-ne"
 
 # ==============================================================================
 # 1. SETTINGS
@@ -706,7 +706,7 @@ ytdlp_cookied() {
 #
 # 0700 rather than a bare /tmp path because a response body or a lyric is content and the
 # captured yt-dlp stderr can name a cookie database. The engine does not reach into the
-# player's state dir: `players/` has exactly one owner (t-play).
+# player's state dir: `players/` has exactly one owner (ting-play).
 SCRATCH_DIR=""
 ERR_FILE=""
 cleanup_scratch() {
@@ -717,7 +717,7 @@ trap cleanup_scratch EXIT
 
 ensure_scratch() {
     [[ -n "$SCRATCH_DIR" ]] && return 0
-    SCRATCH_DIR=$(mktemp -d "${TMPDIR:-/tmp}/t-engine-ne.XXXXXX") || die "cannot create a scratch directory"
+    SCRATCH_DIR=$(mktemp -d "${TMPDIR:-/tmp}/ting-engine-ne.XXXXXX") || die "cannot create a scratch directory"
     chmod 700 "$SCRATCH_DIR" 2>/dev/null || true
     ERR_FILE="$SCRATCH_DIR/yt-dlp.err"
     : >"$ERR_FILE"
@@ -823,7 +823,7 @@ url_song_id() {
 #
 # The site itself never writes one — no NetEase link carries a start offset — and the key is
 # parsed anyway, because `?t=` is the SUITE's spelling for "start here" and every engine has
-# to read it: `t-play --start` round-trips through the handle, and a queue built by hand
+# to read it: `ting-play --start` round-trips through the handle, and a queue built by hand
 # writes it.
 #
 # Split by hand rather than `for p in $q` — an unquoted expansion would glob, and a query
@@ -869,7 +869,7 @@ normalize_target() {
     http://* | https://*)
         host=$(url_host "$t")
         is_own_host "$host" ||
-            die "'$host' is not a NetEase host — this engine resolves NetEase Cloud Music only (another site needs its own engine: t-play --engine NAME)"
+            die "'$host' is not a NetEase host — this engine resolves NetEase Cloud Music only (another site needs its own engine: ting-play --engine NAME)"
         ;;
     music.163.com/* | y.music.163.com/*)
         t="https://$t"
@@ -928,7 +928,7 @@ normalize_container() {
     http://* | https://*)
         host=$(url_host "$t")
         is_own_host "$host" ||
-            die "'$host' is not a NetEase host — this engine resolves NetEase Cloud Music only (another site needs its own engine: t-play --engine NAME)"
+            die "'$host' is not a NetEase host — this engine resolves NetEase Cloud Music only (another site needs its own engine: ting-play --engine NAME)"
         ;;
     music.163.com/* | y.music.163.com/*)
         t="https://$t"
@@ -1066,7 +1066,7 @@ fetch_page() {
 # (2026-09-02): unlike Bilibili's search, this endpoint highlights nothing and escapes
 # nothing — a track really called "R&B Soul" arrives with a bare `&`.
 #
-# `select(.url != null)` is the row's own premise: a result is a CALL (`t-play --engine ne --
+# `select(.url != null)` is the row's own premise: a result is a CALL (`ting-play --engine ne --
 # <url>`) or it is not a row. ARCH-cli-contract.md「数据契约」.
 JQ_SHAPE='
 [ .[]
@@ -1274,7 +1274,7 @@ def safe_headers:
 #
 # `url` is the CANONICAL handle this file built, not the record's `webpage_url`: they agree
 # today, and building it here is what guarantees the key can never carry a `t=` offset back
-# out — the url answers WHICH MEDIA, never where to start, because `t-playlist --add` stores
+# out — the url answers WHICH MEDIA, never where to start, because `ting-playlist --add` stores
 # exactly this string and an offset riding along in it would replay a saved track from 10:01
 # for ever.
 #
@@ -1584,11 +1584,11 @@ transcript_run() {
 # A CONTAINER IS NOT A ROW. An album or a playlist holds tens to over a thousand tracks and has
 # no duration of its own; what it has is a track count and a cursor. ARCH-engine.md「容器（--items）」.
 #
-# EVERY ITEM IS AN ITEM RECORD: `{engine, id, url, title, duration}` is what t-playlist stores
-# and what t-play --queue consumes, so `--items -j` pipes into either with nothing renamed.
+# EVERY ITEM IS AN ITEM RECORD: `{engine, id, url, title, duration}` is what ting-playlist stores
+# and what ting-play --queue consumes, so `--items -j` pipes into either with nothing renamed.
 #
 # THE ROWS ARE FILTERED BY `fee` THE WAY SEARCH ROWS ARE, same table and same config key
-# (TING_NE_INCLUDE_VIP): by default only `full` survives, because a row stored in t-playlist has to
+# (TING_NE_INCLUDE_VIP): by default only `full` survives, because a row stored in ting-playlist has to
 # be playable. Measured 2026-09-10: album 32311 is nine tracks and every one of them is fee 1,
 # so by default it lists ZERO items and says so in `count`. Items carry no `access` key — the
 # rows that survive are all `full`, so the key would hold no information.
@@ -1823,17 +1823,17 @@ auth_run() {
 
 print_usage() {
     cat <<'EOF'
-t-engine-ne — the NetEase Cloud Music engine. Internal: callers go through t-play, which
+ting-engine-ne — the NetEase Cloud Music engine. Internal: callers go through ting-play, which
 forwards its engine verbs here unchanged; this argv is not part of the suite's public contract.
 
 Usage:
-  t-engine-ne --search [-n N] [--min-duration S] [--max-duration S] [--sort F] [-j] -- <query>
-  t-engine-ne --info [-j] -- <song id | song URL>
-  t-engine-ne --transcript [-j [--segments]] -- <song id | song URL>
-  t-engine-ne --items [--cursor TOKEN] [-j] -- <album URL | playlist URL>
-  t-engine-ne --auth [-j]
-  t-engine-ne --stream [-f MODE] [--quality TIER] [-j] -- <song id | song URL>
-  t-engine-ne --capabilities [-j]
+  ting-engine-ne --search [-n N] [--min-duration S] [--max-duration S] [--sort F] [-j] -- <query>
+  ting-engine-ne --info [-j] -- <song id | song URL>
+  ting-engine-ne --transcript [-j [--segments]] -- <song id | song URL>
+  ting-engine-ne --items [--cursor TOKEN] [-j] -- <album URL | playlist URL>
+  ting-engine-ne --auth [-j]
+  ting-engine-ne --stream [-f MODE] [--quality TIER] [-j] -- <song id | song URL>
+  ting-engine-ne --capabilities [-j]
 
 Exactly one verb per call. A modifier belongs to one verb and is refused next to another.
 A song handle is a music.163.com song URL (desktop /#/song?id=N and mobile share links too)
@@ -1856,11 +1856,11 @@ or the bare numeric id; every one canonicalises to https://music.163.com/song?id
   --stream        Resolve a handle to stream URL(s) + the HTTP headers they need, for the
                   player. -f audio | video | fast | ascii | viz (all resolve audio — this
                   site has no video track); --quality auto | low | medium | high
-  --capabilities  The public verbs and modifiers this engine accepts; what t-play --engines
+  --capabilities  The public verbs and modifiers this engine accepts; what ting-play --engines
                   reports for it. No network, no dependency
 
   -j / --json  JSON envelope · --segments (--transcript -j) keep the timed cues · --color MODE
-  --raw  the site's own record, unprojected — an engine self-check, not forwarded by t-play
+  --raw  the site's own record, unprojected — an engine self-check, not forwarded by ting-play
   -h this help · -V the suite version
 
 Exit codes: 0 ok · 1 usage/validation, or a read-only miss (--info, --transcript) · 2+ a
@@ -1874,7 +1874,7 @@ EOF
 # The public verbs and their modifiers, stated ONCE: the unknown-flag refusal prints it for a
 # person and --capabilities answers with it for the registry, so the two cannot disagree.
 # --stream, --capabilities and --raw are absent on purpose: the player's pipe, the registry's
-# question and a self-check are not things a caller of t-play can ask for.
+# question and a self-check are not things a caller of ting-play can ask for.
 PUBLIC_FLAGS=(--search -n --min-duration --max-duration --sort --info --items --cursor --transcript --segments --auth)
 
 # Which verb a modifier belongs to. The gate below refuses it next to any other.
@@ -1905,7 +1905,7 @@ while (($#)); do
         shift
         ;;
     # --raw: the site's own record, unprojected. A SELF-CHECK of this engine against its site,
-    # not an output format: site fields cannot be versioned, so t-play refuses to forward it
+    # not an output format: site fields cannot be versioned, so ting-play refuses to forward it
     # and it is in no flag list. Long-only and spelled apart from -j on purpose.
     --raw)
         has_format=1
@@ -1953,7 +1953,7 @@ while (($#)); do
     -f)
         need_value "$@"
         add_modifier "$1" stream
-        # Canonical modes only — the alias table (ba/bv/…) is t-play's, which normalizes
+        # Canonical modes only — the alias table (ba/bv/…) is ting-play's, which normalizes
         # before it calls an engine (ARCH-cli-contract.md「命令规格」).
         validate_enum "$2" audio video fast ascii viz ||
             die "-f must be one of: audio, video, fast, ascii, viz"

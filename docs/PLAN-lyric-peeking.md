@@ -4,10 +4,10 @@
 > **Priority**: 第一梯队 · Go TUI 落地后的第一个人机面特性  
 > **Target Branch**: main  
 > **Roadmap 关联**: [`docs/ROADMAP.md`](ROADMAP.md)「第一梯队」——焦点行歌词窥探  
-> **前置**: `PLAN-go-tui.md` 全部完成——Go `ting` 已接过名字，`t-play --watch -j` 与 `t-play --engines -j` 的 `flags[]` 已发布  
+> **前置**: `PLAN-go-tui.md` 全部完成——Go `ting` 已接过名字，`ting-play --watch -j` 与 `ting-play --engines -j` 的 `flags[]` 已发布  
 > **Governing Docs**: [`docs/ARCH-tui.md`](ARCH-tui.md)「重排与分页」（届时为 Go 版重写后的对应章节）、[`docs/ARCH-engine.md`](ARCH-engine.md)「字幕（`--transcript`）」、[`docs/ARCH-cli-contract.md`](ARCH-cli-contract.md)「数据契约」、[`docs/ROADMAP.md`](ROADMAP.md)「横切规范 —— 每个新功能都要过的判据」  
 > **Verification**: `go test ./...`、`tests/contract.sh --offline`、tmux 驱动段（Go 版）  
-> **Scope Boundary**: 仅当光标停在正在播放的那一行、且歌词就绪时，在它下方的 details 空间里显示当前一句。置换 Description，details 段高度不变。数据只来自两个已发布的动词：`t-play --transcript -j --segments`（歌词）与 `t-play --watch -j`（播放位置）。不加 CLI 选项、信封字段或依赖，不开独立歌词视图。
+> **Scope Boundary**: 仅当光标停在正在播放的那一行、且歌词就绪时，在它下方的 details 空间里显示当前一句。置换 Description，details 段高度不变。数据只来自两个已发布的动词：`ting-play --transcript -j --segments`（歌词）与 `ting-play --watch -j`（播放位置）。不加 CLI 选项、信封字段或依赖，不开独立歌词视图。
 
 ---
 
@@ -68,18 +68,18 @@ details 段的行数与置换前相同，上方结果行数不变。
   Enter / 换曲事件 (--watch)
           |
           v
-  +--------------------------+     t-play --engines -j 的 flags[]
+  +--------------------------+     ting-play --engines -j 的 flags[]
   | 该引擎有 --transcript ?  |---- 否 ----> 状态 none，details 照旧
   +------------+-------------+
                | 是
                v
   +--------------------------+
-  | goroutine: 一次调用       |     t-play --transcript -j --segments -- URL
+  | goroutine: 一次调用       |     ting-play --transcript -j --segments -- URL
   | 解 segments 进内存切片    |
   +------------+-------------+
                |  消息进 Bubbletea 更新循环
                v
-  +--------------------------+     t-play --watch -j 的位置事件
+  +--------------------------+     ting-play --watch -j 的位置事件
   | 游标：按位置在 segments  |<--------------------------------
   | 上二分定位当前句         |
   +------------+-------------+
@@ -92,7 +92,7 @@ details 段的行数与置换前相同，上方结果行数不变。
 
 - **触发**：只在播放目标变化时（起播，或 `--watch` 报出换曲）拉一次。同一时刻只保留一个在途请求，
   新曲目到来时丢弃旧请求的结果（按 URL 比对，不按到达顺序）。
-- **能力门控**：`t-play --engines -j` 里该引擎的 `flags[]` 有没有 `--transcript`。今天 `yt` 与 `ne` 有 `--transcript`，`bili` 没有，
+- **能力门控**：`ting-play --engines -j` 里该引擎的 `flags[]` 有没有 `--transcript`。今天 `yt` 与 `ne` 有 `--transcript`，`bili` 没有，
   但 TUI 不写死这张表——一个仓外引擎加了 `--transcript` 就自动得到歌词。
 - **缓存**：只在内存里，按 URL 存，本会话有效。光标移出再移回、或同一首再播，不重新拉取。
   不落盘，也就没有 `$TMPDIR` 下的文件需要清理。
@@ -120,8 +120,8 @@ details 段的行数与置换前相同，上方结果行数不变。
 ## 横切规范核验
 
 1. **一个功能必带 agent 面**：两半都是已发布的动词。agent 调 `--transcript -j --segments` 拿带时间戳的
-   segments，读 `t-play --watch -j` 拿播放位置，就能自己完成同样的对齐。窥探只是这两份契约
-   在人机面的呈现，不需要新增任何东西。（旧稿说 `t-play --status -j` 发布了播放秒数 `pos`——
+   segments，读 `ting-play --watch -j` 拿播放位置，就能自己完成同样的对齐。窥探只是这两份契约
+   在人机面的呈现，不需要新增任何东西。（旧稿说 `ting-play --status -j` 发布了播放秒数 `pos`——
    不成立：那个 `pos` 是队列下标。播放位置的 agent 面由 `--watch` 第一次提供。）
 2. **按下前可预期**：无新键位，无模态；有词则显，无词则隐。
 3. **只为一个答案停下来**：拉取在 goroutine 里，更新循环不等待。

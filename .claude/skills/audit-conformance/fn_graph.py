@@ -22,7 +22,7 @@ import sys
 import pathlib
 
 # Globbed, not listed — the same rule .githooks/pre-push follows. A hardcoded list here
-# made t-playlist and t-history invisible to R10/R4 for two whole features.
+# made ting-playlist and ting-history invisible to R10/R4 for two whole features.
 FILES = ([pathlib.Path(p) for p in sys.argv[1:]] or
          sorted(p for p in pathlib.Path("shell").iterdir() if p.is_file()))
 DEF = re.compile(r'^\s*(?:function\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\(\)\s*\{')

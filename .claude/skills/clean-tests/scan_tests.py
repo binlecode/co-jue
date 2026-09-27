@@ -18,7 +18,7 @@ SEVERITY_INFO = "INFO"
 RULES = {
     "R1_MOCK": ("Rule 1: Mock/patch or fake domain objects detected", SEVERITY_BLOCKER),
     "R2_FIXTURE_BYPASS": ("Rule 2: Hand-crafted JSON fixture bypassing production writer", SEVERITY_INFO),
-    "R3_PRIVATE_LEAK": ("Rule 3: Private boundary leak (calling t-engine-* directly for public verbs)", SEVERITY_WARNING),
+    "R3_PRIVATE_LEAK": ("Rule 3: Private boundary leak (calling ting-engine-* directly for public verbs)", SEVERITY_WARNING),
     "R4_ISOLATION_LEAK": ("Rule 4: Test isolation leak (unredirected state or user home writes)", SEVERITY_BLOCKER),
     "R5_COMPAT_SHIM": ("Rule 5: Deprecated alias, dead flag, or historical compat check", SEVERITY_INFO),
     "R6_LIB_BEHAVIOR": ("Rule 6: Testing 3rd-party library / tool semantics instead of ting contracts", SEVERITY_WARNING),
@@ -84,16 +84,16 @@ def audit_file(filepath: str) -> List[Finding]:
             rule_desc, sev = RULES["R2_FIXTURE_BYPASS"]
             findings.append((
                 "R2_FIXTURE_BYPASS", filepath, idx, line,
-                "Handcrafted search envelope fixture; prefer generating via real t-play --search or production command.",
+                "Handcrafted search envelope fixture; prefer generating via real ting-play --search or production command.",
                 sev
             ))
 
-        # R3: Private boundary leak (t-engine-* for public verbs)
-        if re.search(r"shell/t-engine-\w+\s+--(search|info|items|transcript|auth)\b", line):
+        # R3: Private boundary leak (ting-engine-* for public verbs)
+        if re.search(r"shell/ting-engine-\w+\s+--(search|info|items|transcript|auth)\b", line):
             rule_desc, sev = RULES["R3_PRIVATE_LEAK"]
             findings.append((
                 "R3_PRIVATE_LEAK", filepath, idx, line,
-                "Calling t-engine-* directly for a public verb. Public verbs should be driven through t-play.",
+                "Calling ting-engine-* directly for a public verb. Public verbs should be driven through ting-play.",
                 sev
             ))
 

@@ -14,7 +14,7 @@ set -euo pipefail
 # ==============================================================================
 # 1. CORE LIBRARY & DEFAULT SETTINGS (Merged from yt-common.sh)
 # ==============================================================================
-# Resolve the symlink chain before taking a directory from it. ~/bin/t-play is a SYMLINK
+# Resolve the symlink chain before taking a directory from it. ~/bin/ting-play is a SYMLINK
 # into the checkout (the documented install), so a plain dirname yields ~/bin — which holds
 # no VERSION and no engines, leaving --version reading "unknown" and the engine lookup
 # falling through to PATH. The other six entry points already resolve this way; this file
@@ -128,7 +128,7 @@ SELF="${BASH_SOURCE[0]}"
 
 # Optional custom mpv input.conf path; empty means use mpv defaults.
 
-# WHICH ENGINE turns a handle into bytes. An engine is ONE file per site, `t-engine-<name>`;
+# WHICH ENGINE turns a handle into bytes. An engine is ONE file per site, `ting-engine-<name>`;
 # the player calls its --stream verb to play and forwards the public engine verbs to it, and
 # only by that name — it carries no idea what a format string or a cookie store looks like.
 # Name == file suffix is what keeps the lookup a string concatenation instead of a registry
@@ -141,7 +141,7 @@ SELF="${BASH_SOURCE[0]}"
 # file, on this machine, with a --clear verb of its own. The reopen condition is a SHARED
 # account, where "what this login listened to" stops being one person's record.
 # The writing happens here (the child is the only process that knows a track ended and why);
-# the storing is t-history's, called by name like an engine. ARCH-cli-contract.md「配置面」
+# the storing is ting-history's, called by name like an engine. ARCH-cli-contract.md「配置面」
 
 MPV_AUDIO_OPTIONS=(--msg-level=display-tags=warn,osd/libass=error --term-osd-bar --no-video)
 # Keep video output auto-selected by mpv for compatibility across terminals/displays.
@@ -173,60 +173,63 @@ usage() {
     # this block is literal, so a `$` or a backtick meant as prose must be BACKSLASHED —
     # there are three of them today (the XDG path and two code spans).
     cat <<EOF
-t-play — the suite's one command-line entry: play, detached-playback lifecycle, and the
+ting-play — the suite's one command-line entry: play, detached-playback lifecycle, and the
 engine verbs (search, metadata, containers, captions, auth). It knows nothing about any one
-site: an ENGINE (one file, t-engine-<name>) holds everything about a site, and this file
+site: an ENGINE (one file, ting-engine-<name>) holds everything about a site, and this file
 forwards the engine verbs to it and plays what it resolves.
 
-  t-playlist  saved playlists          t-history  the listening log
+  ting-playlist  saved playlists       ting-history  the listening log
   ting        interactive terminal browser (pick + play)
 
 A HANDLE is a URL or an engine media id (dQw4w9WgXcQ). Whether an id is well formed is the
 engine's knowledge, not this file's, so a bad one fails as an extraction (2+), not usage (1).
 
 Usage (everything after -- is the handle, so it may start with '-'):
-  t-play [-f mode] [--volume N] [-j] -- <id|URL>         play (blocks until done)
-  t-play -d [-f mode] [--volume N] [-j] -- <id|URL>      detached background playback
-  t-play --status [-j]                                   list live detached players
-  t-play --stop [--id ID | --all] [-j]                   stop one player (or all)
-  t-play --set-volume N [--id ID] [-j]                   live volume on a detached player
-  t-play --pause | --resume [--id ID] [-j]               pause/resume a detached player
-  t-play --seek ±N | --seek-to N [--id ID] [-j]          seek (relative needs the sign)
-  t-play --watch [--id ID] [-j]                          follow a detached player: one
+  ting-play [-f mode] [--volume N] [-j] -- <id|URL>      play (blocks until done)
+  ting-play -d [-f mode] [--volume N] [-j] -- <id|URL>   detached background playback
+  ting-play --status [-j]                                list live detached players
+  ting-play --stop [--id ID | --all] [-j]                stop one player (or all)
+  ting-play --set-volume N [--id ID] [-j]                live volume on a detached player
+  ting-play --pause | --resume [--id ID] [-j]            pause/resume a detached player
+  ting-play --seek ±N | --seek-to N [--id ID] [-j]       seek (relative needs the sign)
+  ting-play --watch [--id ID] [-j]                       follow a detached player: one
                                                          line per change, until it ends
-  t-play [--loop off|one] -d ... -- <id|URL>              repeat the track it is playing
-  t-play --set-loop off|one [--id ID] [-j]               turn repeat on/off while it plays
-  t-play -d --queue - [-j]                               play a QUEUE: items on stdin
-  t-play --enqueue - [--id ID] [-j]                      append to a running queue
-  t-play --next [--id ID] [-j]                           skip to the next queued track
-  t-play --queue-show [--id ID] [-j]                     the WHOLE queue, uncapped
-  t-play --queue-rm N --expect-url U [--id ID] [-j]      drop one waiting track
-  t-play --queue-mv N --to M --expect-url U [--id ID]    move one waiting track
-  t-play --queue-jump N --expect-url U [--id ID] [-j]    play one waiting track NOW
-  t-play --queue-clear [--id ID] [-j]                    drop every waiting track
-  t-play --undo --owner PID [--discard] [-j]             take back PID's last queue write
-  t-play --engines [-j]                                  the installed engines, the file
+  ting-play [--loop off|one] -d ... -- <id|URL>         repeat the track it is playing
+  ting-play --set-loop off|one [--id ID] [-j]            turn repeat on/off while it plays
+  ting-play -d --queue - [-j]                            play a QUEUE: items on stdin
+  ting-play --enqueue - [--id ID] [-j]                   append to a running queue
+  ting-play --next [--id ID] [-j]                        skip to the next queued track
+  ting-play --queue-show [--id ID] [-j]                  the WHOLE queue, uncapped
+  ting-play --queue-rm N --expect-url U [--id ID] [-j]   drop one waiting track
+  ting-play --queue-mv N --to M --expect-url U [--id ID]
+                                                         move one waiting track
+  ting-play --queue-jump N --expect-url U [--id ID] [-j]
+                                                         play one waiting track NOW
+  ting-play --queue-clear [--id ID] [-j]                 drop every waiting track
+  ting-play --undo --owner PID [--discard] [-j]          take back PID's last queue write
+  ting-play --engines [-j]                               the installed engines, the file
                                                          each runs, and its engine flags
-  t-play (no handle, no action)                          usage error; use ting to browse
+  ting-play (no handle, no action)                       usage error; use ting to browse
 
-Engine verbs — forwarded to t-engine-<engine> unchanged; that engine gates its own flags,
+Engine verbs — forwarded to ting-engine-<engine> unchanged; that engine gates its own flags,
 so a flag its site has no use for is refused (1), and --engines lists what each accepts:
-  t-play --search [--engine E] [-n N] [--min-duration S] [--max-duration S]
-                  [--sort relevance|view_count|duration] [-j] -- <query>
-  t-play --info [--engine E] [-j] -- <id|URL>            metadata, as a search row +
+  ting-play --search [--engine E] [-n N] [--min-duration S] [--max-duration S]
+                     [--sort relevance|view_count|duration] [-j] -- <query>
+  ting-play --info [--engine E] [-j] -- <id|URL>         metadata, as a search row +
                                                          chapters
-  t-play --items [--engine E] [--cursor C] [-j] -- <container>   a playlist / album /
-                                                         channel / a video's parts
-  t-play --transcript [--engine E] [--sub-lang L] [-j [--segments]] -- <id|URL>
+  ting-play --items [--engine E] [--cursor C] [-j] -- <container>
+                                                         a playlist / album / channel /
+                                                         a video's parts
+  ting-play --transcript [--engine E] [--sub-lang L] [-j [--segments]] -- <id|URL>
                                                          captions or lyrics; --segments
                                                          keeps the timed cues in the envelope
-  t-play --auth [--engine E] [-j]                        the engine's cookie decision
+  ting-play --auth [--engine E] [-j]                     the engine's cookie decision
   Without --engine a URL picks its own engine (as a play does), anything else uses
   the default. -n counts what is FETCHED; the duration bounds shorten it.
 
 Options:
   --engine N  Which engine a play or an engine verb goes to (default: $TING_DEFAULT_ENGINE;
-              set TING_DEFAULT_ENGINE). The name is the file: --engine yt runs t-engine-yt.
+              set TING_DEFAULT_ENGINE). The name is the file: --engine yt runs ting-engine-yt.
   --start SEC Open at SEC seconds instead of the beginning. Whole seconds, 0 or more.
               A handle carrying its own timestamp (…&t=601s) starts there on its own;
               this overrides it, and in a queue it applies to the first track only.
@@ -249,7 +252,7 @@ Options:
               envelope reports where it actually landed.
   -j          JSON output: one-line status JSON for play/lifecycle (prose is the default)
   --queue -   Start a detached player on a QUEUE read from stdin, which is any of: a JSON
-              array of items, a \`t-playlist --show -j\` envelope, or a search envelope. An
+              array of items, a \`ting-playlist --show -j\` envelope, or a search envelope. An
               item is {engine, url, title?, duration?} — engine PER ITEM, so one queue can
               mix sources; --engine is only the fallback for an item without one. The first
               item starts playing and the rest wait. Each is resolved when it is reached,
@@ -287,7 +290,7 @@ Options:
               --pause/--resume/--seek/--enqueue/--next; follow it with --watch
   --watch     Stream a detached player's state until it ends: one line per change, never
               per frame. It follows the player across its queue, not one mpv.
-  --engines   List every installed engine — a t-engine-<name> file beside this file, in
+  --engines   List every installed engine — a ting-engine-<name> file beside this file, in
               \$TING_ENGINE_DIR, or on PATH (first sight of a name wins) — with the file a
               call would run and the engine flags it accepts. Needs no jq; touches no state.
   --color M   auto|always|never (default: auto). No -c short form.
@@ -317,7 +320,7 @@ Output contracts (one line of JSON each; the why behind each shape: ARCH-cli-con
             audio_bitrate,sample_rate,channels} — always present, each member null when the
             property does not apply (audio-only has no video_codec) or is not yet known;
             bitrates are bits per second and are demuxer estimates. engine and url
-            together are the CALL that is playing (\`t-play --engine E -- URL\`), and
+            together are the CALL that is playing (\`ting-play --engine E -- URL\`), and
             both follow the queue from track to track; sock/log are the same two paths
             -d -j hands back, so a caller that did not start the player (a TUI adopting
             one) can control it without rebuilding the state-dir layout; failed lists
@@ -374,12 +377,12 @@ Exit codes: 0 ok · 1 usage/validation · 2+ a missing dependency or a propagate
             engine/mpv failure · 4 lifecycle call did not take effect (no such
             player / ambiguous / IPC failure)
 
-Playback keys (mpv, during a blocking 't-play -- <handle>' playback):
+Playback keys (mpv, during a blocking 'ting-play -- <handle>' playback):
   _  toggle video track on/off        q  stop playback and exit
 
 Dependencies: mpv (playback) + jq; a unix-socket netcat — BSD/OpenBSD 'nc -U' or nmap's
               'ncat' — for every socket verb: --set-volume, --pause, --resume,
-              --seek, --seek-to, --watch (the queue verbs need only jq); a t-engine-<name>
+              --seek, --seek-to, --watch (the queue verbs need only jq); a ting-engine-<name>
               next to this file, in \$TING_ENGINE_DIR, or on PATH. yt-dlp / curl / cookies are
               the ENGINE's business, not the player's; an engine verb needs none of mpv, jq
               or nc from this file — only what that engine gates for itself.
@@ -390,7 +393,7 @@ Environment:
   per line, # comments); TING_CONFIG relocates it. Chain: flag > environment > your
   config > the shipped defaults. See ARCH-cli-contract.md「配置面」.
   TING_DEFAULT_ENGINE  Engine used when --engine is not given (default: $TING_DEFAULT_ENGINE)
-  TING_ENGINE_DIR      Extra directory searched for t-engine-<name>, after this file's own
+  TING_ENGINE_DIR      Extra directory searched for ting-engine-<name>, after this file's own
                        directory and before PATH. ENVIRONMENT ONLY — it names programs the
                        player runs, so neither config file can set it.
                        (default: \${XDG_DATA_HOME:-~/.local/share}/ting/engines)
@@ -534,7 +537,7 @@ normalize_playback_mode() {
 # 3. THE ENGINE SEAM & PLAYBACK PIPELINES
 # ==============================================================================
 
-# An engine is ONE executable per site, `t-engine-<name>`. The player calls its --stream verb
+# An engine is ONE executable per site, `ting-engine-<name>`. The player calls its --stream verb
 # with a mode and a handle and gets an envelope back; it never learns what a format string
 # is, whether cookies exist, or what a media id looks like on any given site. Name == file
 # suffix is what makes this lookup a string concatenation instead of a name->command
@@ -558,7 +561,7 @@ validate_loop_mode() {
     validate_enum "$val" off one && return 0
     case "$val" in
     single | sequential | seq | all | list | repeat-one | one-repeat)
-        die "$flag takes off or one (repeat the current track). Playing on to the NEXT track is a queue, not a loop mode: 't-play -d --queue -' (items on stdin)"
+        die "$flag takes off or one (repeat the current track). Playing on to the NEXT track is a queue, not a loop mode: 'ting-play -d --queue -' (items on stdin)"
         ;;
     esac
     die "$flag must be off or one (got '$val')"
@@ -628,7 +631,7 @@ engine_resolve_bin() {
         die "invalid engine name: '$ENGINE'"
     fi
     ENGINE_RESOLVE=$(engine_file_bin "$ENGINE") ||
-        die "unknown engine '$ENGINE': no 't-engine-$ENGINE' next to t-play, in $TING_ENGINE_DIR, or on PATH"
+        die "unknown engine '$ENGINE': no 'ting-engine-$ENGINE' next to ting-play, in $TING_ENGINE_DIR, or on PATH"
     return 0
 }
 
@@ -637,17 +640,17 @@ engine_resolve_bin() {
 # it would run is what this file does run. Prints the path; non-zero and silent when there is
 # none.
 engine_file_bin() { # <name>
-    if [[ -x "$SCRIPT_DIR/t-engine-$1" ]]; then
-        printf '%s\n' "$SCRIPT_DIR/t-engine-$1"
-    elif [[ -x "$TING_ENGINE_DIR/t-engine-$1" ]]; then
-        printf '%s\n' "$TING_ENGINE_DIR/t-engine-$1"
+    if [[ -x "$SCRIPT_DIR/ting-engine-$1" ]]; then
+        printf '%s\n' "$SCRIPT_DIR/ting-engine-$1"
+    elif [[ -x "$TING_ENGINE_DIR/ting-engine-$1" ]]; then
+        printf '%s\n' "$TING_ENGINE_DIR/ting-engine-$1"
     else
-        command -v "t-engine-$1" 2>/dev/null
+        command -v "ting-engine-$1" 2>/dev/null
     fi
 }
 
 # THE ENGINE REGISTRY, published: `--engines` answers which sources are installed and what each
-# accepts, so no caller has to carry the rule below — a TUI runs `t-play` and never learns
+# accepts, so no caller has to carry the rule below — a TUI runs `ting-play` and never learns
 # that TING_ENGINE_DIR exists (PLAN-go-tui.md「未决」, decided 2026-09-25).
 #
 # All three places are always scanned and the first sight of a name wins, so a plugin dir
@@ -659,9 +662,9 @@ ENGINE_NAMES=()
 engines_scan_dir() {
     local dir=$1 f name e
     # No nullglob on 3.2: an unmatched glob is the pattern itself, and -x rejects it.
-    for f in "$dir"/t-engine-*; do
+    for f in "$dir"/ting-engine-*; do
         [[ -x "$f" ]] || continue
-        name=${f##*/t-engine-}
+        name=${f##*/ting-engine-}
         [[ "$name" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || continue
         for e in ${ENGINE_NAMES[@]+"${ENGINE_NAMES[@]}"}; do
             [[ "$e" == "$name" ]] && continue 2
@@ -718,14 +721,14 @@ do_engines() {
     if [[ "$OUTPUT_MODE" == "json" ]]; then
         printf '{"status":"ok","engines":[%s]}\n' "$out"
     elif [[ -z "$sep" ]]; then
-        echo "no engines: need a t-engine-<name> file beside t-play, in $TING_ENGINE_DIR, or on PATH" >&2
+        echo "no engines: need a ting-engine-<name> file beside ting-play, in $TING_ENGINE_DIR, or on PATH" >&2
     fi
     exit 0
 }
 
-# THE ENGINE VERBS, FORWARDED. t-play is the one public entry, so searching, metadata,
+# THE ENGINE VERBS, FORWARDED. ting-play is the one public entry, so searching, metadata,
 # containers, captions and the cookie decision are asked of it — and answered by the engine,
-# because they are site knowledge. The forward is an `exec` of `t-engine-<name>` with the argv
+# because they are site knowledge. The forward is an `exec` of `ting-engine-<name>` with the argv
 # as given, less --engine: this file recognises only WHICH verb it is and which engine, so the
 # flag gate exists once, inside the engine (a --sub-lang to an engine without captions, a -d
 # next to --search, two verbs at once — each is the engine's refusal, exit 1). The envelope and
@@ -733,7 +736,7 @@ do_engines() {
 #
 # Called before argv parsing and before every dependency gate: searching must not need mpv
 # installed. The internal verbs (--stream, --capabilities) are not in the table, so asked of
-# t-play they fall through to the ordinary unknown-flag refusal. Only argv ahead of `--` is
+# ting-play they fall through to the ordinary unknown-flag refusal. Only argv ahead of `--` is
 # looked at, so a query that happens to read `--info` is still a query.
 #
 # Without --engine, a URL handle picks its engine by host, exactly as a play does; a bare id
@@ -769,7 +772,7 @@ forward_engine_verb() {
         # The one flag refused HERE: --raw is an engine's self-check against its site (the
         # unprojected record). Site fields cannot be versioned, so the one public entry does
         # not hand them out; -j is the contract, and --segments the transcript's full form.
-        --raw) die "--raw is an engine self-check, not part of t-play — use -j" ;;
+        --raw) die "--raw is an engine self-check, not part of ting-play — use -j" ;;
         *) fwd+=("$1") ;;
         esac
         shift
@@ -781,7 +784,7 @@ forward_engine_verb() {
     fi
     [[ "$engine" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || die "invalid engine name: '$engine'"
     bin=$(engine_file_bin "$engine") ||
-        die "unknown engine '$engine': no 't-engine-$engine' next to t-play, in $TING_ENGINE_DIR, or on PATH"
+        die "unknown engine '$engine': no 'ting-engine-$engine' next to ting-play, in $TING_ENGINE_DIR, or on PATH"
     exec "$bin" "${fwd[@]}"
 }
 
@@ -1189,14 +1192,14 @@ play_mode_url() {
 }
 
 
-# Prose entry (a blocking `t-play <handle>`) and the detached child's own path. A resolve
+# Prose entry (a blocking `ting-play <handle>`) and the detached child's own path. A resolve
 # failure has no envelope to carry a reason here, so it goes to stderr carrying the
 # machine-readable marker detached_epitaph reads back out of the log. It RETURNS rather than
 # exits so the caller still gets to write that epitaph.
 play_url_directly() {
     local url=$1
     if ! resolve_media "$url" "$PLAYBACK_MODE"; then
-        echo "t-play: t-engine-$ENGINE could not resolve $url (yt_reason=$RESOLVED_REASON)" >&2
+        echo "ting-play: ting-engine-$ENGINE could not resolve $url (yt_reason=$RESOLVED_REASON)" >&2
         return "$RESOLVED_RC"
     fi
     play_mode_url "$url" "$PLAYBACK_MODE"
@@ -1262,7 +1265,7 @@ emit_play_json() {
         '{status: $status, url: $url, mode: $mode, exit_code: $exit_code, reason: (if $reason == "" then null else $reason end), retried: $retried}'
 }
 
-# Opt-in structured playback (t-play -j). Captures the player's stdout+stderr (suppressing
+# Opt-in structured playback (ting-play -j). Captures the player's stdout+stderr (suppressing
 # its chatter) and emits exactly one final JSON line describing the outcome. rc 130 (user hit
 # q/ctrl-c) is a normal stop, reported as status "ok" with reason "stopped_by_user". The real
 # non-zero exit is still propagated so the process exit code stays truthful.
@@ -1742,7 +1745,7 @@ detached_epitaph() {
 }
 
 # ------------------------------------------------------------------------------
-# The listening row: written here, stored by t-history
+# The listening row: written here, stored by ting-history
 # ------------------------------------------------------------------------------
 # WHY THE PLAYER WRITES IT. The child is the only process that knows a track ended and why.
 # The parent's verb returned minutes ago, and mpv's exit code cannot tell "--next killed it"
@@ -1756,26 +1759,26 @@ detached_epitaph() {
 # ended it, and only a SIGKILL loses a row.
 #
 # WHY IT IGNORES THE SIGNAL THAT CAUSED IT. During a --stop the group is signalled every
-# 0.2s for three seconds (stop_group) and t-history would be a child of this child: the very
+# 0.2s for three seconds (stop_group) and ting-history would be a child of this child: the very
 # stop being recorded would kill the recorder. A disposition of SIG_IGN survives exec — the
 # same inheritance rule stop_group's own comment turns on, from the other side — so the write
-# runs in a subshell that has ignored INT/TERM before t-history is started. It cannot hang
+# runs in a subshell that has ignored INT/TERM before ting-history is started. It cannot hang
 # the escalation for long: this is a local append with no network in it, and the KILL still
 # backstops it.
 #
-# STORAGE IS NOT OURS. t-history is called BY NAME, exactly as an engine is; the player owns
+# STORAGE IS NOT OURS. ting-history is called BY NAME, exactly as an engine is; the player owns
 # the row, never the file, and knows nothing about JSONL or month shards. Not on PATH, nothing
 # is written and nothing is said: a capability this suite does not have is stated by not
-# having the command, the rule that also gives t-engine-bili no --transcript.
+# having the command, the rule that also gives ting-engine-bili no --transcript.
 HISTORY_BIN=""
 HISTORY_LOOKED=0
 history_bin() {
     if ((HISTORY_LOOKED == 0)); then
         HISTORY_LOOKED=1
-        if [[ -x "$SCRIPT_DIR/t-history" ]]; then
-            HISTORY_BIN="$SCRIPT_DIR/t-history"
-        elif command -v t-history >/dev/null 2>&1; then
-            HISTORY_BIN=$(command -v t-history)
+        if [[ -x "$SCRIPT_DIR/ting-history" ]]; then
+            HISTORY_BIN="$SCRIPT_DIR/ting-history"
+        elif command -v ting-history >/dev/null 2>&1; then
+            HISTORY_BIN=$(command -v ting-history)
         fi
     fi
     [[ -n "$HISTORY_BIN" ]]
@@ -1803,7 +1806,7 @@ history_record() {
     # first lost its row while the second wrote one. Nothing can be done about the window
     # before the handler; what CAN be done is to make the window this function adds as close
     # to zero as bash allows. So the reason, the clock, the row and the write all run under
-    # `trap '' INT TERM`, whose SIG_IGN survives into t-history as well — once this subshell
+    # `trap '' INT TERM`, whose SIG_IGN survives into ting-history as well — once this subshell
     # is forked, the row lands even if the child it came from is killed a millisecond later.
     (
         trap '' INT TERM
@@ -1838,7 +1841,7 @@ history_record() {
         [[ "$now_epoch" =~ ^[0-9]+$ ]] || now_epoch=""
         played_at=$TRACK_STARTED_AT
         [[ -n "$played_at" ]] || played_at=$now_at
-        # No clock, no row: played_at names the shard file, and t-history rejects one that is
+        # No clock, no row: played_at names the shard file, and ting-history rejects one that is
         # not a timestamp. Dropping it here keeps that rejection off the track boundary.
         [[ -n "$played_at" ]] || exit 0
         if [[ -n "$TRACK_STARTED_EPOCH" && -n "$now_epoch" ]]; then
@@ -1898,7 +1901,7 @@ unlock_player_state() {
 # ------------------------------------------------------------------------------
 # A queue is a playlist BEING CONSUMED, so it belongs to the player and dies with it — a
 # queue that survived a restart would just be a playlist, and playlists belong to
-# t-playlist (docs/ARCH-player.md「持久状态层」与「队列」). It lives beside the socket and the log
+# ting-playlist (docs/ARCH-player.md「持久状态层」与「队列」). It lives beside the socket and the log
 # rather than under players/ because that directory's *.json glob IS the player-record
 # namespace: reap_dead_players walks it, and would read <id>.queue.json as a player whose
 # record it could not parse — and then delete it.
@@ -1954,7 +1957,7 @@ queue_lock_write() {
 }
 
 # ------------------------------------------------------------------------------
-# UNDO — the queue's copy, the same rule t-playlist keeps for playlists (docs/ARCH-player.md
+# UNDO — the queue's copy, the same rule ting-playlist keeps for playlists (docs/ARCH-player.md
 # 「撤销副本」): written under the queue lock between reading the queue and replacing it, only
 # for a caller that names itself with --owner, one slot per owner. It lives beside the queue
 # in $STATE_DIR, outside players/ (reap_dead_players' namespace), because a copy that
@@ -2035,11 +2038,11 @@ with_undo() {
 }
 
 # stdin -> QUEUE_ITEMS_JSON, an array of {engine,url,title,duration}. THREE shapes, the same
-# three `t-playlist --add` takes and for the same reason: a search result does not carry
+# three `ting-playlist --add` takes and for the same reason: a search result does not carry
 # `engine` — that field is on the ENVELOPE — so only taking the whole envelope can label an
 # item with the source it came from. A bare array is the hand-written case, and an object
-# with .items is what `t-playlist --show -j` emits, which is what makes
-# `t-playlist --show jazz -j | t-play -d --queue -` mean "play that playlist" without the
+# with .items is what `ting-playlist --show -j` emits, which is what makes
+# `ting-playlist --show jazz -j | ting-play -d --queue -` mean "play that playlist" without the
 # player ever learning that playlists exist.
 #
 # Every rejection here is a USAGE error (1) in the parent, so a malformed queue never
@@ -2048,7 +2051,7 @@ QUEUE_ITEMS_JSON="[]"
 read_queue_items() {
     local flag=$1 raw
     raw=$(cat)
-    # A MATCH, not `${raw//[[:space:]]/}` — the same fix `t-playlist`'s read_items carries,
+    # A MATCH, not `${raw//[[:space:]]/}` — the same fix `ting-playlist`'s read_items carries,
     # for the same measured reason: that substitution is quadratic-with-a-multibyte-constant
     # in bash 3.2 once the string contains one space, and a queue arrives as a KB-sized
     # envelope. Measured: 16s for a 7KB envelope, against 5ms for this.
@@ -2454,7 +2457,7 @@ detach_play() {
             '{status: "started", id: $id, pid: $pid, url: $url, mode: $mode, started_at: $started_at, title: null, sock: $sock, log: $log}'
     else
         printf "Detached playback started (id %s, pid %s, mode %s): %s\n" "$id" "$pid" "$PLAYBACK_MODE" "$url"
-        printf "  status: t-play --status   stop: t-play --stop --id %s   log: %s\n" "$id" "$log"
+        printf "  status: ting-play --status   stop: ting-play --stop --id %s   log: %s\n" "$id" "$log"
     fi
 }
 
@@ -2758,7 +2761,7 @@ do_stop() {
             if [[ "$OUTPUT_MODE" == "json" ]]; then
                 jq -nc --argjson players "$RESOLVE_PLAYERS_JSON" '{status: "ambiguous", reason: "multiple_players", players: $players}'
             else
-                echo "multiple players playing; specify --id or --all (see 't-play --status')" >&2
+                echo "multiple players playing; specify --id or --all (see 'ting-play --status')" >&2
             fi
             exit 4
         fi
@@ -2809,7 +2812,7 @@ require_live_target() {
         fi
     else
         if [[ "$RESOLVE_ERR" == "ambiguous" ]]; then
-            echo "multiple players playing; specify --id (see 't-play --status')" >&2
+            echo "multiple players playing; specify --id (see 'ting-play --status')" >&2
         else
             echo "nothing playing" >&2
         fi
@@ -3335,7 +3338,7 @@ do_queue_show() {
     else
         # The index is printed because it is the ARGUMENT the rewrite verbs take, and the
         # playing track is marked because `pos` on the header line is a number the reader
-        # would otherwise have to count rows to use. Same two columns t-playlist --show
+        # would otherwise have to count rows to use. Same two columns ting-playlist --show
         # prints, for the same reason: a list you are going to act on by index shows it.
         printf '%s' "$out" | jq -r --arg id "$id" \
             '"queue \(.pos + 1)/\(.len) (player \($id))",
@@ -3597,7 +3600,7 @@ COLOR_MODE="auto"
 OUTPUT_MODE="list"
 # Playback lifecycle / structured-output state.
 DETACH=0
-ENGINE="$TING_DEFAULT_ENGINE"  # which t-engine-<name> turns a handle into bytes
+ENGINE="$TING_DEFAULT_ENGINE"  # which ting-engine-<name> turns a handle into bytes
 ENGINE_SPECIFIED=0
 ACTION=""            # "" (normal) | status | stop | set-volume | pause | resume | seek |
                      # seek-to | enqueue | next | set-loop | queue-show | queue-rm |
@@ -3613,7 +3616,7 @@ SET_VOLUME_ARG=""    # value from --set-volume N
 #
 # Deliberately NOT defaulted from a config key. ting's own three-state cycle writes
 # TING_LOOP_MODE back to the user's config, and its third state (seq) is not a value this flag
-# has — reading it here would make every later t-play call die on the caller's own
+# has — reading it here would make every later ting-play call die on the caller's own
 # preference file. The player's default is off, full stop.
 LOOP_MODE="off"      # --loop
 LOOP_SET=0           # whether --loop was actually given (the flag is launch-only)
@@ -3748,13 +3751,13 @@ while (($#)); do
     --get-url)
         # Retired: a stream URL is the engine's internal hand-off to the player, not a
         # public verb — what a caller wants from a handle is to play it or to read about it.
-        die "--get-url is gone — play the handle ('t-play -- <id|URL>'), or read about it with 't-play --info -- <id|URL>'"
+        die "--get-url is gone — play the handle ('ting-play -- <id|URL>'), or read about it with 'ting-play --info -- <id|URL>'"
         ;;
     --sub-lang | --sub-langs | --sub-lang=* | --sub-langs=* | --cursor | --cursor=* | --segments \
         | --min-duration | --max-duration | --sort | --min-duration=* | --max-duration=* | --sort=*)
         # An engine verb's modifier without its verb. The verbs themselves never get here —
         # forward_engine_verb has exec'd them — so the caller has the right flag and no verb.
-        die "${1%%=*} modifies an engine verb — see --search, --items and --transcript in 't-play -h'"
+        die "${1%%=*} modifies an engine verb — see --search, --items and --transcript in 'ting-play -h'"
         ;;
     --set-volume)
         [[ $# -ge 2 ]] || die "--set-volume requires a value"
@@ -3857,7 +3860,7 @@ while (($#)); do
         ;;
     # The five queue verbs. Three of them take the index as the flag's own value rather than
     # as a positional, so a queue verb can never be confused with a handle: `--queue-rm 2`
-    # and `t-play -- 2` are different sentences and the parser says so here.
+    # and `ting-play -- 2` are different sentences and the parser says so here.
     --queue-show)
         set_action queue-show --queue-show
         shift
@@ -3991,7 +3994,7 @@ while getopts ":f:djhV" opt; do
     # Answered before ANY dependency gate: a version is the first thing a bug report needs,
     # and needing yt-dlp installed to find out which version you have is backwards.
     V)
-        printf 't-play %s\n' "$TING_VERSION"
+        printf 'ting-play %s\n' "$TING_VERSION"
         exit 0
         ;;
     :)
@@ -4001,7 +4004,7 @@ while getopts ":f:djhV" opt; do
         # The gate the yt-play wrapper used to hold: a search flag here is a caller who
         # picked the wrong verb, and "invalid option: -n" does not say which verb is right.
         case "$OPTARG" in
-        n) die "-n is a search flag — search with 't-play --search [-n N] -- <query>'" ;;
+        n) die "-n is a search flag — search with 'ting-play --search [-n N] -- <query>'" ;;
         esac
         die "invalid option: -$OPTARG"
         ;;
@@ -4125,7 +4128,7 @@ fi
 # QUERY is what those rules judge — and read in the PARENT so a malformed queue is a usage
 # error (1) from the caller's own shell rather than a line in a detached player's log.
 if [[ -n "$QUEUE_INPUT" ]] && [[ "$ACTION" != enqueue ]]; then
-    ((DETACH)) || die "--queue starts a detached player: use 't-play -d --queue -'"
+    ((DETACH)) || die "--queue starts a detached player: use 'ting-play -d --queue -'"
     [[ -z "$ACTION" ]] || die "--queue cannot be combined with $ACTION_FLAG"
     [[ "$QUEUE_INPUT" == "-" ]] || die "--queue takes '-': the items are read from stdin"
     [[ "$QUERY" != *[![:space:]]* ]] || die "--queue takes its handles from stdin, not from the command line"
@@ -4165,10 +4168,10 @@ fi
 
 # Positional arguments belong to a new playback launch; no lifecycle or control verb accepts
 # them. Reject stray arguments early rather than silently ignoring them — a caller typing
-# `t-play --status -- <player-id>` or `t-play --stop -- <player-id>` has the wrong syntax.
+# `ting-play --status -- <player-id>` or `ting-play --stop -- <player-id>` has the wrong syntax.
 if [[ -n "$ACTION" ]] && [[ "$QUERY" == *[![:space:]]* ]]; then
     if [[ "$ACTION" == "status" ]]; then
-        die "--status takes no positional arguments (to query detached players, run 't-play --status [-j]')"
+        die "--status takes no positional arguments (to query detached players, run 'ting-play --status [-j]')"
     elif [[ "$ACTION" == "enqueue" ]]; then
         die "--enqueue takes its items from stdin, not from the command line"
     elif [[ "$ACTION" == "engines" ]]; then
@@ -4182,7 +4185,7 @@ fi
 # the heavier mpv dependency check so the message is about the missing input, not a missing
 # player. Searching is --search; interactive browsing is ting.
 if ((! IS_HANDLE)) && [[ "$QUERY" != *[![:space:]]* ]] && [[ -z "$ACTION" ]]; then
-    die "provide a video id or URL (to search, run 't-play --search -- <query>'; for interactive browsing, ting)"
+    die "provide a video id or URL (to search, run 'ting-play --search -- <query>'; for interactive browsing, ting)"
 fi
 
 # Every call, whatever it is for, sweeps away the undo copies of owners that are gone (the
@@ -4269,7 +4272,7 @@ queue-show | queue-clear | undo)
 queue-rm | queue-mv | queue-jump)
     require_cmd jq
     is_non_negative_int "$QUEUE_INDEX_ARG" ||
-        die "$ACTION_FLAG takes a non-negative queue index (see 't-play --queue-show')"
+        die "$ACTION_FLAG takes a non-negative queue index (see 'ting-play --queue-show')"
     # The pin is REQUIRED, and the message says what to do rather than only what was missing:
     # the url is printed beside its index by the verb the caller has to run anyway.
     [[ -n "$QUEUE_EXPECT_URL" ]] ||
@@ -4277,7 +4280,7 @@ queue-rm | queue-mv | queue-jump)
     if [[ "$ACTION" == "queue-mv" ]]; then
         [[ -n "$QUEUE_TO_ARG" ]] || die "--queue-mv requires --to N (the position to move it to)"
         is_non_negative_int "$QUEUE_TO_ARG" ||
-            die "--to takes a non-negative queue index (see 't-play --queue-show')"
+            die "--to takes a non-negative queue index (see 'ting-play --queue-show')"
     else
         [[ -z "$QUEUE_TO_ARG" ]] || die "--to applies only to --queue-mv"
     fi
@@ -4346,7 +4349,7 @@ fi
 if { [[ "$PLAYBACK_MODE" == "viz" ]] ||
     [[ "$PLAYBACK_MODE" == "ascii" && "$TING_ASCII_VO" == "tct" ]]; } &&
     ! locale_is_utf8; then
-    die "-f $PLAYBACK_MODE needs a UTF-8 locale: --vo=tct draws in half blocks (U+2584), which '${LC_ALL:-${LC_CTYPE:-${LANG:-unset}}}' cannot encode (re-run as 'LC_ALL=en_US.UTF-8 t-play …', or use -f audio, video or fast)"
+    die "-f $PLAYBACK_MODE needs a UTF-8 locale: --vo=tct draws in half blocks (U+2584), which '${LC_ALL:-${LC_CTYPE:-${LANG:-unset}}}' cannot encode (re-run as 'LC_ALL=en_US.UTF-8 ting-play …', or use -f audio, video or fast)"
 fi
 
 # =-----------------------------------------------------------------------------
@@ -4379,4 +4382,4 @@ fi
 # Not a handle: nothing left to route. A bare query is not a play — searching is its own
 # verb, so a query reaching here is a caller who left it out. docs/ARCH-engine.md「搜索子系统」.
 # =-----------------------------------------------------------------------------
-die "'$QUERY' is not a video id or URL — run 't-play --search -- $QUERY' to search for it"
+die "'$QUERY' is not a video id or URL — run 'ting-play --search -- $QUERY' to search for it"

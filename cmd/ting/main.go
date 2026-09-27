@@ -149,7 +149,7 @@ func main() {
 	pageRows, _ := strconv.Atoi(cfg.Value("TING_PAGE_ROWS"))
 
 	if !term.IsTerminal(os.Stdin.Fd()) || !term.IsTerminal(os.Stdout.Fd()) {
-		die(1, "requires a terminal (interactive menu); use %s-search / t-play headless", cfg.Value("TING_DEFAULT_ENGINE"))
+		die(1, "requires a terminal (interactive menu); use ting-play --search / ting-play headless")
 	}
 
 	suite, err := verb.Locate()
@@ -164,7 +164,7 @@ func main() {
 		die(2, "%v", err)
 	}
 	if len(engines) == 0 {
-		die(1, "no engine found — need a <name>-search and <name>-resolve pair beside t-play, in $TING_ENGINE_DIR, or on PATH")
+		die(1, "no engine found — need a ting-engine-<name> file beside ting-play, in $TING_ENGINE_DIR, or on PATH")
 	}
 	names := make([]string, len(engines))
 	idx := -1

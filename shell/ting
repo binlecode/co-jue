@@ -4,8 +4,8 @@
 # headless verbs with jq.
 #
 # Delegates core jobs to headless binaries:
-#   search (network fetch) → t-play --search -j <query>   (JSON envelope)
-#   play                   → t-play -d -j -f MODE -- url  (ASYNCHRONOUS: detached background player)
+#   search (network fetch) → ting-play --search -j <query>   (JSON envelope)
+#   play                   → ting-play -d -j -f MODE -- url  (ASYNCHRONOUS: detached background player)
 #   filter (narrow rows)   → pure bash, no external tool
 #
 # ting renders its OWN menu, and there is ONE view: the result list, its live Now-Playing
@@ -18,7 +18,7 @@ set -euo pipefail
 # empty-array expansions ("${arr[@]}" on an empty array aborts under set -u on 3.2). ARCHITECTURE.md「可移植性契约」.
 
 # Resolve this script's OWN symlink chain before looking for its siblings. The PATH entries
-# (t-play / ting / …) are symlinks into a checkout that can live anywhere, so
+# (ting-play / ting / …) are symlinks into a checkout that can live anywhere, so
 # `dirname $0` is the symlink's directory, not the code's. This walks the chain to the real file and takes ITS
 # directory — which is the one holding the rest of the suite.
 #
@@ -62,7 +62,7 @@ unset _pk
 
 # CONFIGURATION — the chain is flag > environment > the user's config > the shipped defaults
 # in `<checkout>/config`, which is where every default value in the suite is declared once.
-# Duplicated VERBATIM in every entry point — see the same block in t-play for why, and
+# Duplicated VERBATIM in every entry point — see the same block in ting-play for why, and
 # ARCH-cli-contract.md「配置面」 for the keys.
 TING_CONFIG="${TING_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/ting/config}"
 TING_DEFAULTS="$SCRIPT_DIR/../config"
@@ -196,7 +196,7 @@ write_prefs() {
     local keys="$1" line lhs rhs key val pre gap comment trimmed lead bare tmp
     local out="" seen="" k dest link
     # Resolve $TING_CONFIG along its symlink chain FIRST, and write to what it points at.
-    # temp+mv came from t-playlist, but that store renames over files it created in its own
+    # temp+mv came from ting-playlist, but that store renames over files it created in its own
     # directory; this renames over a file the USER owns — quite possibly a symlink out of a
     # dotfiles repo. Renaming onto the link itself would leave a regular file here, orphan the
     # real dotfile (every later hand-edit there silently stops taking effect) and say nothing.
@@ -298,24 +298,24 @@ flush_prefs() {
     return 0
 }
 
-if [[ -x "$SCRIPT_DIR/t-play" ]]; then
-    PLAY_BIN="$SCRIPT_DIR/t-play"
-elif command -v t-play >/dev/null 2>&1; then
-    PLAY_BIN=$(command -v t-play)
+if [[ -x "$SCRIPT_DIR/ting-play" ]]; then
+    PLAY_BIN="$SCRIPT_DIR/ting-play"
+elif command -v ting-play >/dev/null 2>&1; then
+    PLAY_BIN=$(command -v ting-play)
 else
-    echo "ting: cannot locate t-play" >&2
+    echo "ting: cannot locate ting-play" >&2
     exit 1
 fi
 
 # The playlist store, located the same way and OPTIONAL. Absent, the two playlist keys say
 # so once and the rest of the session is unchanged — the same "a capability is declared by
 # being there" rule an engine follows with --transcript. This file never touches
-# $TING_STATE_DIR itself: the store owns its layout, exactly as t-play owns players/.
+# $TING_STATE_DIR itself: the store owns its layout, exactly as ting-play owns players/.
 PLAYLIST_BIN=""
-if [[ -x "$SCRIPT_DIR/t-playlist" ]]; then
-    PLAYLIST_BIN="$SCRIPT_DIR/t-playlist"
-elif command -v t-playlist >/dev/null 2>&1; then
-    PLAYLIST_BIN=$(command -v t-playlist)
+if [[ -x "$SCRIPT_DIR/ting-playlist" ]]; then
+    PLAYLIST_BIN="$SCRIPT_DIR/ting-playlist"
+elif command -v ting-playlist >/dev/null 2>&1; then
+    PLAYLIST_BIN=$(command -v ting-playlist)
 fi
 
 # The listening log, located the same way and just as optionally. HISTORY_BIN, not
@@ -325,10 +325,10 @@ fi
 # This file only READS it, and only when h is pressed — the writing is the player's, where
 # the fact "a track ended, and why" exists.
 HISTORY_BIN=""
-if [[ -x "$SCRIPT_DIR/t-history" ]]; then
-    HISTORY_BIN="$SCRIPT_DIR/t-history"
-elif command -v t-history >/dev/null 2>&1; then
-    HISTORY_BIN=$(command -v t-history)
+if [[ -x "$SCRIPT_DIR/ting-history" ]]; then
+    HISTORY_BIN="$SCRIPT_DIR/ting-history"
+elif command -v ting-history >/dev/null 2>&1; then
+    HISTORY_BIN=$(command -v ting-history)
 fi
 
 # AN UPGRADE CAN TAKE THE TOOLS OUT FROM UNDER A RUNNING SESSION. The three paths above are
@@ -336,36 +336,36 @@ fi
 # its own and deletes the old one when the new one lands (Homebrew's cleanup does it the same
 # second). A session opened before the upgrade then holds paths to files that are gone — and
 # the one call that must not fail quietly is the STOP: measured at the 0.14.0 release, `q`
-# ran a deleted `t-play --stop`, and the mpv it should have stopped played on with nothing
+# ran a deleted `ting-play --stop`, and the mpv it should have stopped played on with nothing
 # attached to it. So a path that no longer runs is looked up again on PATH, where a package
 # manager keeps its stable name for whichever version is current. One `[[ -x ]]` per tool per
 # loop turn (a stat, no fork); nothing is re-resolved while the file is still there, so an
 # ordinary session never changes which copy it talks to.
 relocate_tools() {
     local p
-    if [[ ! -x "$PLAY_BIN" ]] && p=$(command -v t-play 2>/dev/null) && [[ -x "$p" ]]; then PLAY_BIN="$p"; fi
-    if [[ -n "$PLAYLIST_BIN" && ! -x "$PLAYLIST_BIN" ]] && p=$(command -v t-playlist 2>/dev/null) && [[ -x "$p" ]]; then
+    if [[ ! -x "$PLAY_BIN" ]] && p=$(command -v ting-play 2>/dev/null) && [[ -x "$p" ]]; then PLAY_BIN="$p"; fi
+    if [[ -n "$PLAYLIST_BIN" && ! -x "$PLAYLIST_BIN" ]] && p=$(command -v ting-playlist 2>/dev/null) && [[ -x "$p" ]]; then
         PLAYLIST_BIN="$p"
     fi
-    if [[ -n "$HISTORY_BIN" && ! -x "$HISTORY_BIN" ]] && p=$(command -v t-history 2>/dev/null) && [[ -x "$p" ]]; then
+    if [[ -n "$HISTORY_BIN" && ! -x "$HISTORY_BIN" ]] && p=$(command -v ting-history 2>/dev/null) && [[ -x "$p" ]]; then
         HISTORY_BIN="$p"
     fi
     return 0
 }
 
 # THE ENGINE REGISTRY — discovered, not listed, and not by this file. The suite's whole claim
-# is that adding a source is adding ONE file (`t-engine-<name>`) and changing nothing else; a
+# is that adding a source is adding ONE file (`ting-engine-<name>`) and changing nothing else; a
 # hardcoded list of engine names here would make that claim false at the fourth source, in
 # the one place nobody looks, because the TUI would still run and simply not offer the new
 # one.
 #
-# `t-play --engines` answers it: where engines may live (sibling, $TING_ENGINE_DIR, PATH, the
+# `ting-play --engines` answers it: where engines may live (sibling, $TING_ENGINE_DIR, PATH, the
 # first sight of a name winning so a plugin cannot shadow a built-in) and which verbs each
 # accepts are the player's rule and the engine's statement, and a TUI that re-derived either
 # would be a second copy that drifts. The PROSE form is read (name TAB bin TAB flags), not -j:
 # this runs before the jq gate, and every field in it is a name, a path or a flag word.
 #
-# TING_ENGINE_DIR is still resolved here, for this file's usage text only; t-play resolves its
+# TING_ENGINE_DIR is still resolved here, for this file's usage text only; ting-play resolves its
 # own, from the same environment.
 ENGINES=()
 ENGINE_FLAG_SETS=()   # parallel to ENGINES: " --search -n … " as the engine states it
@@ -384,11 +384,11 @@ while IFS=$'\t' read -r _name _bin _flags; do
 done < <("$PLAY_BIN" --engines 2>/dev/null)
 unset _name _bin _flags
 if ((${#ENGINES[@]} == 0)); then
-    echo "ting: no engine found — need a t-engine-<name> file beside t-play, in $TING_ENGINE_DIR, or on PATH" >&2
+    echo "ting: no engine found — need a ting-engine-<name> file beside ting-play, in $TING_ENGINE_DIR, or on PATH" >&2
     exit 1
 fi
 
-# One engine verb, asked the way any caller asks: through t-play, which forwards it to the
+# One engine verb, asked the way any caller asks: through ting-play, which forwards it to the
 # engine and hands back the engine's own envelope and exit code. The name is safe to pass
 # because every caller passes one that already passed engine_seen.
 engine_verb() { # <name> <verb> [args…]
@@ -402,13 +402,13 @@ engine_verb() { # <name> <verb> [args…]
 engine_msg() { # <name> <text>
     local m=${2##*$'\n'}
     m=${m#Error: }
-    m=${m#t-engine-"$1": }
+    m=${m#ting-engine-"$1": }
     printf '%s' "$m"
 }
 
 # The auth token in the status line comes from the ENGINE, never from this file: which
 # browser a source reads cookies from is site knowledge, and ting holds none. It asks
-# `t-play --auth`, which the engine answers with a local fork: no network and no yt-dlp.
+# `ting-play --auth`, which the engine answers with a local fork: no network and no yt-dlp.
 #
 # It reports the cookie DECISION, not a valid login — an expired session still answers
 # "cookie". The status line therefore says which profile playback will READ, which is the
@@ -422,7 +422,7 @@ engine_msg() { # <name> <text>
 # existing, so a third engine is never blocked on implementing this.
 #
 # Recomputed on each source switch rather than kept in a map: bash 3.2 has no associative
-# array, and one fork (a directory listing and a one-byte read, behind t-play's own start) is
+# array, and one fork (a directory listing and a one-byte read, behind ting-play's own start) is
 # cheaper than keeping parallel arrays correct.
 ENGINE_AUTH=""
 refresh_engine_auth() {
@@ -476,7 +476,7 @@ refresh_engine_caps() {
     refresh_engine_flags
 }
 
-# Which engine this session starts on. The SAME variable t-play reads, not a second one:
+# Which engine this session starts on. The SAME variable ting-play reads, not a second one:
 # a user who set a default source once should not have to set it again per surface.
 ENGINE="$TING_DEFAULT_ENGINE"
 engine_seen "$ENGINE" || ENGINE="${ENGINES[0]}"
@@ -490,14 +490,14 @@ Usage:
 
 With no query, prompts for one (interactive). Requires a terminal.
 
-Search options (forwarded to t-play --search):
+Search options (forwarded to ting-play --search):
   -n NUM    Number of results to fetch (default: 20)
   -m SEC    Minimum duration in seconds
   -M SEC    Maximum duration in seconds
   -s FIELD  Sort field: relevance | view_count | duration (default: relevance)
   --engine NAME  Which source to search. Defaults to TING_DEFAULT_ENGINE (the same variable
-            t-play reads), falling back to the first one installed. An engine is one
-            t-engine-<name> file, as 't-play --engines' lists them — nothing here lists
+            ting-play reads), falling back to the first one installed. An engine is one
+            ting-engine-<name> file, as 'ting-play --engines' lists them — nothing here lists
             them, so whatever is installed is what the e key offers.
 
 Menu options:
@@ -546,21 +546,21 @@ Keys (List View):
   n        new search (fetch a different query without interrupting music)
   o        rotate sort field / order (relevance → view_count → duration), re-fetch
   e        switch source, re-fetch the same query (only when >1 engine is installed)
-  a        add the focused row to a playlist               (needs t-playlist)
+  a        add the focused row to a playlist               (needs ting-playlist)
   b        open a stored playlist as the row source; b again
-           returns to the search results                    (needs t-playlist)
+           returns to the search results                    (needs ting-playlist)
   d        remove the focused row from the playlist on screen; removing the last
            one leaves the list, empty. Stops the player when it was on that row,
-           once the undo has closed; playlist rows only     (needs t-playlist)
+           once the undo has closed; playlist rows only     (needs ting-playlist)
   D        delete the entire playlist on screen; stops playback when active, once
-           the undo has closed; playlist rows only          (needs t-playlist)
+           the undo has closed; playlist rows only          (needs ting-playlist)
   R        rename the playlist on screen;
-           playlist rows only                               (needs t-playlist)
+           playlist rows only                               (needs ting-playlist)
   z        undo the last d / D / R / a / + / x / X, for 3 seconds after it — the
            frame says "z to undo" for exactly as long as it can. Nothing asks
            "are you sure" first; this is what replaced that question
   h        open the listening log as the row source; h again
-           returns to the search results                    (needs t-history)
+           returns to the search results                    (needs ting-history)
   c        open the focused row's parts as the row source; c again returns to the
            search results          (only when the engine has --items)
   i        open the focused row's CHAPTERS as the row source, with one metadata
@@ -594,7 +594,7 @@ Environment:
   suite. Override per user in ${XDG_CONFIG_HOME:-~/.config}/ting/config (KEY=value, one
   per line, # comments); TING_CONFIG relocates it. Chain: flag > environment > your
   config > the shipped defaults. See ARCH-cli-contract.md「配置面」.
-  TING_ENGINE_DIR  Extra directory scanned for t-engine-<name> files, after t-play's own
+  TING_ENGINE_DIR  Extra directory scanned for ting-engine-<name> files, after ting-play's own
                    directory and before PATH; an engine there is a source the
                    e key rotates through. A name already installed beside this file wins,
                    so a plugin cannot replace a built-in engine. ENVIRONMENT ONLY — it
@@ -642,7 +642,7 @@ require_cmd() {
     done
 }
 
-# The unix-socket client, resolved once at startup (t-play carries the same probe — ten
+# The unix-socket client, resolved once at startup (ting-play carries the same probe — ten
 # peers, no shared library). BSD/OpenBSD nc take -U; netcat-traditional and busybox nc do
 # not, and there nmap's ncat is the same primitive under its second name. Probed by
 # CAPABILITY (' -U' in the -h text), never by version string. ncat's -w bounds only the
@@ -666,13 +666,13 @@ resolve_nc_unix() {
 
 is_uint() { [[ "$1" =~ ^[0-9]+$ ]]; }
 
-# Parse: search-shaping flags forwarded to t-play --search (and captured for status line);
+# Parse: search-shaping flags forwarded to ting-play --search (and captured for status line);
 # -f/-p/--color are menu-local. The rest is query. Reject anything else.
 SEARCH_ARGS=()
 # THE FETCH BATCH — the STEP the two edges move by: → past the last page adds one, ← on page
 # one drops one. One knob, not two: they were the same 20 for the same reason, so a user who
 # wants bigger bites should not have to say it twice. 20 because Bilibili's endpoint pages at
-# 20 with no page-size knob (t-engine-bili PAGE_SIZE), so it keeps the first fetch — and every
+# 20 with no page-size knob (ting-engine-bili PAGE_SIZE), so it keeps the first fetch — and every
 # re-fetch — an exact page count. Cross-engine: this is the TUI's appetite, not a site's page
 # size. Separate from TING_SEARCH_RESULTS even though that is 20 too: that one is a TOTAL an
 # engine returns once, this one is the STEP each press moves by, so widening one must not
@@ -685,18 +685,18 @@ RESULT_N=$TING_SEARCH_RESULTS  # -n overrides; → grows it, ← shrinks it
 # knob per order tuned something nobody tuned. The v key: the three modes a detached player
 # can take.
 MODE_CYCLE=(audio video fast)
-# The -f default, one value shared with t-play and both resolve halves.
+# The -f default, one value shared with ting-play and both resolve halves.
 PLAY_MODE="$TING_PLAY_MODE" # -f flag overrides. Runtime-mutable: v key rotates it (cycle_mode).
-# The --quality default, forwarded to t-play on every launch and rotated live by the f key
+# The --quality default, forwarded to ting-play on every launch and rotated live by the f key
 # (cycle_quality). There is deliberately NO ting flag for it: a tier is set-once tuning, not
 # a per-request choice, so it comes from the config chain and the key — CLAUDE.md's flag-vs-key
-# rule, and the reason t-play's own --quality exists for the agent surface.
+# rule, and the reason ting-play's own --quality exists for the agent surface.
 PLAY_QUALITY="$TING_PLAY_QUALITY"
 # WHAT HAPPENS WHEN A TRACK ENDS, rotated live by the r key (cycle_loop_mode) and written
 # back like the rest. THREE states here against the player's TWO, and the asymmetry is the
 # design: `off` and `one` are the player's own `--loop` values, while `seq` is not a fact
 # about a player at all — it is how THIS file builds the launch, as a queue of the rows from
-# the cursor down (build_queue_from_selection). t-play cannot tell such a queue from ten
+# the cursor down (build_queue_from_selection). ting-play cannot tell such a queue from ten
 # presses of `+`, so it is never told. No ting flag, same rule as the quality tier: what
 # happens after a track is set-once tuning, not a per-request choice. ARCH-tui.md「循环」.
 LOOP_MODE="$TING_LOOP_MODE"
@@ -744,7 +744,7 @@ BG_R=""; BG_G=""; BG_B=""
 [[ -n "${TING_BG:-}" ]] && BG_MODE="$TING_BG"
 IMAGE_MODE="${TING_IMAGE:-auto}"  # auto | on | off — the focused row's cover art
 # ROWS PER SCREEN PAGE — the display page, which is a different thing from both the fetch
-# batch above and t-engine-bili's PAGE_SIZE (the remote API's own page, which is not a knob at
+# batch above and ting-engine-bili's PAGE_SIZE (the remote API's own page, which is not a knob at
 # all). It is only a request: display_list_menu reflows it down against terminal height.
 PAGE_OPT=$TING_PAGE_ROWS
 # The o key.
@@ -788,7 +788,7 @@ while (($#)); do
     case "$1" in
     -h | --help) print_usage; exit 0 ;;
     # The same data file every other entry point reads, read the same way. This used to
-    # fork t-play and awk the last field out of its PROSE — a second command's help-line
+    # fork ting-play and awk the last field out of its PROSE — a second command's help-line
     # format turned into a dependency, in a suite whose whole argument is that callers
     # branch on envelopes rather than parse sentences.
     -V | --version) printf 'ting %s\n' "$TING_VERSION"; exit 0 ;;
@@ -838,8 +838,8 @@ done
 is_uint "$PAGE_OPT" && ((PAGE_OPT > 0)) || die "-p must be a positive integer (TING_PAGE_ROWS)"
 is_uint "$RESULT_N" && ((RESULT_N > 0)) || die "-n must be a positive integer (TING_SEARCH_RESULTS)"
 
-# Duration bounds and volume are forwarded (-m/-M as t-play --search's --min/--max-duration,
-# --volume to t-play),
+# Duration bounds and volume are forwarded (-m/-M as ting-play --search's --min/--max-duration,
+# --volume to ting-play),
 # so the core would reject them anyway — but only at the first fetch or the first Enter, where
 # it reads as "search failed" / a play that silently does not start. Same three checks the core
 # makes (yt's is_non_negative_int), up front, in the core's own wording.
@@ -854,7 +854,7 @@ case "$SORT_FIELD" in relevance | view_count | duration) ;; *) die "-s must be o
 # "which sources do I have" is not written down anywhere else.
 engine_seen "$ENGINE" || die "--engine must be one of: ${ENGINES[*]}"
 refresh_engine_caps
-# Playback is DETACHED here (t-play -d), and a detached player has no terminal, so the
+# Playback is DETACHED here (ting-play -d), and a detached player has no terminal, so the
 # terminal-rendering modes (ascii/viz) cannot work — the core rejects them for -d. Validate
 # up front instead of letting an Enter fail silently. Same list the v key cycles.
 # The closed set, for the same reason as -s above.
@@ -904,7 +904,7 @@ require_cmd jq
 resolve_nc_unix || die_dep "requires a unix-socket netcat: 'nc' with -U support, or 'ncat'"
 # The self-rendered menu reads keys from stdin and draws to stdout, so BOTH must be a real
 # terminal; refuse cleanly rather than hang/garble when piped (e.g. an agent).
-{ [[ -t 0 ]] && [[ -t 1 ]]; } || die "requires a terminal (interactive menu); use 't-play --search' / t-play headless"
+{ [[ -t 0 ]] && [[ -t 1 ]]; } || die "requires a terminal (interactive menu); use 'ting-play --search' / ting-play headless"
 
 # ── Theme & Colors (init_theme): palette family + light/dark + protocol knobs ───────────
 # Minimalist palette, terminal-native: minimal/mono use ANSI 16 indexed codes only, so the
@@ -1876,7 +1876,7 @@ set_ui_lang() {
         S_PL_PROMPT_NEW="新建列表名称（Esc 取消）"
         S_PL_ADDED="已加入"; S_PL_EMPTY="该列表是空的"; S_PL_FAILED="操作失败"
         S_PL_NONE="还没有播放列表（按 a 建一个）"; S_PL_ITEM="首"; S_PL_ITEMS="首"
-        S_PL_ABSENT="未安装 t-playlist"; S_PL_SEARCH_ONLY="该键只在搜索结果里可用（按 n 重新搜索）"
+        S_PL_ABSENT="未安装 ting-playlist"; S_PL_SEARCH_ONLY="该键只在搜索结果里可用（按 n 重新搜索）"
         S_PL_LIST_ONLY="该键只在播放列表里可用（按 b 打开一个）"
         S_PL_RM_KEY="移出"; S_PL_REMOVED="已移出"
         S_PL_DEL_KEY="删列表"; S_PL_DELETED="已删除列表"
@@ -1884,7 +1884,7 @@ set_ui_lang() {
         S_UNDO_KEY="撤销"; S_UNDO_ACT="撤销"; S_UNDO_HINT="z 撤销"; S_UNDO_DONE="已撤销"; S_UNDO_NONE="无可撤销"
         S_UNDO_STALE="已被别处修改，未撤销"
         S_HIST_KEY="历史"; S_HIST_ACT="收听历史"; S_HIST_LABEL="最近收听"
-        S_HIST_EMPTY="还没有收听记录"; S_HIST_ABSENT="未安装 t-history"
+        S_HIST_EMPTY="还没有收听记录"; S_HIST_ABSENT="未安装 ting-history"
         S_PARTS_KEY="分P"; S_PARTS_ACT="分P"; S_PARTS_ONE="这个视频只有一 P"
         S_INFO_ACT="详情"
         S_CHAP_KEY="章节"; S_CHAP_NONE="这个条目没有章节"
@@ -1899,7 +1899,7 @@ set_ui_lang() {
         S_Q_PLAYING_ROW="正在播的这首不能移出，用 s 停、用 > 跳过"
         S_Q_ADDED="已加入队列"; S_Q_REMOVED="已移出队列"; S_Q_CLEARED="已清空待播"
         S_Q_STALE="队列已经变了，重新读一次"
-        S_ADOPT_ACT="播放器"; S_ADOPT_MANY="后台有多个播放器在跑，没有接管（t-play --status 可以看）"
+        S_ADOPT_ACT="播放器"; S_ADOPT_MANY="后台有多个播放器在跑，没有接管（ting-play --status 可以看）"
         S_PREF_ACT="配置"
         S_PREF_PINNED="由环境变量固定，没有写入配置文件"
         S_PREF_FAILED="配置文件写不了，这次改的偏好没有存下来"
@@ -1931,7 +1931,7 @@ set_ui_lang() {
         S_PL_PROMPT_NEW="Name the new playlist (Esc cancels)"
         S_PL_ADDED="Added to"; S_PL_EMPTY="that playlist is empty"; S_PL_FAILED="failed"
         S_PL_NONE="no playlists yet (press a to make one)"; S_PL_ITEM="item"; S_PL_ITEMS="items"
-        S_PL_ABSENT="t-playlist is not installed"; S_PL_SEARCH_ONLY="that key needs search results (press n to search)"
+        S_PL_ABSENT="ting-playlist is not installed"; S_PL_SEARCH_ONLY="that key needs search results (press n to search)"
         S_PL_LIST_ONLY="that key needs a playlist (press b to open one)"
         S_PL_RM_KEY="remove"; S_PL_REMOVED="Removed from"
         S_PL_DEL_KEY="del-list"; S_PL_DELETED="Deleted playlist"
@@ -1939,7 +1939,7 @@ set_ui_lang() {
         S_UNDO_KEY="undo"; S_UNDO_ACT="Undo"; S_UNDO_HINT="z to undo"; S_UNDO_DONE="Undone"; S_UNDO_NONE="nothing to undo"
         S_UNDO_STALE="changed elsewhere, not undone"
         S_HIST_KEY="history"; S_HIST_ACT="History"; S_HIST_LABEL="newest first"
-        S_HIST_EMPTY="nothing listened to yet"; S_HIST_ABSENT="t-history is not installed"
+        S_HIST_EMPTY="nothing listened to yet"; S_HIST_ABSENT="ting-history is not installed"
         S_PARTS_KEY="parts"; S_PARTS_ACT="Parts"; S_PARTS_ONE="this video has only one part"
         S_INFO_ACT="Info"
         S_CHAP_KEY="chapters"; S_CHAP_NONE="this item has no chapters"
@@ -1954,7 +1954,7 @@ set_ui_lang() {
         S_Q_PLAYING_ROW="this one is playing — s stops it, > skips it"
         S_Q_ADDED="Queued"; S_Q_REMOVED="Removed from the queue"; S_Q_CLEARED="Cleared the queue"
         S_Q_STALE="the queue moved — reopening it"
-        S_ADOPT_ACT="Player"; S_ADOPT_MANY="several background players are running, none adopted (t-play --status lists them)"
+        S_ADOPT_ACT="Player"; S_ADOPT_MANY="several background players are running, none adopted (ting-play --status lists them)"
         S_PREF_ACT="Config"
         S_PREF_PINNED="is fixed by the environment — not written to your config"
         S_PREF_FAILED="could not be written — this session's preferences were not saved"
@@ -2198,7 +2198,7 @@ JQ_TEXT_DEFS='
     else "" end;
   # Seconds -> the wire spelling short_dur parses (`0h:03m:35s`), for the ONE source whose
   # items arrive as bare numbers: a queue. Both stores derive `duration_fmt` on read
-  # (t-playlist and t-history each carry this same definition), but t-play has no engine
+  # (ting-playlist and ting-history each carry this same definition), but ting-play has no engine
   # prelude and its queue has only ever published raw seconds. Rather than teach the player
   # a formatting vocabulary it has no other use for, the seconds are spelled here — one
   # place, in the pass that builds the rows, so every row on this screen still reaches
@@ -2229,11 +2229,11 @@ CURRENT_PLAY_DUR_WIRE=""
 CURRENT_PLAY_SOCK=""
 CURRENT_PLAY_PAUSED=0
 # What the PLAYER is playing, as opposed to what this screen last launched. A detached player
-# consumes a QUEUE (t-play: every detached player has one, a lone handle being a queue of
+# consumes a QUEUE (ting-play: every detached player has one, a lone handle being a queue of
 # one), so the track can change with no keypress here at all — and then every cached field
 # above describes something that stopped playing. CURRENT_PLAY_MPV_TITLE is the cheap
 # tripwire: media-title rides along in the round trip fetch_play_times already makes, so a
-# track change costs nothing to NOTICE, and only then is one `t-play --status` spent to
+# track change costs nothing to NOTICE, and only then is one `ting-play --status` spent to
 # re-read the record. Polling --status every tick would be a process chain per second, which
 # is the cost the read path exists to avoid (ARCHITECTURE.md「已知约束」).
 CURRENT_PLAY_MPV_TITLE=""
@@ -2243,7 +2243,7 @@ CURRENT_PLAY_MPV_TITLE=""
 # queue to report.
 CURRENT_QUEUE_POS=0
 CURRENT_QUEUE_LEN=0
-# The CALL that is playing — `t-play --engine E -- URL`, the same pair a stored row holds.
+# The CALL that is playing — `ting-play --engine E -- URL`, the same pair a stored row holds.
 # Seeded by the launch and then re-read from the record, because a queue moves to a track this
 # screen never launched, and it may move to another SOURCE: only the record knows which engine
 # resolved what is playing now. It is also what Enter on a chapter row compares against
@@ -2271,7 +2271,7 @@ CURRENT_PLAY_STARTED=0     # epoch seconds when WE attached, for the elapsed rea
 CURRENT_PLAY_ADOPTED=0
 QUIT_KEEP_PLAYING=0
 
-# ── The item one `t-play --info` describes (key: i) ─────────────────────────────────────
+# ── The item one `ting-play --info` describes (key: i) ─────────────────────────────────────
 # `i` is the DOOR, and the fetch behind it is what keeps this from being a second spelling of
 # the row: title, channel, duration, views, id, mode and quality are all on the list screen
 # already. What the round trip buys is what the list cannot hold — the upload date and the
@@ -2398,7 +2398,7 @@ send_mpv_ipc() {
     # return 0, not 1, on a missing socket: fire-and-forget is this function's contract (the
     # nc failure below is already swallowed), and it is the LAST command of adjust_volume —
     # a 1 here becomes the function's status, reaches the case arm, and set -e kills the TUI
-    # on a keypress whose effect is optional anyway. (Pause and seek left for t-play's
+    # on a keypress whose effect is optional anyway. (Pause and seek left for ting-play's
     # verbs; the volume keys stayed for the cost measured at play_verb.)
     [[ -n "$CURRENT_PLAY_SOCK" && -S "$CURRENT_PLAY_SOCK" ]] || return 0
     # Fire-and-forget still, but now with delivery confirmation it never had: the reply is
@@ -2914,7 +2914,7 @@ elapsed_since_play() {
 # this listen" is a fact about the fetch, not about a view.
 #
 # Pause is read here rather than tracked locally because the local value LIES: toggle_pause
-# flips CURRENT_PLAY_PAUSED, but anything else driving the same socket (t-play, an agent's
+# flips CURRENT_PLAY_PAUSED, but anything else driving the same socket (ting-play, an agent's
 # own `nc -U`, a second TUI) moves the real state without telling us — the identical reason
 # the core reads `volume` off the socket instead of the state file (ARCH-player.md「运行时 IPC」).
 # The local flip STAYS: it is what repaints the banner on the keypress instead of up to a
@@ -2951,7 +2951,7 @@ PT_DUR_SEC=""
 RES_CPU=""
 RES_MEM=""
 RES_TICK=0
-RES_STRIDE=3   # the same stride t-play samples its heartbeat's resource fields at
+RES_STRIDE=3   # the same stride ting-play samples its heartbeat's resource fields at
 fetch_play_res() {
     [[ "$TING_RESOURCE" != 0 ]] || return 0
     [[ -n "$CURRENT_PLAY_PID" ]] || { RES_CPU=""; RES_MEM=""; return 0; }
@@ -3619,7 +3619,7 @@ print_details() {
     fi
 }
 
-# The WRITE side of playback goes through t-play's verbs, not through this file's socket.
+# The WRITE side of playback goes through ting-play's verbs, not through this file's socket.
 # Playback belongs to the player, so a fix there reaches every caller — the TUI, an agent, a
 # script — instead of only this screen (CLAUDE.md: correctness is added DOWN). One keypress
 # is one call, which is what makes the fork affordable here and not on the read path.
@@ -3627,7 +3627,7 @@ print_details() {
 # Two paths deliberately do NOT follow:
 #   - fetch_play_times, which runs on every 1 s tick: a process chain per tick is a real cost.
 #   - the -/= volume keys, which are HELD DOWN. Measured on a live player, 10 presses each:
-#     10 ms a press over the socket against 60 ms through `t-play --set-volume` (that verb
+#     10 ms a press over the socket against 60 ms through `ting-play --set-volume` (that verb
 #     also resolves the target and patches the state file under a lock). Above the 50 ms line
 #     this repo set for the choice, so they stay on the socket — the exception is recorded in
 #     docs/ARCHITECTURE.md「已知约束」 with the number, because an unexplained inconsistency is the
@@ -3640,7 +3640,7 @@ play_verb() {
     "$PLAY_BIN" "$@" --id "$CURRENT_PLAY_ID" -j 2>/dev/null || true
 }
 
-# Re-read what the player is actually playing, from the one command that knows: t-play. The
+# Re-read what the player is actually playing, from the one command that knows: ting-play. The
 # queue, the title and the url all move together when a track ends, and this screen is not
 # what moved them. One fork, at a track boundary only (see CURRENT_PLAY_MPV_TITLE).
 refresh_player_record() {
@@ -3679,7 +3679,7 @@ apply_player_record() {
     return 0
 }
 
-# The session this screen opens into may ALREADY have a player: `t-play -d` from a shell, a
+# The session this screen opens into may ALREADY have a player: `ting-play -d` from a shell, a
 # queue started by an agent, or a previous ting whose player outlived it (that is what
 # detached playback is for). Nothing used to ask. The first frame then drew an empty banner
 # over a track that was audibly playing, every key that needs a target fell through its
@@ -3688,7 +3688,7 @@ apply_player_record() {
 # screen for the rest of the session, because its id was never here to stop it with.
 #
 # ONE fork, once, before the first frame. The 0/1/many split is not this file's invention: it
-# is t-play's own resolve_target rule reached from the client side, so "which player does a
+# is ting-play's own resolve_target rule reached from the client side, so "which player does a
 # command with no --id mean" has ONE answer in this suite. Exactly one live player is
 # unambiguous and gets adopted; two or more is `ambiguous` there and this screen guesses no
 # harder than the core does — it says so in a notice and leaves the banner empty, and the
@@ -3826,7 +3826,7 @@ skip_next() {
 toggle_pause() {
     local out state
     [[ -n "$CURRENT_PLAY_ID" ]] || return 0
-    # Two idempotent verbs, never a toggle: t-play has no --toggle-pause on purpose (mpv's
+    # Two idempotent verbs, never a toggle: ting-play has no --toggle-pause on purpose (mpv's
     # `cycle pause` reports no resulting state), so the TARGET is decided here and the
     # envelope says what mpv actually did. That is strictly better than the old local flip —
     # it is a reading, not a guess — but the flip stays as the FALLBACK for a call that
@@ -3867,7 +3867,7 @@ adjust_volume() {
     # is 130, so holding `0` reached a volume the rest of the suite's vocabulary says cannot
     # exist — the core's --set-volume 0-100 validation does not guard the socket path (ARCH-player.md「运行时 IPC」).
     # Verified: a player launched at --volume 10 and pressed `0` twenty times reads 100 in
-    # `t-play --status`, where the old `add` left it at 110. The extra round trip costs
+    # `ting-play --status`, where the old `add` left it at 110. The extra round trip costs
     # ~16 ms against a live player (see send_mpv_ipc).
     cur=$(mpv_get_prop volume)
     [[ -n "$cur" ]] || return 0
@@ -4039,7 +4039,7 @@ stop_current_playback() {
             clear_play_state
         else
             STOP_LOST_ID="$CURRENT_PLAY_ID"
-            store_notice "$S_ADOPT_ACT:" "$S_STOP_LOST t-play --stop --id $CURRENT_PLAY_ID"
+            store_notice "$S_ADOPT_ACT:" "$S_STOP_LOST ting-play --stop --id $CURRENT_PLAY_ID"
         fi
     fi
     return 0
@@ -4078,7 +4078,7 @@ cleanup_on_exit() {
     fi
     stop_current_playback
     if [[ -n "$STOP_LOST_ID" ]]; then
-        printf 'ting: %s t-play --stop --id %s\n' "$S_STOP_LOST" "$STOP_LOST_ID" >&2
+        printf 'ting: %s ting-play --stop --id %s\n' "$S_STOP_LOST" "$STOP_LOST_ID" >&2
     fi
 }
 trap cleanup_on_exit EXIT INT TERM HUP
@@ -4219,7 +4219,7 @@ build_all_rows() {
 # the engine is a per-ROW field rather than one session-wide variable: play_selected reads
 # the row's own engine, so a list mixing yt and bili plays either one correctly.
 # Channel and view count are deliberately empty: they are not stored (they expire), and an
-# empty field renders as absent rather than as a guess. t-playlist derives duration_fmt on
+# empty field renders as absent rather than as a guess. ting-playlist derives duration_fmt on
 # read, so nothing here formats a duration.
 # The eighth field is the row's own RAIL, in display form. Only the chapter table writes one
 # (build_chapter_rows, where a row is a span and not a length) — a stored playlist, the log
@@ -4248,7 +4248,7 @@ build_playlist_rows() {
         ] | join("\u001f")')
 }
 
-# The same record again, from a `t-play --queue-show` envelope. Two fields differ from the
+# The same record again, from a `ting-play --queue-show` envelope. Two fields differ from the
 # builder above, and both differences are the queue's own shape rather than a new kind of row:
 #
 #   DURATION arrives as bare seconds, so it is spelled here (fmt_dur) instead of being read
@@ -4358,7 +4358,7 @@ chapter_sec() {
 # (focused_payload), so a row source whose json did not match its rows would be a list you can
 # play but cannot store; and the caller must be able to fail AFTER this returns without having
 # touched ALL_ROWS, the way open_parts reshapes before it stashes. One jq call for the whole
-# table, fed US-joined lines — the shape t-playlist and t-play --enqueue already read, and
+# table, fed US-joined lines — the shape ting-playlist and ting-play --enqueue already read, and
 # the same shape a part list's --items envelope already has.
 #
 # A CHAPTER IS A SPAN, AND THE RAIL PRINTS IT AS ONE (`2:30 → 5:42`). It used to print the
@@ -4851,7 +4851,7 @@ display_list_menu() {
     )
     nav_items+=("q	$S_QUIT")
     # Same rule as the source key: a key that cannot do anything must not spend a cell of a
-    # measured block. With no t-playlist installed, `a` and `b` genuinely do nothing.
+    # measured block. With no ting-playlist installed, `a` and `b` genuinely do nothing.
     # A store key RELABELS itself while its own store is on screen, because that is when it
     # does the other half of its job. No extra entry for the way back: a toggle that spent a
     # second cell would be documenting one key twice in a block that is measured.
@@ -4871,7 +4871,7 @@ display_list_menu() {
             keys_full && nav_items+=("a	$S_PL_ADD" "b	$S_PL_OPEN")
         fi
     fi
-    # Same rule again: with no t-history installed, h genuinely does nothing.
+    # Same rule again: with no ting-history installed, h genuinely does nothing.
     if [[ -n "$HISTORY_BIN" ]]; then
         if [[ "$LIST_SOURCE" == "history" ]]; then
             nav_items+=("h	$S_BACK_SEARCH")
@@ -5794,7 +5794,7 @@ play_failed_notice() {
 }
 
 # ── PLAY delegate (Asynchronous / Non-blocking) ─────────────────────────────────────────
-# The rows from the cursor to the end of the list, in the item shape t-play --queue reads
+# The rows from the cursor to the end of the list, in the item shape ting-play --queue reads
 # (ARCH-player.md「队列」). Built from the ROW ARRAYS and never from $json: `/` narrows what is
 # on screen without touching the envelope, so a queue assembled from the envelope would play
 # rows the user has just filtered away. Each item carries its OWN engine for the reason
@@ -5825,19 +5825,19 @@ play_selected() {
     # search's: it is the only place a launch failure's reason exists.
     local sock errfile rc=0 msg
     errfile=$(mktemp "${TMPDIR:-/tmp}/ting-play-err.XXXXXX" 2>/dev/null) || errfile="${TMPDIR:-/tmp}/ting-play-err.$$"
-    # --engine is passed EXPLICITLY and comes from the envelope: t-play defaults to its own
+    # --engine is passed EXPLICITLY and comes from the envelope: ting-play defaults to its own
     # TING_DEFAULT_ENGINE, and letting that default decide would send a second engine's URL to
     # the first engine's resolver — which since ARCHITECTURE.md「站点知识的边界」 is a hard usage error rather
     # than the silent mislabel it used to be.
     # The ROW's engine, not the session's: a playlist can mix sources, and passing the
-    # session engine would hand a bili URL to t-engine-yt — a hard usage error since ARCHITECTURE.md「站点知识的边界」.
+    # session engine would hand a bili URL to ting-engine-yt — a hard usage error since ARCHITECTURE.md「站点知识的边界」.
     # Falls back to the session engine for a row that predates the field (an empty string
-    # never reaches t-play, which would reject it).
+    # never reaches ting-play, which would reject it).
     local row_engine="${R_ENGINE[$selected]:-}"
     [[ -n "$row_engine" ]] || row_engine="$CURRENT_ENGINE"
     # --quality rides beside -f because the engine reads the pair: the tier alone selects
     # nothing. Forwarded as the canonical spelling, never as a format-sort string — this file
-    # holds no yt-dlp vocabulary, and t-play holds none either (ARCH-engine.md「解析」).
+    # holds no yt-dlp vocabulary, and ting-play holds none either (ARCH-engine.md「解析」).
     # WHAT ENTER LAUNCHES is the loop mode's only other job. off and one send the one row
     # under the cursor and differ by --loop alone; seq sends the rows from here to the end of
     # the list as a QUEUE, which is the only shape the player understands "keep going" in —
@@ -5860,7 +5860,7 @@ play_selected() {
         # Launch-time failures only, and that is the whole point of reporting them here: the
         # detached path is async, so a resolve failure INSIDE the child lands in the child's own
         # log and the player simply exits — check_player_alive clears the chrome then, and this
-        # notice never fires. What reaches here is t-play refusing to start (a rejected flag,
+        # notice never fires. What reaches here is ting-play refusing to start (a rejected flag,
         # a handle with whitespace in it, no mpv).
         msg=${msg##*$'\n'}                 # last line only; die can print context above it
         msg=${msg#Error: }                 # the core's own prefix, redundant under our label
@@ -5930,8 +5930,8 @@ play_selected() {
 
 # ── Playlist actions (keys: a add · b browse) ───────────────────────────────────────────
 #
-# THIS FILE STORES NOTHING. Both actions shell out to `t-playlist` and hand it JSON, the
-# same way play_selected shells out to `t-play`: the store owns the directory layout, the
+# THIS FILE STORES NOTHING. Both actions shell out to `ting-playlist` and hand it JSON, the
+# same way play_selected shells out to `ting-play`: the store owns the directory layout, the
 # lock and the record shape, and a bug in any of the three is fixed in ONE file for every
 # surface. A version of `a` that appended to a file here would be the exact shape
 # CLAUDE.md forbids — correctness added up, in a UI, instead of down.
@@ -5996,7 +5996,7 @@ show_playlist() {
     rm -f "$errfile"
     if ((rc != 0)); then
         msg=${msg##*$'\n'}
-        msg=${msg#t-playlist: }
+        msg=${msg#ting-playlist: }
         store_notice "$S_PL_ACT:" "${msg:-$S_PL_FAILED}"
         return 1
     fi
@@ -6016,7 +6016,7 @@ list_playlists() {
     rm -f "$errfile"
     if ((rc != 0)); then
         msg=${msg##*$'\n'}
-        msg=${msg#t-playlist: }
+        msg=${msg#ting-playlist: }
         store_notice "$S_PL_ACT:" "${msg:-$S_PL_FAILED}"
         return 1
     fi
@@ -6174,8 +6174,8 @@ undo_last() {
     fi
     reason=$(printf '%s' "$out" | jq -r '.reason // ""' 2>/dev/null) || reason=""
     msg=${msg##*$'\n'}
-    msg=${msg#t-playlist: }
-    msg=${msg#t-play: }
+    msg=${msg#ting-playlist: }
+    msg=${msg#ting-play: }
     if ((rc == 4)) && [[ "$reason" != "locked" ]]; then
         [[ "$reason" == "undo_none" ]] && UNDO_STORE=""
         undo_forget
@@ -6208,8 +6208,8 @@ prompt_name() {
 # filtered and re-ordered, so an index into them is not an index into .results.
 # The focused row as a one-item ENVELOPE, in FOCUSED_PAYLOAD. Two shapes because the rows
 # have two sources, and the shape carries the engine tag either way: a search result does not
-# hold `engine` (that is on the envelope), a stored item does. Both t-playlist --add and
-# t-play --enqueue read exactly these two, which is why one builder serves both.
+# hold `engine` (that is on the envelope), a stored item does. Both ting-playlist --add and
+# ting-play --enqueue read exactly these two, which is why one builder serves both.
 FOCUSED_PAYLOAD=""
 focused_payload() {
     local url="${urls[$selected]}"
@@ -6255,7 +6255,7 @@ add_to_playlist() {
     rm -f "$errfile"
     if ((rc != 0)); then
         msg=${msg##*$'\n'}
-        msg=${msg#t-playlist: }
+        msg=${msg#ting-playlist: }
         [[ "$msg" == *[![:space:]]* ]] || msg="$S_PL_FAILED"
         store_notice "$S_PL_ACT:" "$msg"
         return 0
@@ -6269,7 +6269,7 @@ add_to_playlist() {
 }
 
 # Which item of the STORE the focused row is, in PL_ITEM_INDEX — 0-based, which is what
-# t-playlist --rm --index takes.
+# ting-playlist --rm --index takes.
 #
 # `selected` would be that number TODAY, and only by luck: the rows are the items in order,
 # and the one thing that reorders a view — the filter — does not outlive its own loop
@@ -6340,7 +6340,7 @@ delete_from_playlist() {
     rm -f "$errfile"
     if ((rc != 0)); then
         msg=${msg##*$'\n'}
-        msg=${msg#t-playlist: }
+        msg=${msg#ting-playlist: }
         [[ "$msg" == *[![:space:]]* ]] || msg="$S_PL_FAILED"
         store_notice "$S_PL_ACT:" "$msg"
         return 0
@@ -6385,7 +6385,7 @@ delete_current_playlist() {
     rm -f "$errfile"
     if ((rc != 0)); then
         msg=${msg##*$'\n'}
-        msg=${msg#t-playlist: }
+        msg=${msg#ting-playlist: }
         [[ "$msg" == *[![:space:]]* ]] || msg="$S_PL_FAILED"
         store_notice "$S_PL_ACT:" "$msg"
         return 0
@@ -6400,7 +6400,7 @@ delete_current_playlist() {
 }
 
 # Rename the playlist currently on screen.
-# Prompts for the new name, calls `t-playlist --rename`, and on success updates PLAYLIST_NAME
+# Prompts for the new name, calls `ting-playlist --rename`, and on success updates PLAYLIST_NAME
 # and QUERY_LABEL in place without reloading tracks from disk.
 rename_current_playlist() {
     playlist_only || return 0
@@ -6417,7 +6417,7 @@ rename_current_playlist() {
     rm -f "$errfile"
     if ((rc != 0)); then
         msg=${msg##*$'\n'}
-        msg=${msg#t-playlist: }
+        msg=${msg#ting-playlist: }
         [[ "$msg" == *[![:space:]]* ]] || msg="$S_PL_FAILED"
         store_notice "$S_PL_ACT:" "$msg"
         return 0
@@ -6516,7 +6516,7 @@ search_only() {
 
 # The mirror of search_only, for the one key that needs the opposite: `d` removes a row from
 # the list it is a row of, and a search result is a row of nothing. Not stored_rows — the
-# listening log is a store too, and t-history has no per-row removal (--ls --record --clear
+# listening log is a store too, and ting-history has no per-row removal (--ls --record --clear
 # is its whole surface), so a `d` there would have nothing to call.
 playlist_only() {
     [[ "$LIST_SOURCE" == "playlist" ]] && return 0
@@ -6583,7 +6583,7 @@ back_to_search() {
 # column does not line up. No second list renderer, no keymap, no selection state.
 #
 # Sets PROMPT_NAME to the chosen NAME — a number is resolved HERE, so open_playlist still
-# takes exactly what t-playlist takes and the store never hears about row numbers. The index
+# takes exactly what ting-playlist takes and the store never hears about row numbers. The index
 # wins over a numeric name, which costs nothing: the number is what is on screen, and a
 # playlist actually called "7" is still reachable by ITS row number.
 # The header and the prompt come from the CALLER, and they are the only difference between
@@ -6676,12 +6676,12 @@ have_history() {
 }
 
 # Open the listening log as the row source (key: h). There is no new renderer and no new key
-# handling, because a history row IS the item record a playlist holds — t-history derives
+# handling, because a history row IS the item record a playlist holds — ting-history derives
 # duration_fmt on read for exactly this reason — so build_playlist_rows reads its envelope
 # unchanged and every key that works on a stored row already works here.
 #
 # NO PROMPT, unlike b: the log is one thing, so there is nothing to name. 50 rows rather than
-# t-history's own default 20 — this is a list to page through, not a line to glance at — and
+# ting-history's own default 20 — this is a list to page through, not a line to glance at — and
 # it is a constant, not a knob: a number a user would set once is only a setting when someone
 # would set it differently, and pagination already answers "show me more".
 open_history() {
@@ -6700,7 +6700,7 @@ open_history() {
     rm -f "$errfile"
     if ((rc != 0)); then
         msg=${msg##*$'\n'}
-        msg=${msg#t-history: }
+        msg=${msg#ting-history: }
         store_notice "$S_HIST_ACT:" "${msg:-$S_PL_FAILED}"
         return 1
     fi
@@ -6729,7 +6729,7 @@ open_history() {
 # fifth that replaces the rows temporarily, built like the other four: no new renderer, no new
 # item shape, no second view. What it adds that none of them have is a WRITE side — the rows
 # are the only thing on this screen the user can reorder — and every one of those writes goes
-# out as a `t-play` verb. This file never touches queue-<id>.json: the state dir belongs to
+# out as a `ting-play` verb. This file never touches queue-<id>.json: the state dir belongs to
 # the player, the queue has a second writer inside it (the player's own child, advancing the
 # position at every track boundary), and a rewrite from out here would go around the lock that
 # makes the two safe.
@@ -6768,7 +6768,7 @@ open_queue() {
         # The player died between the last tick and this keypress — the same race every other
         # player key runs, and it says the same thing they say.
         msg=${msg##*$'\n'}
-        msg=${msg#t-play: }
+        msg=${msg#ting-play: }
         store_notice "$S_Q_ACT:" "${msg:-$S_Q_NONE}"
         return 1
     fi
@@ -6880,7 +6880,7 @@ queue_verb() {
             return 0
         fi
         msg=${msg##*$'\n'}
-        msg=${msg#t-play: }
+        msg=${msg#ting-play: }
         store_notice "$S_Q_ACT:" "${msg:-$S_PL_FAILED}"
         return 0
     fi
@@ -6966,7 +6966,7 @@ play_queued_now() {
 
 # Open the focused row's parts (?p=N) as the row source (key: c). Third of the row-source
 # family — b, h and c all do one job, replace the rows — and built like the other two: no new
-# renderer, no new keys, no new item shape. A video's parts are its items, so `t-play --items`
+# renderer, no new keys, no new item shape. A video's parts are its items, so `ting-play --items`
 # answers with the same container envelope a playlist has, and no adaptation at all is needed:
 # build_playlist_rows walks the envelope unchanged, focused_payload cuts one item out of it
 # unchanged, and every key that already works on a stored row works here.
@@ -7059,7 +7059,7 @@ open_parts() {
         if .has_more != true and (.items | length) > 0 and all(.items[]; (.duration | type) == "number")
         then [.items[].duration] | add | fmt_dur else empty end' 2>/dev/null) || PARTS_TOTAL_FMT=""
     [[ -n "$title" ]] || title="${R_TITLE[$selected]}"
-    # The envelope as-is: `t-play --items -j | t-playlist --add` is the agent surface's same
+    # The envelope as-is: `ting-play --items -j | ting-playlist --add` is the agent surface's same
     # pipe, so a shell caller and the TUI read it identically. Checked BEFORE the stash: an
     # unreadable one after it would leave the search stashed behind rows that do not exist.
     reshaped=$(printf '%s' "$out" | jq -ce 'select((.items | type) == "array")' 2>/dev/null) || reshaped=""
@@ -7382,7 +7382,7 @@ cycle_quality() {
 # The same rotation as the two above, plus one thing they do not do: it pushes the REPEAT
 # half at the player that is already running, because repeat is a property of a track that
 # is playing right now and waiting for the next Enter to apply it would be a badge that
-# disagrees with the speakers. `seq` maps to the player's `off`: as far as t-play is
+# disagrees with the speakers. `seq` maps to the player's `off`: as far as ting-play is
 # concerned those two are one state, and the difference between them is which rows the NEXT
 # launch packs into the queue.
 #
@@ -7725,7 +7725,7 @@ fewer_results() {
     ((target >= floor)) || target=$floor
     ((target < RESULT_N)) || return 0
     RESULT_N=$target
-    # `|| true` for the reason t-play:1985 already spells out: under `set -euo pipefail`
+    # `|| true` for the reason ting-play:1985 already spells out: under `set -euo pipefail`
     # head closing early SIGPIPEs printf, the pipeline goes non-zero, and the script dies AT
     # the assignment. The unread tail here is exactly TING_FETCH_BATCH rows — a user-settable
     # key — so a large enough batch really does reach it. The truncation is untouched: the
@@ -8665,7 +8665,7 @@ else
             json='{"count":0,"results":[]}'
             # Not a copy of fetch_json's fallback. With no rows nothing reads CURRENT_ENGINE —
             # until `b` opens a stored item carrying no engine tag of its own, where play_selected
-            # falls back to it; empty there is the one thing that hands t-play `--engine ""`.
+            # falls back to it; empty there is the one thing that hands ting-play `--engine ""`.
             CURRENT_ENGINE="$ENGINE"
             report_fetch_failure 2 "$QUERY_LABEL"
         else

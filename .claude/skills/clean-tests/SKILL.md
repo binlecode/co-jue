@@ -22,7 +22,7 @@ KISS governs test suite health: a lean suite verifying public boundary contracts
        [ Upstream / Human / Agent Caller ]
                         │
    ═════════════════════▼═════════════════════  1. Functional Boundary
-       [ Public Interface: t-play / ting ]      (Test public entry points; isolate environment;
+       [ Public Interface: ting-play / ting ]      (Test public entry points; isolate environment;
                         │                        zero backward-compat shims; strict exit codes)
                         ▼  2. Delegations
        [ Real Collaborators: mpv / IPC / IO ]   (Real mpv, real nc, real SQLite/JSONL, real curl;
@@ -43,7 +43,7 @@ To prevent boilerplate inflation and over-engineering, every test in `ting` must
                     /   \    Full playback lifecycle under tests/playback.sh,
                    /-----\   real tmux TUI key & frame flows under tests/contract.sh.
                   /       \   L2. Component Boundary Contracts (~80–120 across repo)
-                 /         \  Public CLI entry point (t-play, t-playlist, t-history),
+                 /         \  Public CLI entry point (ting-play, ting-playlist, ting-history),
                 /-----------\ 4-tier exit codes, JSON envelopes, socket IPC mutations.
                /             \ L1. Pure Logic & Algorithms (~30–50 across repo)
               /               \Pure functions, table-driven tests (internal/config/config_test.go),
@@ -51,13 +51,13 @@ To prevent boilerplate inflation and over-engineering, every test in `ting` must
 ```
 
 1. **Functional Boundaries (功能边界 —— 测对外接口，不测内部装配)**
-   - **Public contract entry points**: Test components at their defined boundary (`docs/ARCH-cli-contract.md`). Drive public actions through `t-play`, not by calling internal engine scripts (`shell/t-engine-*`) directly for public verbs.
+   - **Public contract entry points**: Test components at their defined boundary (`docs/ARCH-cli-contract.md`). Drive public actions through `ting-play`, not by calling internal engine scripts (`shell/ting-engine-*`) directly for public verbs.
    - **Clean environment boundary**: All filesystem writes strictly under disposable `TMPDIR` / scratch `TING_STATE_DIR`. Verify real `~/.config` and `~/.local/state` directories remain untouched via checksums. Never run unisolated TUI automation.
    - **Distinct domain boundary**: Test `ting` domain contracts, not third-party tool semantics (`jq`, `curl`, `awk`). Zero backward-compat shims for deleted flags or expired migration names.
 
 2. **Delegation Integrity (委托协同 —— 测真实联动，不测隔离幻觉)**
    - **Real dependencies only**: Real `mpv`, real `nc -U`, real `curl`, real `jq`, real `yt-dlp`. Zero fixture / zero mock / zero stub. Dead-proxy isolation (`http_proxy=$NOPROXY`) is used to test network failures, never synthetic fake tools on `PATH`.
-   - **Boundary data format**: All serialized fixtures must be produced via real production commands (`t-play --search -j`, `t-playlist --show -j`, `t-history --ls -j`), never hand-crafted JSON strings (`ENV_JSON`).
+   - **Boundary data format**: All serialized fixtures must be produced via real production commands (`ting-play --search -j`, `ting-playlist --show -j`, `ting-history --ls -j`), never hand-crafted JSON strings (`ENV_JSON`).
    - **Bounded async polling**: Every asynchronous wait is a bounded loop (`poll_until`) on a `0.05s` / `0.25s` tick polling real state signals (socket appearance, process exit via `kill -0`, frame ready marker, queue position change). Zero guessing `sleep`.
 
 3. **Contracts & Invariants (契约与不变量 —— 测可证伪的确切结果，不测模糊形态)**
@@ -74,8 +74,8 @@ To prevent boilerplate inflation and over-engineering, every test in `ting` must
 | # | Sev | Pillar | Rule | Description | Action |
 |---|-----|--------|------|-------------|--------|
 | 1 | 🔴 | **Delegation** | **Mock / patch / fake** | Any fake tools on `PATH`, wrapper scripts, or mock objects. | Reroute to real dependency (`mpv`, `nc`, `curl`, `jq`) or clean scratch environment |
-| 2 | 🟢 | **Delegation** | **Fixture bypassing writer** | Hand-crafted JSON string literals (e.g. `ENV_JSON='{"status":"ok",...}'`) fed into stores or player queues. | Rebuild fixture by piping output from real production writer (`t-play`, `t-playlist`, `t-history`) |
-| 3 | 🟡 | **Boundary** | **Private boundary leak** | Calling `shell/t-engine-*` directly for public verbs (`--search`, `--info`, `--items`, `--transcript`, `--auth`) instead of `t-play`. | Reroute call through `shell/t-play` public interface |
+| 2 | 🟢 | **Delegation** | **Fixture bypassing writer** | Hand-crafted JSON string literals (e.g. `ENV_JSON='{"status":"ok",...}'`) fed into stores or player queues. | Rebuild fixture by piping output from real production writer (`ting-play`, `ting-playlist`, `ting-history`) |
+| 3 | 🟡 | **Boundary** | **Private boundary leak** | Calling `shell/ting-engine-*` directly for public verbs (`--search`, `--info`, `--items`, `--transcript`, `--auth`) instead of `ting-play`. | Reroute call through `shell/ting-play` public interface |
 | 4 | 🔴 | **Boundary** | **Test isolation leak** | Writes to real `~/.config/ting`, `~/.local/state/ting` outside `TMPDIR`; unisolated `drive.sh` mutating user playlists. | Enforce scratch `TMPDIR`, `TING_CONFIG`, and `TING_STATE_DIR` on all test and driver runs |
 | 5 | 🟢 | **Boundary** | **Backward-compat shim** | Testing that deleted flags stay removed (`-J`, `-l`, `-S`), or testing expired migration aliases (`YT_COOKIE_BROWSER`, any pre-`TING_` key name). | Delete negative checks per zero-compat policy |
 | 6 | 🟡 | **Boundary** | **Library / tool behavior** | Tests third-party tool semantics (e.g. `jq` filter syntax, `curl` HTTP codes, `bash` features) rather than `ting` contracts. | Delete or refocus on `ting` domain contract |
@@ -112,7 +112,7 @@ grep -rnE '^[[:space:]]*(ok|bad)[[:space:]]+"' tests/
 grep -rn 'ENV_JSON=' tests/
 
 # 4. Private boundary leaks (Rule 3)
-grep -rnE 'shell/t-engine-\w+[[:space:]]+--(search|info|items|transcript|auth)' tests/
+grep -rnE 'shell/ting-engine-\w+[[:space:]]+--(search|info|items|transcript|auth)' tests/
 
 # 5. Backward-compat shims and dead aliases (Rule 5)
 grep -rnE '(YT_COOKIE_BROWSER|BILI_COOKIE_BROWSER|NE_COOKIE_BROWSER)' tests/
@@ -136,7 +136,7 @@ Evaluate suspicious tests against the **Deletion Test** and **Same-Branch Proof*
 Subsumption is a claim about the **production code path**, not just test similarity:
 - One regex / dispatch handling several inputs through a single branch = same branch → candidate for deduplication and consolidation.
 - A function that branches on its input (mode dispatch, type switch, error branches) = distinct paths → keep both.
-- Separate engines (`t-engine-yt`, `t-engine-bili`, `t-engine-ne`) with independent implementations are distinct branches → keep cross-engine matrix.
+- Separate engines (`ting-engine-yt`, `ting-engine-bili`, `ting-engine-ne`) with independent implementations are distinct branches → keep cross-engine matrix.
 - An offline gate test does not subsume a live network resolve test.
 
 ---
@@ -161,25 +161,25 @@ report "Esc closes the prompt" 1 "$(poll_until 12 prompt_closed)"  # 12 ticks * 
 ### Recipe B: Strengthen loose inequality to exact error code (Rule 9)
 *Before:*
 ```bash
-report "t-engine-yt still takes youtu.be" 1 \
-    "$([ "$(http_proxy=$NOPROXY https_proxy=$NOPROXY rc shell/t-engine-yt --stream -j -- https://youtu.be/$MEDIA_ID)" != 1 ] && echo 1 || echo 0)"
+report "ting-engine-yt still takes youtu.be" 1 \
+ "$([ "$(http_proxy=$NOPROXY https_proxy=$NOPROXY rc shell/ting-engine-yt --stream -j -- https://youtu.be/$MEDIA_ID)" != 1 ] && echo 1 || echo 0)"
 ```
 *After (under dead proxy, transport/network failure is exactly exit code 2 in ting's 4-tier taxonomy):*
 ```bash
-report "t-engine-yt still takes youtu.be" 2 \
-    "$(http_proxy=$NOPROXY https_proxy=$NOPROXY rc shell/t-play --engine yt --stream -j -- https://youtu.be/$MEDIA_ID)"
+report "ting-engine-yt still takes youtu.be" 2 \
+    "$(http_proxy=$NOPROXY https_proxy=$NOPROXY rc shell/ting-play --engine yt --stream -j -- https://youtu.be/$MEDIA_ID)"
 ```
 
 ### Recipe C: Strengthen death record exit code (Rule 9)
 *Before:*
 ```bash
 report "death records non-zero exit code" 0 \
-    "$(shell/t-play --status -j | jq -e --arg i "$f_id" '.failed[]|select(.id==$i)|.exit_code > 0' >/dev/null 2>&1; echo $?)"
+ "$(shell/ting-play --status -j | jq -e --arg i "$f_id" '.failed[]|select(.id==$i)|.exit_code > 0' >/dev/null 2>&1; echo $?)"
 ```
 *After:*
 ```bash
 report "death records external tool failure (exit 2)" 2 \
-    "$(shell/t-play --status -j | jq -r --arg i "$f_id" '.failed[]|select(.id==$i)|.exit_code // empty')"
+ "$(shell/ting-play --status -j | jq -r --arg i "$f_id" '.failed[]|select(.id==$i)|.exit_code // empty')"
 ```
 
 ### Recipe D: Unify reporting helper (Rule 9)

@@ -1,6 +1,6 @@
 # ARCHITECTURE —— ting
 
-`t-play` · `t-playlist` · `t-history` · `ting`，外加底层的 `t-engine-yt` · `t-engine-bili` · `t-engine-ne`
+`ting-play` · `ting-playlist` · `ting-history` · `ting`，外加底层的 `ting-engine-yt` · `ting-engine-bili` · `ting-engine-ne`
 —— 一套"搜索 + 终端播放"的 CLI 套件，为 **LLM/agent 调用方**设计的程度不亚于为人设计。
 范围是整套套件，这份是伞状的那一份：**图、流程、伪码与决定**。
 具体怎么落地，各面各住一份，本文的引用一律指过去：
@@ -68,7 +68,7 @@ ROADMAP 那条 Go 重写 NO 的全部账**：收益只剩"删渲染负债"，分
    所以 Go TUI 或 Go 播放器接 shell 引擎仍是四依赖。所以 "best of both worlds"
    在**风险**维度成立，在**分发**维度不成立 —— 而分发才是唯一能兑现的外部收益。
 
-3. **agent 对接的是 `t-play` 的 argv + 它背后的契约。** 没有壳可言 —— 入口就是实现本身，
+3. **agent 对接的是 `ting-play` 的 argv + 它背后的契约。** 没有壳可言 —— 入口就是实现本身，
    引擎动词由它原样转给一站一个的引擎文件。所以真要换语言，能换的单位也只有**播放器**（与 TUI），
    而引擎整条留在 shell：它们才是随外部网站变动而频繁改的那一半（第 6 条）。
    **但"守护进程 + CLI 动词 + JSON"这个形状不是本项目独有的**
@@ -81,7 +81,7 @@ ROADMAP 那条 Go 重写 NO 的全部账**：收益只剩"删渲染负债"，分
    | 想要的 | bash 为何不行 | 归属 |
    |---|---|---|
    | MCP stdio server | 手写 JSON-RPC 帧、长连接、并发 | 会是第三张脸（既非播放器也非引擎）—— 今天是非目标，也是 ROADMAP 那条 Go 重写 NO 的重开条件 |
-   | 流式进度 | 阻塞 `read`、一次性 jq | 引擎（search）+ 播放器 —— 后一半已由 `t-play --watch` 给出：一条长连接加一个常驻 `jq`，bash 给得了（ARCH-player.md「状态流」） |
+   | 流式进度 | 阻塞 `read`、一次性 jq | 引擎（search）+ 播放器 —— 后一半已由 `ting-play --watch` 给出：一条长连接加一个常驻 `jq`，bash 给得了（ARCH-player.md「状态流」） |
 
 5. **yt-dlp 与 mpv 在任何方案里都是子进程，Go 也一样。** 引擎的真实价值是 **flag 学问**
    （`--ytdl-format=ba/b`、`--ytdl-raw-options`、`--msg-level` 噪音压制、`--no-video` 与
@@ -115,16 +115,16 @@ ROADMAP 那条 Go 重写 NO 的全部账**：收益只剩"删渲染负债"，分
  + 四个公开命令，一层，无内核，无共享库（「命令拓扑」）-----------------------------
  |
  |   +---------------------------+  引擎动词原样  +---------------------------+
- |   | t-engine-yt               | <-- exec ----- | t-play   唯一入口         |
- |   | t-engine-bili             |                |  队列 · detached 生命周期 |
- |   | t-engine-ne               | ---- 直链 ---> |  死亡记录 · 运行时 IPC    |
+ |   | ting-engine-yt            | <-- exec ----- | ting-play   唯一入口      |
+ |   | ting-engine-bili          |                |  队列 · detached 生命周期 |
+ |   | ting-engine-ne            | ---- 直链 ---> |  死亡记录 · 运行时 IPC    |
  |   +---------------------------+  --stream 信封 +----+-----------------+----+
  |     引擎：一站一个文件，不上 PATH                   | --record        |
  |     站点知识**只**住这里                            |                 |
  |                                                     v                 |
- |   +---------------------------+   人存的 / 播放器写的                 |
- |   | t-playlist    t-history   | <-------------------------------------+
- |   +---------------------------+   两个存储：既不认站点，也不认播放
+ |   +-----------------------------+   人存的 / 播放器写的               |
+ |   | ting-playlist  ting-history | <-----------------------------------+
+ |   +-----------------------------+   两个存储：既不认站点，也不认播放
  |        ^
  |        +-- ting 也从这里取行渲染（--show -j / --ls -j）；一条记录就是一次调用
  +------------------------------------------------------------------------------
@@ -138,7 +138,7 @@ ROADMAP 那条 Go 重写 NO 的全部账**：收益只剩"删渲染负债"，分
    数据文件（不是代码，也不 source）：VERSION 声明版本，config 声明默认值（「命令拓扑」、「两个根数据文件」）
 ```
 
-公开的只有四个命令，彼此平级；引擎文件在 `t-play` 底下，调用方经由 `t-play` 够到它们。
+公开的只有四个命令，彼此平级；引擎文件在 `ting-play` 底下，调用方经由 `ting-play` 够到它们。
 没有一个隐藏的内核，彼此之间也没有共享库（「命令拓扑」）。
 
 **所有权为什么要紧（「平级动词，没有内核」）。** 调研过的替代品都被否决为运行时依赖：`ytfzf` 已休眠
@@ -164,8 +164,8 @@ ROADMAP 那条 Go 重写 NO 的全部账**：收益只剩"删渲染负债"，分
   不是代码。（「命令拓扑」）
 - **一个命令一个名字，且不发短名**；三条命名规矩在 「命令拓扑」。
   （「命令拓扑」、RESEARCH-tui-player.md §2）
-- **公开面只有一个入口，站点知识一站一个文件**：`t-play` 持有全部公开 flag，引擎动词原样转给
-  `t-engine-<site>`；切分依据是知识 —— 同一个站的 UA、Referer、cookie、域名规则只写一份。
+- **公开面只有一个入口，站点知识一站一个文件**：`ting-play` 持有全部公开 flag，引擎动词原样转给
+  `ting-engine-<site>`；切分依据是知识 —— 同一个站的 UA、Referer、cookie、域名规则只写一份。
   直链在**播放时**才取（直链会过期，10 条结果只用 1 条），取直链是引擎的内部动词，不上契约。
   （「命令拓扑」、「调用栈」）
 - **不依赖第三方媒体客户端** —— 胶水自己写，只依赖原语。（「系统全景」）
@@ -175,8 +175,8 @@ ROADMAP 那条 Go 重写 NO 的全部账**：收益只剩"删渲染负债"，分
 - **除 `ting` 之外的一切都是非交互的**：一个能提问的动词就是 agent 会挂住的动词；
   把能力拿掉，那种失败模式就不可能发生。（「端到端控制流」）
 - **一个没有东西可作用的动词 → 用法错误，且点名正确的那个动词**；绝不提问。（「端到端控制流」）
-- **搜索是它自己的动词**（`t-play --search`），**不是**播放的一种多态拼法：
-  `t-play` 拿到一个非句柄时点名那个动词，而不是去猜。（「端到端控制流」）
+- **搜索是它自己的动词**（`ting-play --search`），**不是**播放的一种多态拼法：
+  `ting-play` 拿到一个非句柄时点名那个动词，而不是去猜。（「端到端控制流」）
 
 ### 播放器 —— 播放与 detached 生命周期（接口：`-d` 信封的 id/pid/socket、`--status`/`--stop`；「调用栈」-B/B′/C）
 
@@ -185,11 +185,11 @@ ROADMAP 那条 Go 重写 NO 的全部账**：收益只剩"删渲染负债"，分
 - **一个 detached 播放器没有键盘**（stdin → /dev/null，`--input-terminal=no`）——
   上一条那个进程组模型的**后果**，不是一个独立的选择。（ARCH-player.md「进程组模型」）
 
-### 引擎 —— 站点知识的边界（接口：`t-engine-<site>` 一个文件 + 转发来的公开动词 + 内部的 `--stream`/`--capabilities` + `--engine` 拼名；「调用栈」-A、ARCH-engine.md「搜索子系统」、ARCH-engine.md「解析」）
+### 引擎 —— 站点知识的边界（接口：`ting-engine-<site>` 一个文件 + 转发来的公开动词 + 内部的 `--stream`/`--capabilities` + `--engine` 拼名；「调用栈」-A、ARCH-engine.md「搜索子系统」、ARCH-engine.md「解析」）
 
-- **引擎名就是文件名后缀**：`--engine yt` 靠字符串拼接找到 `t-engine-yt`，
+- **引擎名就是文件名后缀**：`--engine yt` 靠字符串拼接找到 `ting-engine-yt`，
   加一个源不会在播放器或 TUI 的任何地方加出名单。（「命令拓扑」）
-- **一个引擎靠列出那个动词声明能力** —— 它的 `--capabilities` 是 `t-play --engines` 里那份 `flags[]`
+- **一个引擎靠列出那个动词声明能力** —— 它的 `--capabilities` 是 `ting-play --engines` 里那份 `flags[]`
   的来源；没有的动词不列、调了按未知 flag 退 1，而不是给一个永远答"没有"的动词，
   那种东西调用方分不清它与"今天不走运"。（「命令拓扑」、ARCH-cli-contract.md「命令规格」）
 - **引擎只解自己站的 host**，别的一律退 1：`engine` 字段的全部意义是路由，
@@ -209,7 +209,7 @@ ROADMAP 那条 Go 重写 NO 的全部账**：收益只剩"删渲染负债"，分
   动词与信封**，不是行上 `kind` 的一个值：一个枚举值装不下"一次取得完的专辑"与"要分批取的
   创作者目录"的差别（那个差别住在容器信封的 `total` 与 `has_more` 上），装进去等于让调用方
   回头看 url —— 把站点知识挪回了调用方。
-  容器展开成清单的动词是 `t-play --items`，三个引擎都有；一个多 P 视频也是容器，它的分 P 就是它的
+  容器展开成清单的动词是 `ting-play --items`，三个引擎都有；一个多 P 视频也是容器，它的分 P 就是它的
   条目 —— 同一件事只有一种说法。创作者侧那种一次取不完的
   容器（频道投稿、上千条的收藏夹）由信封上的 `has_more` / `next_cursor` 分批接住，而不是靠一个
   更大的上限。
@@ -222,7 +222,7 @@ ROADMAP 那条 Go 重写 NO 的全部账**：收益只剩"删渲染负债"，分
 - **哪些源进本仓：判据是那五条，不是热度。** 一个源要住进 `shell/`，五条要全过 ——
   搜索与取流都做得出来、零新增全局依赖、纯 bash 3.2、mpv 吃得下的原生直链、免登录且弱风控。
   全过的常驻主仓（今天 `yt` / `bili` / `ne`），受全量回归门禁守卫；**过不了的不是"以后再说"，
-  是仓外**：它照样是一个 `t-engine-<name>` 文件、一份同样的契约，只是自己建仓、自己发版，放进 `$TING_ENGINE_DIR`
+  是仓外**：它照样是一个 `ting-engine-<name>` 文件、一份同样的契约，只是自己建仓、自己发版，放进 `$TING_ENGINE_DIR`
   或 PATH 就被两个面同时认出来（「命令拓扑」、ARCH-cli-contract.md「加一个引擎 —— 清单」）。
   理由是**发版节奏**：外部站点是这个仓里唯一会因反爬与风控而单方面坏掉的代码，全量收进来
   等于把主仓的发版交给站方的风控日程；而一个仓外引擎坏掉时，主仓一条回归都不红。
@@ -243,7 +243,7 @@ ROADMAP 那条 Go 重写 NO 的全部账**：收益只剩"删渲染负债"，分
   自己的锁里留、按调用方显式交出的 pid 分槽、写回前逐字节核对、随调用进程一起死；TUI 只记
   "去哪个存储撤、提示开到几时"。第一版把缓冲放在 TUI 里，核查出十几处问题，根源只有两个 ——
   缓冲比屏幕上的提示活得久、只靠名字认对象 —— 换一个动词就会再犯一遍；把判定权交给所有者，
-  "谁写副本、何时失效、写回前核对什么"就只有一个答案。agent 的写不留副本，`t-history` 不纳入
+  "谁写副本、何时失效、写回前核对什么"就只有一个答案。agent 的写不留副本，`ting-history` 不纳入
   （它的前提是无锁追加）。（ARCH-player.md「撤销副本」、ARCH-tui.md「可撤销取代预先确认」）
 
 ### 配置 —— 两个根数据文件（接口：`KEY=value` 数据文件 + 四级链；「命令拓扑」）
@@ -294,7 +294,7 @@ ROADMAP 那条 Go 重写 NO 的全部账**：收益只剩"删渲染负债"，分
 
 ### 冻结面 —— 契约本身（接口：整份 ARCH-cli-contract.md）
 
-- **契约（`t-play` 的 argv，含它转发出去的引擎动词与信封；不含引擎文件自己的 argv）是被冻结、被版本化的那个面** —— 唯一完整活过重写的东西，
+- **契约（`ting-play` 的 argv，含它转发出去的引擎动词与信封；不含引擎文件自己的 argv）是被冻结、被版本化的那个面** —— 唯一完整活过重写的东西，
   也是任何一次移植的验收规格；semver 2.0.0 版本化它、不是代码（0.y.z 期间：破坏性 → y，
   其余 → z）。**1.0.0 是对这个面的冻结承诺，不是一个分发里程碑** —— 它一度被系在"打包 NO
   反转那一天"上，而那条 NO 已于 2026-09-11 反转（发布 tag + 一份 tap formula），契约却没有
@@ -307,12 +307,12 @@ ROADMAP 那条 Go 重写 NO 的全部账**：收益只剩"删渲染负债"，分
 完整的可执行文件，自己把自己的 flag，自己调自己的原语。它们的划分依据是*各自持有哪一类知识*，
 而不是谁调谁：
 
-- **播放器**（`t-play`）是**唯一的公开入口**：它持有播放与 detached 生命周期、公开的 flag 面，
+- **播放器**（`ting-play`）是**唯一的公开入口**：它持有播放与 detached 生命周期、公开的 flag 面，
   以及把引擎动词转给引擎的那一跳；它**不认识任何站点**；
-- **一个引擎是一个文件**（`t-engine-<site>`），持有某一个站点的**全部**知识：公开的引擎动词
+- **一个引擎是一个文件**（`ting-engine-<site>`），持有某一个站点的**全部**知识：公开的引擎动词
   （搜索、元数据、容器、字幕、cookie 决定）的实现，加两个内部动词 —— `--stream`（句柄 → 直链 +
-  请求头，调用方只有 `t-play`）与 `--capabilities`（自己接受哪些公开 flag）；
-- **两个存储**（`t-playlist`、`t-history`）持有用户级的持久状态，既不认站点也不认播放 ——
+  请求头，调用方只有 `ting-play`）与 `--capabilities`（自己接受哪些公开 flag）；
+- **两个存储**（`ting-playlist`、`ting-history`）持有用户级的持久状态，既不认站点也不认播放 ——
   一条记录是 `{engine, url}`，那是一次**调用**而不是一个引用（`ARCH-player.md`「持久状态层」）；
   播放列表是人放进去的，日志是播放器写下的（ARCH-player.md「收听日志」）；
 - **人机面**（`ting`）持有渲染，以上三样一样都不持有。
@@ -321,14 +321,14 @@ ROADMAP 那条 Go 重写 NO 的全部账**：收益只剩"删渲染负债"，分
                           PATH 上的入口（符号链接）
         ~/bin/  或  <prefix>/bin/
         +-- ting         -> <tree>/shell/ting           人机面
-        +-- t-play       -> <tree>/shell/t-play         agent 面：唯一入口
-        +-- t-playlist   -> <tree>/shell/t-playlist     agent 面（可选）
-        +-- t-history    -> <tree>/shell/t-history      agent 面（可选）
+        +-- ting-play    -> <tree>/shell/ting-play      agent 面：唯一入口
+        +-- ting-playlist   -> <tree>/shell/ting-playlist  agent 面（可选）
+        +-- ting-history -> <tree>/shell/ting-history   agent 面（可选）
 
-        <tree>/shell/                                   不上 PATH：t-play 在自己的
-        +-- t-engine-yt                                 真实目录里找到它们
-        +-- t-engine-bili
-        +-- t-engine-ne
+        <tree>/shell/                                   不上 PATH：ting-play 在自己的
+        +-- ting-engine-yt                                 真实目录里找到它们
+        +-- ting-engine-bili
+        +-- ting-engine-ne
               一个命令一个名字；不发短名（「平级动词，没有内核」）
 ```
 
@@ -338,43 +338,45 @@ ROADMAP 那条 Go 重写 NO 的全部账**：收益只剩"删渲染负债"，分
 ```
    运行时依赖图 —— 站点知识**只**在引擎文件里，播放**只**在播放器里：
 
-     ting  --> t-play --search -j --> 渲染 --> t-play -d -j --engine <该行的引擎>
+     ting  --> ting-play --search -j --> 渲染 --> ting-play -d -j --engine <该行的引擎>
         |  ^        |                                          |
-        |  |        +--> exec t-engine-<e> --search            |
-        |  +---- t-playlist  --show -j   同样的行，另一个来源（ARCH-player.md「持久状态层」）
-        |  +---- t-history   --ls   -j   还是同样的行（ARCH-player.md「收听日志」）
+        |  |        +--> exec ting-engine-<e> --search         |
+        |  +---- ting-playlist  --show -j   同样的行，另一个来源（ARCH-player.md「持久状态层」）
+        |  +---- ting-history   --ls   -j   还是同样的行（ARCH-player.md「收听日志」）
         +--> nc -U <sock>  （路径是播放器公布的；ARCH-player.md「运行时 IPC」）
                                                                v
-                                   t-play  --> t-engine-<e> --stream -j -f MODE
+                                   ting-play  --> ting-engine-<e> --stream -j -f MODE
                                         |            （名字靠拼接，「站点知识的边界」；
                                         |              yt-dlp / curl 住在**这里**）
                                         +--> mpv --no-ytdl <直链>
-                                        +--> t-history  --record -   （一首一行）
+                                        +--> ting-history  --record -   （一首一行）
 ```
 
-**这些名字怎么来的（「平级动词，没有内核」）。** 三条命名规矩，一条对一类受众：人机面用发行名（`ting`），
-公开命令带套件前缀（`t-play` / `t-playlist` / `t-history`），引擎文件是 `t-engine-` 加它那个**站点**的名字 ——
-站点名是调用方为 `--engine` 必须知道的唯一一件事，前缀让这个文件放在任何目录里都认得出是谁的底层。
-说 "tui" 而不说 "ui"：ting 恰恰是一个全屏的*终端* UI。
+**这些名字怎么来的（「平级动词，没有内核」）。** 套件拥有的名字只有一个前缀，命令用 `ting-`，
+配置键用 `TING_`，是同一条规矩：人机面用发行名本身（`ting`），公开命令是 `ting-` 加动作
+（`ting-play` / `ting-playlist` / `ting-history`），引擎文件是 `ting-engine-` 加它那个**站点**的名字。
+前缀是给读 PATH 的人与 agent 的：一个 `ting-` 开头的命令不用查就知道是谁的，`ting-<Tab>` 列出的就是
+全部公开面，一个太短的前缀则既说不出归属，又迟早撞上别人的命令。站点名是调用方为 `--engine`
+必须知道的唯一一件事。没有 `ting play` 式的子命令分发：`ting` 的位置参数是搜索词，而分发器就是一个内核。
 
 **为什么一个站点一个文件，而不是一个动词一个文件。** 知识的边界是**站点**，不是操作：同一个站的
 User-Agent、Referer、cookie 来源、域名规则、风控分类只有一份正确答案，按操作拆成两个文件，
 每一样都要写两份，每修一次风控都要改两处。按操作拆的理由逐条都不需要两个文件：搜索发生在浏览时、
 取流发生在播放时 —— 那是两个**动词**，一个文件同样带得了；依赖局部化靠**按动词懒检查**
-（`openssl` 只在网易云的 `--search` 上查，与 `t-play` 只在 socket 动词上查 `nc` 是同一种做法）。
+（`openssl` 只在网易云的 `--search` 上查，与 `ting-play` 只在 socket 动词上查 `nc` 是同一种做法）。
 
 **为什么公开面只有一个入口 —— flag 面按动词窄，不按文件窄。** 小模型敢调一个命令，是因为它眼前
 那个动词的 flag 面窄：搜索不接受 `-d`，播放不接受 `-n`。这份窄来自**每个动词自己的门**（引擎拒掉
-不属于那个动词的 flag；`t-play` 拒掉脱离了动词的修饰符并点名它修饰谁），不需要一个动词一个文件。
-而一个引擎其实是两样东西：**底层管道**（`--stream`，调用方只有 `t-play`）与**站点只读动词**
+不属于那个动词的 flag；`ting-play` 拒掉脱离了动词的修饰符并点名它修饰谁），不需要一个动词一个文件。
+而一个引擎其实是两样东西：**底层管道**（`--stream`，调用方只有 `ting-play`）与**站点只读动词**
 （在使用边界上）。两样挂在同一批公开名字下，站点那一侧的每一次修补都可能碰到公开契约；
-公开面收进 `t-play`、引擎文件退到它底下之后，契约只有 `t-play` 的 argv、`-j` 信封与退出码，
+公开面收进 `ting-play`、引擎文件退到它底下之后，契约只有 `ting-play` 的 argv、`-j` 信封与退出码，
 引擎文件能直接调，但它的 argv 不受契约保护。flag 本身守同一个判据：**用站点无关的词说调用方想要
 什么，同一件事只有一种说法** —— 只修饰一个动词的旋钮用自解释的长名（`--min-duration`，不是单字母）；
 多 P 视频是一个容器，走 `--items`，不另开一个动词；站点原始记录不上契约，因为站点字段无法版本化。
 
-**转发怎么做。** `t-play` 只认出两件事：这是哪个引擎动词、`--engine` 指谁；其余 argv 原样 `exec`
-给 `t-engine-<name>`。exec 之后 `t-play` 已经不在了，所以信封与退出码一字不差是引擎的，flag 门也只有
+**转发怎么做。** `ting-play` 只认出两件事：这是哪个引擎动词、`--engine` 指谁；其余 argv 原样 `exec`
+给 `ting-engine-<name>`。exec 之后 `ting-play` 已经不在了，所以信封与退出码一字不差是引擎的，flag 门也只有
 一道，在引擎里。几条细则，各有各的理由：
 
 - 转发发生在 argv 解析与**一切依赖门之前**：只搜索不需要装 mpv。
@@ -382,22 +384,22 @@ User-Agent、Referer、cookie 来源、域名规则、风控分类只有一份�
 - 没给 `--engine` 时，`--info` / `--items` / `--transcript` 的句柄若是 URL，按主机选引擎 —— 与播放
   同一条规则，否则同一条链接播得了、却查不了它的元数据；查询不是句柄，所以 `--search` 不嗅探。
 - 内部动词（`--stream`、`--capabilities`）不在转发表里，从入口调它们就是未知 flag，退 1。
-  `--raw`（引擎对着自己站点的自检，未投影的原始记录）是 `t-play` 唯一自己拒的 flag：`-j` 才是契约。
+  `--raw`（引擎对着自己站点的自检，未投影的原始记录）是 `ting-play` 唯一自己拒的 flag：`-j` 才是契约。
 
-**引擎名就是文件名后缀（「站点知识的边界」）。** `--engine yt` 靠字符串拼接找到 `t-engine-yt`
-（`t-play` 的 `engine_file_bin`：先试自己的真实目录，再试 `$TING_ENGINE_DIR`，再试 PATH，
-都没有就退 1 并把三个地方都说出来）。这就是全部的"注册表"，而且可以直接问：`t-play --engines -j`
+**引擎名就是文件名后缀（「站点知识的边界」）。** `--engine yt` 靠字符串拼接找到 `ting-engine-yt`
+（`ting-play` 的 `engine_file_bin`：先试自己的真实目录，再试 `$TING_ENGINE_DIR`，再试 PATH，
+都没有就退 1 并把三个地方都说出来）。这就是全部的"注册表"，而且可以直接问：`ting-play --engines -j`
 按同一条规矩答出每个引擎、会被执行的那个文件，和它接受的公开 flag。文件路径是给诊断"用的是哪一份"的，
 不是给调用方执行的；flag 清单取自引擎自己的 `--capabilities` —— 能力是引擎的属性，由注册表一次答完，
 于是 TUI 只读这一个答案，不必知道 `TING_ENGINE_DIR` 存在（三处的顺序与理由：`ARCH-cli-contract.md`
 「加一个引擎 —— 清单」）。代价实测约 130 ms，大头是每个引擎一次 `--capabilities` fork（各约 30 ms），
 只在 TUI 启动时付一次。加一个源等于加一个文件，播放器与 TUI **一个字都不用改**。
 
-**`ting` 怎样在不持有名单的前提下找到引擎。** 启动时读一次 `t-play --engines`（`scan_engines`），
-它交给 `t-play` 的 `--engine` 永远来自信封自己的 `engine` 字段，绝不来自某个默认值。
+**`ting` 怎样在不持有名单的前提下找到引擎。** 启动时读一次 `ting-play --engines`，
+它交给 `ting-play` 的 `--engine` 永远来自信封自己的 `engine` 字段，绝不来自某个默认值。
 机制与规则住在 `ARCH-tui.md`。
 
-**为什么播放器绝不能叫得出自己的引擎。** `t-play` 从不读引擎的文件，不 source 它任何东西，
+**为什么播放器绝不能叫得出自己的引擎。** `ting-play` 从不读引擎的文件，不 source 它任何东西，
 也不持有一份合法名字的清单 —— 一个未知的 `--engine` 是靠"拼出来的那条路径不存在"被发现的。
 这与把版本号放进 `VERSION` 是同一条依赖方向的规矩：一个一行的数据文件，
 因为把变量放进任何一个独立可执行文件，都会让其余的反过来向*它*要版本 ——
@@ -406,7 +408,7 @@ User-Agent、Referer、cookie 来源、域名规则、风控分类只有一份�
 它坐在**仓库根**，而不是脚本旁边：它版本化的是这套套件，不是 `shell/`，
 而根目录是读者 —— 以及其他任何项目 —— 找它的地方。每个入口点都从自己**解析之后**的位置
 往上一层去够它，这也是为什么 `SCRIPT_DIR` 前面那段符号链接链的行走是承重的、不是装饰：
-`~/bin/t-play` 是一条指进 checkout 的符号链接（README「Try it」的开发者装法；brew 装出来的
+`~/bin/ting-play` 是一条指进 checkout 的符号链接（README「Try it」的开发者装法；brew 装出来的
 那份同样是一条链，指进 Cellar），所以一个朴素的 `dirname`
 得到的是 `~/bin`，那里既没有 `VERSION` 也没有引擎。`tests/contract.sh` **通过一条真符号链接**
 把这个值钉死在文件上，因为所有入口点全都打印 `unknown` 时，它们彼此完全一致。
@@ -449,13 +451,13 @@ source 进来的库：一个共享库会让其余的反过来向持有它的那�
 
 **支配原则：** 正确性往**下**加 —— 与播放有关就加在播放器里，与站点有关就加在引擎里 ——
 这样每一个面都继承它；绝不往**上**加进某个 UI。
-一个本可以由 `t-play` 做的修复却做在了 `ting` 里，那是一个"改错了文件"的 bug。
+一个本可以由 `ting-play` 做的修复却做在了 `ting` 里，那是一个"改错了文件"的 bug。
 
 **七个文件之间的重复是刻意的，不是漂移，而这里就是它被数的地方。** `ting_read_config` 在
 **七个文件**里各出现一次，逐字节相同 —— 配置层是一个根上的数据文件加一份复制过去的读取器，
 不是第八个文件（「两个根数据文件」）；同理 `die` 在**七个**里各一份，jq 的 `fmt_dur` 定义在**五个**里 ——
-三个引擎，加上 `t-playlist` 与 `t-history` 两个存储：它们同样在整形 JSON，所以一个 bash 版本存在的
-唯一意义就是每行 fork 一次 jq；`require_deps` 在**四个**里（`t-play` 与三个引擎；两个存储与 `ting`
+三个引擎，加上 `ting-playlist` 与 `ting-history` 两个存储：它们同样在整形 JSON，所以一个 bash 版本存在的
+唯一意义就是每行 fork 一次 jq；`require_deps` 在**四个**里（`ting-play` 与三个引擎；两个存储与 `ting`
 不跑 yt-dlp/curl），`ensure_scratch` 与那些信封发射器在三个引擎里各一份。**副本自己不数自己**：
 副本的注释指回这里 —— 因为一个写在副本里的序数，会在下一个引擎落地时**无声地**过期，
 而**这里是唯一要改的地方**。一个共享库会是第八个文件，而每个引擎 —— 因而传递地，还有那个
@@ -467,16 +469,16 @@ source 进来的库：一个共享库会让其余的反过来向持有它的那�
 
 ## 原语与接缝（可替换点）
 
-**接缝按文件切开。** 没有任何一个文件同时担任其中两个角色，而 `t-play` 里的一次 yt-dlp
+**接缝按文件切开。** 没有任何一个文件同时担任其中两个角色，而 `ting-play` 里的一次 yt-dlp
 调用、或引擎里的一次 mpv 调用，都是分层违规，不是接缝。
 
 | 原语 | 角色 | 谁可以调它 | 接缝（唯一的调用点） |
 |---|---|---|---|
-| **yt-dlp** | 抽取 | 只有引擎 | `search_run`、`items_run`、`transcript_run`（`t-engine-yt`）；`dump_once`（`--stream`）与 `info_run`（`--info`），三个引擎各一份 |
+| **yt-dlp** | 抽取 | 只有引擎 | `search_run`、`items_run`、`transcript_run`（`ting-engine-yt`）；`dump_once`（`--stream`）与 `info_run`（`--info`），三个引擎各一份 |
 | **mpv** | 播放 | 只有播放器 | `run_mpv()`（唯一的播放接缝）+ `mpv_supports_vo()` 能力探测 |
-| **curl** | HTTP 传输 | B 站与网易云引擎的手工请求；`t-engine-yt`（仅探测） | 每个引擎一个传输函数：`http_get`（`t-engine-bili`：搜索、容器与分 P）、`ne_http_get` 与 `fetch_page_once`（`t-engine-ne`：容器、歌词、`--info -j` 的补字段请求与搜索）—— 全套件仅有的手工拼请求，全部对着公开端点；`probe_raw`（`t-engine-yt`，可取性探测） |
-| **openssl** | AES-128-CBC | 只有 `t-engine-ne` 的 `--search` | `weapi_params`（`t-engine-ne`）—— 全套件唯一一处加密。**动词局部依赖**：不进必需依赖表，缺它只少这一个动词（ARCH-engine.md） |
-| **nc** | mpv JSON-IPC | 播放器，以及作为客户端的 `ting` | `live_props`（读）与 `ipc_command`（命令 —— 五个 socket 动词共用）（`t-play`）；TUI 自己的客户端（`ARCH-tui.md`）   |
+| **curl** | HTTP 传输 | B 站与网易云引擎的手工请求；`ting-engine-yt`（仅探测） | 每个引擎一个传输函数：`http_get`（`ting-engine-bili`：搜索、容器与分 P）、`ne_http_get` 与 `fetch_page_once`（`ting-engine-ne`：容器、歌词、`--info -j` 的补字段请求与搜索）—— 全套件仅有的手工拼请求，全部对着公开端点；`probe_raw`（`ting-engine-yt`，可取性探测） |
+| **openssl** | AES-128-CBC | 只有 `ting-engine-ne` 的 `--search` | `weapi_params`（`ting-engine-ne`）—— 全套件唯一一处加密。**动词局部依赖**：不进必需依赖表，缺它只少这一个动词（ARCH-engine.md） |
+| **nc** | mpv JSON-IPC | 播放器，以及作为客户端的 `ting` | `live_props`（读）与 `ipc_command`（命令 —— 五个 socket 动词共用）（`ting-play`）；TUI 自己的客户端（`ARCH-tui.md`）   |
 | jq | JSON 整形 | 所有人 | 无处不在 |
 
 **mpv 藏在一个函数后面。** 五种播放模式（audio/video/fast/ascii/viz）全部经由 `run_mpv` 出去
@@ -511,20 +513,20 @@ source 进来的库：一个共享库会让其余的反过来向持有它的那�
 
 ## 端到端控制流
 
-每个动词解析自己的 argv。唯一的一次 exec 是入口转引擎动词：`t-play` 认出动词与 `--engine`
+每个动词解析自己的 argv。唯一的一次 exec 是入口转引擎动词：`ting-play` 认出动词与 `--engine`
 之后把 argv 整个交给引擎，自己不再解析（「命令拓扑」「转发怎么做」）。播放器的解析是最大的一份，
 这里展示的就是它 —— 引擎用的是同一套三段形状（长选项归一化 → `getopts` → 校验），
 只是各自的 flag 集不同（ARCH-cli-contract.md「命令规格」）。
 
 ```
-   $ t-play -d -j --engine yt -- "https://youtu.be/ID"
+   $ ting-play -d -j --engine yt -- "https://youtu.be/ID"
         |
         v
    +-------------------------------------------------------------------
-   | t-play
+   | ting-play
    |  (0) 引擎动词？（--search --info --items --transcript --auth，只看 -- 之前）
    |      是 -> forward_engine_verb：取出 --engine（没给且句柄是 URL 就按主机选），
-   |           拒 --raw，其余原样 exec t-engine-<name>          <- 在一切依赖门之前
+   |           拒 --raw，其余原样 exec ting-engine-<name>          <- 在一切依赖门之前
    |  (a) 长选项**归一化**循环
    |      --json->-j  --detach->-d  --help->-h  --version->-V
    |      --color/--volume/--start/--engine/--quality/--id -> 变量；--queue -> QUEUE_INPUT
@@ -534,7 +536,7 @@ source 进来的库：一个共享库会让其余的反过来向持有它的那�
    |      未知的 --flag -> die，并**列出**播放类 flag
    |      `--` -> 选项到此为止：其后原样复制（连 getopts 也一起停）
    |  (b) getopts  ":f:djhV"  -> MODE、OUTPUT_MODE
-   |      未知的 -n -> die "那是搜索的 flag，用 t-play --search"
+   |      未知的 -n -> die "那是搜索的 flag，用 ting-play --search"
    |  (c) **校验**  值域（--color 枚举、--volume 0-100、--start 非负整数秒）与组合规矩：
    |      只许一个动作，--start 是播放路径的 flag 所以与任何动作互斥（ARCH-player.md「起播偏移」），
    |      --id/--all/-d/--queue 各自能配什么（完整清单是契约面，
@@ -543,7 +545,7 @@ source 进来的库：一个共享库会让其余的反过来向持有它的那�
    |  (d) IS_HANDLE？非空**且**不含空白
    |      （整个判断就这么多 —— 见下）
    |  (e) **路由**（先匹配先赢）：
-   |        没句柄也没动作 -> die，点名 t-play --search / ting（「调用形状」）
+   |        没句柄也没动作 -> die，点名 ting-play --search / ting（「调用形状」）
    |        ACTION=status     -> do_status      （只要 jq；退 0）
    |        ACTION=stop       -> do_stop        （只要 jq；退 0|4）
    |        ACTION=set-volume -> do_set_volume  （jq+nc；退 0|4）
@@ -559,7 +561,7 @@ source 进来的库：一个共享库会让其余的反过来向持有它的那�
    |           detached 子进程（TING_DETACHED）-> detached_child_loop（队列循环，不返回）
    |           否则        -> play_url_directly（散文）
    |        否则 -> die "'<x>' 不是一个视频 id 或 URL —— 用
-   |                    't-play --search -- <x>' 去搜它"
+   |                    'ting-play --search -- <x>' 去搜它"
    +-------------------------------------------------------------------
 ```
 
@@ -576,7 +578,7 @@ mpv 依赖检查**之前**，于是消息讲的是缺输入，而不是缺播放
 **每一个动词都遵守 `--`。** 归一化循环在 `--` 处停下，把其后的一切原样复制过去
 （连 `--` 本身也复制，于是 `getopts` 也在那里停 —— 在 bash 3.2 上验证过）。
 没有这一条，一条仅仅**长得像**长 flag 的查询就会变成一个动作：
-`t-play --search -- --status` 会去列播放器而不是搜那段文字，而一个以单个短横开头的句柄会被 `getopts` 吃掉。
+`ting-play --search -- --status` 会去列播放器而不是搜那段文字，而一个以单个短横开头的句柄会被 `getopts` 吃掉。
 这道守卫归每个动词自己 —— 没有一个层替它们守（`--` 之后位置参数检查要**重新施加**的
 那半课在 ARCH-cli-contract.md「门模型」）。
 
@@ -604,15 +606,15 @@ ARCH-cli-contract.md「命令规格」）。
 **A. 搜索与只读动词 —— 一个进程**
 
 ```
-   $ t-play --search -j -- "lofi"   $ t-play --search --engine bili    $ t-play --info -j -- <url>
+   $ ting-play --search -j -- "lofi"   $ ting-play --search --engine bili    $ ting-play --info -j -- <url>
          |                            -j -- "周杰伦"                          |
          |                               |                                    |
          v                               v                                    v
-   t-play：认出动词 -> exec（同一个进程，t-play 让位给引擎；URL 句柄按主机选引擎）
+   ting-play：认出动词 -> exec（同一个进程，ting-play 让位给引擎；URL 句柄按主机选引擎）
          |                               |                                    |
          v                               v                                    v
    +------------------------+   +------------------------+   +------------------------+
-   | t-engine-yt            |   | t-engine-bili          |   | t-engine-yt            |
+   | ting-engine-yt         |   | ting-engine-bili       |   | ting-engine-yt         |
    |  search_run            |   |  search_page_once      |   |  info_run              |
    |   +- yt-dlp            |   |   +- curl search/type  |   |   +- yt-dlp            |
    |      "ytsearch<N>:..." |   |      + 随机 buvid3     |   |      --dump-single-json|
@@ -621,23 +623,23 @@ ARCH-cli-contract.md「命令规格」）。
      一个进程 · 一次原语调用 · mpv 从不启动 · 播放器在 exec 之后已不存在
 ```
 
-`t-play --transcript` 在 yt 上是同样的形状（一次 `yt-dlp --skip-download --no-simulate`，
+`ting-play --transcript` 在 yt 上是同样的形状（一次 `yt-dlp --skip-download --no-simulate`，
 ARCH-cli-contract.md「数据契约」）。B 站根本没有 `--transcript` 这个动词（「站点知识的边界」）；
 网易云有，但走的是一次 `curl`（歌词即字幕），不是 yt-dlp。
 
 **B. 播放 —— 播放器问一个引擎，然后播一条直链**
 
 ```
-   $ t-play -j --engine yt -- <handle>
+   $ ting-play -j --engine yt -- <handle>
          |
          v
    +------------------------------------------------------------------
-   | 进程 1 ：t-play
-   |    resolve_media:  engine_file_bin -> t-engine-<name>
+   | 进程 1 ：ting-play
+   |    resolve_media:  engine_file_bin -> ting-engine-<name>
    |         |          （本目录 -> $TING_ENGINE_DIR -> PATH；未知引擎 -> 退 1，并说出三个地方）
    |         v
    |  +-----------------------------------------------------------
-   |  | 进程 2 ：t-engine-<name> --stream -j -f MODE -- <handle>
+   |  | 进程 2 ：ting-engine-<name> --stream -j -f MODE -- <handle>
    |  |    host 白名单：不是本站的 host -> 退 1（「站点知识的边界」）
    |  |    stream_run --> dump_once：yt-dlp --dump-single-json -f <fmt>  [#3]
    |  |    （仅 yt）探测 --> curl 取 1 字节；失败就匿名重解          [#4]
@@ -659,18 +661,18 @@ ARCH-cli-contract.md「数据契约」）。B 站根本没有 `--transcript` 这
 **B′. detached 播放 —— 多一个进程，而父进程在毫秒级返回**
 
 ```
-   $ t-play -d -j --engine yt -- <handle>
+   $ ting-play -d -j --engine yt -- <handle>
          |
          v
-   进程 1 ：t-play，那个**会返回的**父进程
+   进程 1 ：ting-play，那个**会返回的**父进程
         detach_play: ensure_state_dir · new_player_id · lock_player_state
              +-- nohup bash "$SELF" -f MODE --engine <name> -- <handle> &
-             |      是一个**全新的 t-play**，不是直接的 mpv。set -m + disown，
+             |   是一个**全新的 ting-play**，不是直接的 mpv。set -m + disown，
              |      于是播放器活过这个父进程的退出（ARCH-player.md「进程组模型」）；stdin -> /dev/null（「播放与 detached 生命周期」）
              +-- 发出 {status:"started", id, pid, sock, log, title:null} 然后**退出**
                         |
                         v
-   进程 2 ：t-play（TING_DETACHED=1、TING_PLAYER_ID=<id>、TING_IPC_SOCK=<sock>）
+   进程 2 ：ting-play（TING_DETACHED=1、TING_PLAYER_ID=<id>、TING_IPC_SOCK=<sock>）
             -> 进 detached_child_loop（一个播放器消费一条队列 —— 单句柄就是
             长度 1 的队列，ARCH-player.md「队列」）：每一首走上面的 B，自己回填自己的
             记录（patch_player_meta —— 不是一个后台兄弟进程，ARCH-player.md「进程组模型」），
@@ -680,11 +682,11 @@ ARCH-cli-contract.md「数据契约」）。B 站根本没有 `--transcript` 这
 **C. 生命周期控制 —— 不抽取，也不起新 mpv**
 
 ```
-   $ t-play --status -j    |    --set-volume 60 --id <id>    |    --stop --all
+   $ ting-play --status -j |    --set-volume 60 --id <id>    |    --stop --all
          |
          v
    +----------------------------------------------------------
-   | t-play
+   | ting-play
    |    reap_dead_players -> resolve_target
    |    read_player_live -> live_props --> nc -U <sock> --+
    |    do_stop -> stop_group --> 杀掉整个进程组          |
@@ -694,8 +696,8 @@ ARCH-cli-contract.md「数据契约」）。B 站根本没有 `--transcript` 这
          没有 yt-dlp · 没有新 mpv · 每个播放器一次 socket 往返
 ```
 
-`ting` 不增加第四种形状：它把 **A**（`t-play --search -j`）与 **B′**
-（`t-play -d -j --engine`）作为子进程跑；控制走 **C** 的动词（暂停、seek、跳队列 ——
+`ting` 不增加第四种形状：它把 **A**（`ting-play --search -j`）与 **B′**
+（`ting-play -d -j --engine`）作为子进程跑；控制走 **C** 的动词（暂停、seek、跳队列 ——
 一次按键一次调用），只有每拍一次的**读**与按住不放的音量键用它自己的 `nc -U` 直连
 播放器的 socket —— 划出这条线的实测在 「已知约束」（`ARCH-tui.md`、ARCH-player.md「运行时 IPC」）。
 
@@ -703,15 +705,15 @@ ARCH-cli-contract.md「数据契约」）。B 站根本没有 `--transcript` 这
 
 | # | 在哪 | 命令 | 谁的进程 | 结果用来干什么 |
 |---|---|---|---|---|
-| 1 | `search_run`（`t-engine-yt`） | `yt-dlp ytsearch<N>:…` | 引擎 | 搜索信封 |
-| 2 | `search_page_once`（`t-engine-bili`） | 对 `search/type` 的 `curl` | 引擎 | 搜索信封 |
+| 1 | `search_run`（`ting-engine-yt`） | `yt-dlp ytsearch<N>:…` | 引擎 | 搜索信封 |
+| 2 | `search_page_once`（`ting-engine-bili`） | 对 `search/type` 的 `curl` | 引擎 | 搜索信封 |
 | 3 | `dump_once`（`--stream`，三个引擎各一份） | `yt-dlp --dump-single-json -f` | 引擎 | **真正被播放的那条流** |
-| 4 | `probe_raw`（`t-engine-yt`） | `curl` 取 1 字节，失败则第二次解析 | 引擎 | 挑客户端；置 `retried`（ARCH-engine.md「先探后播」） |
+| 4 | `probe_raw`（`ting-engine-yt`） | `curl` 取 1 字节，失败则第二次解析 | 引擎 | 挑客户端；置 `retried`（ARCH-engine.md「先探后播」） |
 | 5 | `info_run`（三个引擎各一份） | `yt-dlp --dump-single-json --skip-download`；网易云的 `-j` 另打一次 song/detail 的 `curl` | 引擎 | `--info` 信封 |
-| 6 | `transcript_run`（`t-engine-yt`） | `yt-dlp --skip-download --no-simulate` | 引擎 | 字幕文件 → 文本 |
-| 7 | `items_parts`（`t-engine-bili`） | 对 view 端点的 `curl`，被拒则改打 pagelist（无 yt-dlp） | 引擎 | 多 P 视频的 `--items` 信封（分 P 即条目） |
-| 8 | `fetch_page_once`（`t-engine-ne`） | 对 weapi 搜索端点的 `curl`，载荷经 `openssl` 两道 AES（`weapi_params`） | 引擎 | 搜索信封 |
-| 9 | `transcript_run`（`t-engine-ne`） | 对歌词端点的一次 `curl`（无 yt-dlp） | 引擎 | `--transcript` 信封（歌词即该站的字幕） |
+| 6 | `transcript_run`（`ting-engine-yt`） | `yt-dlp --skip-download --no-simulate` | 引擎 | 字幕文件 → 文本 |
+| 7 | `items_parts`（`ting-engine-bili`） | 对 view 端点的 `curl`，被拒则改打 pagelist（无 yt-dlp） | 引擎 | 多 P 视频的 `--items` 信封（分 P 即条目） |
+| 8 | `fetch_page_once`（`ting-engine-ne`） | 对 weapi 搜索端点的 `curl`，载荷经 `openssl` 两道 AES（`weapi_params`） | 引擎 | 搜索信封 |
+| 9 | `transcript_run`（`ting-engine-ne`） | 对歌词端点的一次 `curl`（无 yt-dlp） | 引擎 | `--transcript` 信封（歌词即该站的字幕） |
 
 容器的 `--items`（播放列表、专辑、频道、收藏夹）不在表里：它们取的是清单，不是媒体
 （yt 是一次 `yt-dlp --flat-playlist`，另两站是 `curl`），ARCH-engine.md「容器（`--items`）」。
@@ -756,12 +758,12 @@ ARCH-cli-contract.md「数据契约」）。B 站根本没有 `--transcript` 这
 ```
    # 1) 搜索 -> 结构化、省 token 的信封；用程序去挑。
    #    **引擎从同一个信封里取** —— 绝不假设。
-   env=$(t-play --search -j -n 10 -- "lofi")
+   env=$(ting-play --search -j -n 10 -- "lofi")
    url=$(jq -r '.results[0].url'  <<<"$env")
    eng=$(jq -r '.engine'          <<<"$env")
    # 2) 播放（阻塞式散文），或者拿一个机器可读的结果：
-   t-play --engine "$eng" -- "$url"                        # 散文
-   t-play -j --engine "$eng" -- "$url" | jq -r .reason     # -> ok 时是 null；失败时是枚举
+   ting-play --engine "$eng" -- "$url"                     # 散文
+   ting-play -j --engine "$eng" -- "$url" | jq -r .reason     # -> ok 时是 null；失败时是枚举
 ```
 
 换一个源就是在搜索那一行加上 `--engine bili`，别的什么都不变 ——
@@ -771,13 +773,13 @@ ARCH-cli-contract.md「数据契约」）。B 站根本没有 `--transcript` 这
 ## Agent —— 不播放地组合（只读动词）
 
 ```
-   # 元数据、容器与字幕都是引擎动词，经 t-play 转发；URL 句柄自己选引擎：
-   t-play --info -j -- "$url" | jq -r '.chapters[]?.title'
-   t-play --items -j -- "$playlist_url" | jq -r '.items[].url'   # 分批：has_more / next_cursor
-   t-play --transcript -j -- "$url" | jq -r .text                # 拿来就能丢进 prompt
+   # 元数据、容器与字幕都是引擎动词，经 ting-play 转发；URL 句柄自己选引擎：
+   ting-play --info -j -- "$url" | jq -r '.chapters[]?.title'
+   ting-play --items -j -- "$playlist_url" | jq -r '.items[].url'   # 分批：has_more / next_cursor
+   ting-play --transcript -j -- "$url" | jq -r .text                # 拿来就能丢进 prompt
 ```
 
-**直链不是公开动词。** 句柄 → 直链 + 请求头是引擎的内部动词 `--stream`，调用方只有 `t-play`：
+**直链不是公开动词。** 句柄 → 直链 + 请求头是引擎的内部动词 `--stream`，调用方只有 `ting-play`：
 在一个会检查 `Referer` 或钉住 `User-Agent` 的站点上，一条光秃秃的流 URL 不够 —— 实测：Bilibili 的
 CDN 对单独的 URL 答 403，对同一条带上这些头的 URL 答 206 —— 所以直链只在一个会把请求头一起用上的
 地方才完整，而那个地方就是播放器（ARCH-cli-contract.md「数据契约」）。引擎文件能直接调，
@@ -786,13 +788,13 @@ CDN 对单独的 URL 答 403，对同一条带上这些头的 URL 答 206 ——
 ## Agent —— 后台播放加生命周期控制
 
 ```
-   t-play -d --engine yt -- "$u1"         # detach 播放器 1（立即返回，约 0.03s）
-   t-play -d --engine bili -- "$u2"       # **第二个引擎**的播放器，并排跑
-   t-play -j --status                     # {"status":"players","players":[{id,…},{id,…}]}（退 0）
-   id=$(t-play -j --status | jq -r '.players[0].id')
-   t-play -j --set-volume 70 --id "$id"   # 播放器 1 的实时音量 -> {"status":"ok",id,volume:70}
-   t-play --stop --id "$id"               # 只停播放器 1（幂等）
-   t-play --stop --all                    # 停掉每一个；不留孤儿
+   ting-play -d --engine yt -- "$u1"      # detach 播放器 1（立即返回，约 0.03s）
+   ting-play -d --engine bili -- "$u2"    # **第二个引擎**的播放器，并排跑
+   ting-play -j --status                  # {"status":"players","players":[{id,…},{id,…}]}（退 0）
+   id=$(ting-play -j --status | jq -r '.players[0].id')
+   ting-play -j --set-volume 70 --id "$id"   # 播放器 1 的实时音量 -> {"status":"ok",id,volume:70}
+   ting-play --stop --id "$id"            # 只停播放器 1（幂等）
+   ting-play --stop --all                 # 停掉每一个；不留孤儿
 ```
 
 `players/` 恰好有一个所有者，所以 `--status` 与 `--stop --all` 看得见每一个播放器，
@@ -810,7 +812,7 @@ ARCH-cli-contract.md「命令规格」）与 `-j`（结构化结果），
 
 - detached 的 `ascii`/`viz`（没有终端可画）—— 在解析期就被拒（ARCH-player.md「状态机」）；
   `audio` 是常态，而 `video`/`fast` 会开它们自己的 GUI 窗口。
-- 阻塞式播放（`t-play -- <handle>` / `-j`）只在播放结束时才返回；非阻塞的 agent 流程请用
+- 阻塞式播放（`ting-play -- <handle>` / `-j`）只在播放结束时才返回；非阻塞的 agent 流程请用
   `--detach` + `--status`/`--stop`。
 - **范围说明（「两个存储」）：三个收听功能全部已落地**，在 shell 版里，
   按它们彼此依赖的顺序 —— 播放列表管理（ARCH-player.md「持久状态层」、ARCH-cli-contract.md「命令规格」）、
@@ -819,10 +821,10 @@ ARCH-cli-contract.md「命令规格」）与 `-j`（结构化结果），
   **一个只有键位、没有动词的功能只做了一半。**
   收藏刻意不是一个功能（它是一个名字固定的播放列表）；下载器未排期。
 - **队列的编辑 —— 重排、出队、循环、随机 —— 刻意不进 v1。** 那些是对一条队列的操作；
-  第一版必须先证明队列会**推进**，而那是其余一切所依赖的部分。加它们是给 `t-play` 加动词
+  第一版必须先证明队列会**推进**，而那是其余一切所依赖的部分。加它们是给 `ting-play` 加动词
   （每个都带自己的 `-j` 信封，「两个存储」），不是加一个新命令 —— 队列归播放器（ARCH-player.md「队列」）。
 - `ting` 的行是每次搜索对缓存结果的一次 jq —— 小 N 没问题；不是为几千条结果设计的。
-- **播放器里的 URL 嗅探** —— 缺省 `--engine` 时，`t-play` 按 host 把 HTTP(S) 或已知简写 URL 路由到匹配的引擎（`yt` / `bili` / `ne`），播放与 `--info` / `--items` / `--transcript` 同一条规则；显式 `--engine` 优先，未知 host 取默认引擎（ARCH-cli-contract.md「命令规格」）。这张 host 表是播放器里唯一一处近似站点知识的东西，它只选文件、不解句柄 —— 句柄归不归这个站，仍由引擎的 host 白名单说了算。
+- **播放器里的 URL 嗅探** —— 缺省 `--engine` 时，`ting-play` 按 host 把 HTTP(S) 或已知简写 URL 路由到匹配的引擎（`yt` / `bili` / `ne`），播放与 `--info` / `--items` / `--transcript` 同一条规则；显式 `--engine` 优先，未知 host 取默认引擎（ARCH-cli-contract.md「命令规格」）。这张 host 表是播放器里唯一一处近似站点知识的东西，它只选文件、不解句柄 —— 句柄归不归这个站，仍由引擎的 host 白名单说了算。
 - **一个共享的引擎库** —— 刻意不建；那份重复是"一个引擎是一个自足文件"的代价（「命令拓扑」）。
 - 不套 MCP 包装（「定位与设计目标」）。不依赖第三方媒体客户端（「系统全景」）。
 - **对一个 detached 播放器的运行时控制是一组动词**（`--set-volume N`、`--pause`、
@@ -856,7 +858,7 @@ ARCH-cli-contract.md「命令规格」）与 `-j`（结构化结果），
     - **什么**没有**搬，以及决定它的那个数字。** `ting` 每拍一次的**读**
       （`fetch_play_times`，一条连接四个属性）留在 socket 上：每 1 秒一拍付一条进程链是真代价 ——
       这一半是那条判据里唯一站得住的部分。按住不放的 `9`/`0` 音量键也一样 ——
-      在一个活播放器上各按 10 次实测：**走 socket 每次 10 ms，走 `t-play --set-volume`
+      在一个活播放器上各按 10 次实测：**走 socket 每次 10 ms，走 `ting-play --set-volume`
       每次 60 ms**（后者还要解析目标、并在锁下补状态文件）。那超过了为这个选择设的 50 ms 线，
       所以那两个键留下了，而这个例外**带着它的数字**被记下来，而不是留成一处没人解释的不一致。
       暂停与 seek 是一次按键一次调用、不是一拍一次，所以它们乐意付 —— 而 TUI 因此**净删**了
@@ -902,7 +904,7 @@ ARCH-cli-contract.md「命令规格」）与 `-j`（结构化结果），
 | 一个自己画输入的 UI 让终端亮起 Secure Input / 锁图标 | `-echo` 必须连着 `-icanon`（终端反应的是这一对），并从恢复光标的同一个 trap 里恢复 | 「可移植性契约」 |
 | `set -u` 下的空数组展开在 3.2 上中止 | 展开前先守卫 | 「可移植性契约」 |
 | 经符号链接调用时找不到兄弟、引擎或 `VERSION` | 每个脚本先解析自己的符号链接链，再从真实目录找；`contract.sh` 经真符号链接跑 `--version` | 「命令拓扑」 |
-| 一个引擎的内部动词或站点原始记录经公开入口漏出去 | `t-play` 的转发表只有公开动词，`--stream` / `--capabilities` 在入口是未知 flag，`--raw` 被入口点名拒收 | 「命令拓扑」 |
+| 一个引擎的内部动词或站点原始记录经公开入口漏出去 | `ting-play` 的转发表只有公开动词，`--stream` / `--capabilities` 在入口是未知 flag，`--raw` 被入口点名拒收 | 「命令拓扑」 |
 | 在一个自绘 UI 底下起的 mpv **抢走终端、吃掉用户的按键** | 那次 mpv 必须 `--no-terminal` 且 `</dev/null` —— `--really-quiet` 管的是输出，这里坏的是输入 | ARCH-tui.md「封面」 |
 | 一个后台子 shell 继承 EXIT trap，干完活顺手**把用户正在放的曲子停掉** | 子 shell 里第一件事是 `trap - EXIT INT TERM HUP` | ARCH-tui.md「封面」 |
 | 一次很大的写被信号（`SIGCHLD`/`SIGWINCH`）打断，`set -e` 就地杀掉 TUI | 封面发射里每一次写都容许失败：失败 = 这一帧没有图，删掉半张、下一帧重发 | ARCH-tui.md「封面」 |
@@ -1025,8 +1027,8 @@ bash）下行为一致。我们*不*依赖 Homebrew 的 bash —— 一个被管
                         而当**任何地方都没有**匹配时有一条快速退出路径（48KB 只要 5ms），
                         这恰恰就是这个写法读起来"免费"的原因：一个手写的、标题很短的测试信封
                         走的是快路径，而每一个真实标题都含空格、走的是慢路径。
-                        在这条规矩存在之前量到的：`t-play --search -j -n 25 | t-playlist --add`
-                        在一次这样的展开里花了 16s，`t-play -d --queue -` 花了 16.5s。
+                     在这条规矩存在之前量到的：`ting-play --search -j -n 25 | ting-playlist --add`
+                        在一次这样的展开里花了 16s，`ting-play -d --queue -` 花了 16.5s。
                         所以"是不是空白"的判断是一次**匹配**，绝不是一次替换：
                           [[ "$s" == *[![:space:]]* ]]   含有非空白字符
                           [[ "$s" != *[![:space:]]* ]]   是空白或空

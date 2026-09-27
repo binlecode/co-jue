@@ -3,7 +3,7 @@
 // typed error. Every key handler goes through it, which makes it where the layering rule is
 // enforced (PLAN-go-tui.md「切分原则」): nothing here, and so nothing in the binary, names mpv,
 // yt-dlp, a socket path or a site. Engine names pass through as opaque strings, and every
-// engine verb is asked of t-play, which forwards it to the engine.
+// engine verb is asked of ting-play, which forwards it to the engine.
 package verb
 
 import (
@@ -74,7 +74,7 @@ type Suite struct {
 }
 
 // Locate finds the suite the way every shell entry point finds its siblings: beside this
-// binary's RESOLVED path, then on PATH. Only t-play is required.
+// binary's RESOLVED path, then on PATH. Only ting-play is required.
 func Locate() (*Suite, error) {
 	exe, err := os.Executable()
 	if err == nil {
@@ -101,9 +101,9 @@ func LocateIn(dir string) (*Suite, error) {
 		}
 		return ""
 	}
-	s := &Suite{TPlay: find("t-play"), TPlaylist: find("t-playlist"), THistory: find("t-history")}
+	s := &Suite{TPlay: find("ting-play"), TPlaylist: find("ting-playlist"), THistory: find("ting-history")}
 	if s.TPlay == "" {
-		return nil, errors.New("cannot locate t-play beside this binary or on PATH")
+		return nil, errors.New("cannot locate ting-play beside this binary or on PATH")
 	}
 	return s, nil
 }
@@ -152,8 +152,8 @@ func lastLine(b []byte) []byte {
 	return b
 }
 
-// Engine is one installed source: its opaque name, the file t-play runs for it (for
-// diagnosis, not for running), and the engine flags it accepts through t-play.
+// Engine is one installed source: its opaque name, the file ting-play runs for it (for
+// diagnosis, not for running), and the engine flags it accepts through ting-play.
 type Engine struct {
 	Name  string   `json:"name"`
 	Bin   string   `json:"bin"`
@@ -170,7 +170,7 @@ func (e Engine) Has(flag string) bool {
 	return false
 }
 
-// Engines asks t-play for the registry. An empty list is an answer, not an error.
+// Engines asks ting-play for the registry. An empty list is an answer, not an error.
 func (s *Suite) Engines(ctx context.Context) ([]Engine, error) {
 	var env struct {
 		Engines []Engine `json:"engines"`
@@ -203,7 +203,7 @@ type SearchResult struct {
 	Results []Result `json:"results"`
 }
 
-// SearchOpts are the flags of t-play --search; zero values are left to the engine's defaults.
+// SearchOpts are the flags of ting-play --search; zero values are left to the engine's defaults.
 type SearchOpts struct {
 	N      int
 	MinDur int
@@ -211,7 +211,7 @@ type SearchOpts struct {
 	Sort   string
 }
 
-// Search asks one engine, through t-play.
+// Search asks one engine, through ting-play.
 func (s *Suite) Search(ctx context.Context, engine, query string, o SearchOpts) (*SearchResult, error) {
 	argv := []string{s.TPlay, "--search", "--engine", engine, "-j"}
 	if o.N > 0 {
@@ -234,7 +234,7 @@ func (s *Suite) Search(ctx context.Context, engine, query string, o SearchOpts) 
 	return &r, nil
 }
 
-// PlayOpts are the launch flags; zero values are left to t-play's own defaults.
+// PlayOpts are the launch flags; zero values are left to ting-play's own defaults.
 type PlayOpts struct {
 	Mode    string
 	Quality string

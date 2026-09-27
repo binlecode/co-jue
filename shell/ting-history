@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# t-history — the LISTENING LOG: durable, user-level, engine-agnostic. Agent-facing.
+# ting-history — the LISTENING LOG: durable, user-level, engine-agnostic. Agent-facing.
 #
 # The eighth command, and the second one that owns state a user would be upset to lose.
-# Like t-playlist it knows nothing about sites (no yt-dlp, no cookie, no host grammar) and
+# Like ting-playlist it knows nothing about sites (no yt-dlp, no cookie, no host grammar) and
 # nothing about playback (no mpv, no lifecycle, no players/). It knows two things: the row
 # and the file.
 #
@@ -27,7 +27,7 @@
 #
 # THE ROW IS THE ITEM RECORD the playlist and the queue already use, plus the four fields a
 # listening has and a list entry does not: played_at, ended_at, seconds, reason. That is why
-# `t-history --ls -j` drops straight into `t-playlist --add` and `t-play -d --queue -`
+# `ting-history --ls -j` drops straight into `ting-playlist --add` and `ting-play -d --queue -`
 # with no field mapping in between — the .items envelope is the same shape those two read.
 set -euo pipefail
 # Portability: bash 3.2 (macOS system bash) — no bash-4 features; guard empty-array
@@ -56,7 +56,7 @@ fi
 
 # CONFIGURATION — the chain is flag > environment > the user's config > the shipped defaults
 # in `<checkout>/config`, which is where every default value in the suite is declared once.
-# Duplicated VERBATIM in every entry point — see the same block in t-play for why, and
+# Duplicated VERBATIM in every entry point — see the same block in ting-play for why, and
 # ARCH-cli-contract.md「配置面」 for the keys.
 TING_CONFIG="${TING_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/ting/config}"
 TING_DEFAULTS="$SCRIPT_DIR/../config"
@@ -102,7 +102,7 @@ ting_read_config "$TING_DEFAULTS"
 # 1. SETTINGS
 # ==============================================================================
 
-# The same user-level state root t-playlist uses, and for the same reasons: XDG because the
+# The same user-level state root ting-playlist uses, and for the same reasons: XDG because the
 # neighbours (yt-dlp, mpv) are there and a Linux port would need no second layout, and an
 # override because without it `tests/contract.sh` would write into the user's real history.
 # ARCH-cli-contract.md「配置面」.
@@ -167,7 +167,7 @@ validate_enum() {
     return 1
 }
 
-# An OPERATIONAL failure, and the same split t-playlist states at its own fail(): prose to
+# An OPERATIONAL failure, and the same split ting-playlist states at its own fail(): prose to
 # stderr in both modes, the machine envelope to stdout only under -j.
 #
 # The reason enum is the STATE enum (not the playback one), and this command uses two of its
@@ -180,7 +180,7 @@ validate_enum() {
 # the end state holds, exactly as `--del` and `--stop` do. ARCH-cli-contract.md「数据契约」与「退出码」.
 fail() {
     local code=$1 reason=$2 msg=$3
-    echo "t-history: $msg" >&2
+    echo "ting-history: $msg" >&2
     if [[ "$OUTPUT_MODE" == "json" ]]; then
         jq -nc --arg reason "$reason" '{status: "error", reason: $reason}'
     fi
@@ -268,7 +268,7 @@ collect_history_files() {
 
 # --ls is a question about the whole store, so one bad line must not hide the rest: an
 # unparseable line, or one written by a newer build, is counted and skipped with a sentence
-# on stderr — the same rule t-playlist --ls applies to an unreadable playlist file. Skipping
+# on stderr — the same rule ting-playlist --ls applies to an unreadable playlist file. Skipping
 # silently would make the count a lie.
 #
 # Only as many month files are read as the limit needs: shards are consumed newest first and
@@ -292,7 +292,7 @@ do_ls() {
                   else .rows += [$r] end
               end)' "$f" 2>/dev/null) || chunk=""
         if [[ -z "$chunk" ]]; then
-            echo "t-history: skipping unreadable history file: $f" >&2
+            echo "ting-history: skipping unreadable history file: $f" >&2
             continue
         fi
         # Both counts are re-checked before they reach arithmetic: `$(( bad + null ))` is not
@@ -307,7 +307,7 @@ do_ls() {
         if ((got >= LIMIT)); then break; fi
     done
     if ((bad > 0)); then
-        echo "t-history: skipped $bad unreadable line(s)" >&2
+        echo "ting-history: skipped $bad unreadable line(s)" >&2
     fi
 
     local items="[]"
@@ -330,7 +330,7 @@ do_ls() {
 
     if [[ "$(printf '%s' "$items" | jq 'length')" == "0" ]]; then
         echo "No listening history yet."
-        echo "  It fills itself as you play:  t-play -d --engine yt -- URL"
+        echo "  It fills itself as you play:  ting-play -d --engine yt -- URL"
         return 0
     fi
     printf '%s' "$items" | jq -r "$JQ_PRELUDE"'
@@ -351,7 +351,7 @@ do_ls() {
 # the only way the line length stays bounded by this file rather than by its callers.
 do_record() {
     ensure_store
-    [[ -t 0 ]] && fail 1 invalid_input "--record reads one JSON record on stdin (try: ... | t-history --record -)"
+    [[ -t 0 ]] && fail 1 invalid_input "--record reads one JSON record on stdin (try: ... | ting-history --record -)"
     local raw row rc=0
     raw=$(cat)
     # A MATCH, never `${raw//[[:space:]]/}`. That substitution is quadratic on the 3.2 floor
@@ -511,12 +511,12 @@ do_clear() {
 
 print_usage() {
     cat <<'EOF'
-t-history — the listening log (durable, user-level, engine-agnostic)
+ting-history — the listening log (durable, user-level, engine-agnostic)
 
 Usage:
-  t-history --ls [-n N]
-  t-history --record -             < one JSON record on stdin
-  t-history --clear [--before DATE]
+  ting-history --ls [-n N]
+  ting-history --record -          < one JSON record on stdin
+  ting-history --clear [--before DATE]
 
 Options:
   -n N          How many records --ls prints, newest first (default 20)
@@ -537,8 +537,8 @@ Input (--record): ONE JSON object on stdin — an item ({engine, url, [id], [tit
 Output (--ls -j): {status, count, items[]} — items are the item record the rest of the
   suite reads, so the log pipes straight back into a list or a player:
 
-    t-history --ls -n 50 -j | t-playlist --add rediscover
-    t-history --ls -n 10 -j | t-play -d --queue -
+    ting-history --ls -n 50 -j | ting-playlist --add rediscover
+    ting-history --ls -n 10 -j | ting-play -d --queue -
 
 Storage: $TING_STATE_DIR/history/<YYYY-MM>.jsonl
   (default $XDG_STATE_HOME/ting, else ~/.local/state/ting) — one line per listening,
@@ -553,12 +553,12 @@ Exit codes: 0 ok
   --clear on an empty log is 0 with removed:0 — the end state holds.
 
 The player's own writes are gated by TING_HISTORY (default on; TING_HISTORY=0 disables them).
-This command stores what was played; to play something, use t-play.
+This command stores what was played; to play something, use ting-play.
 EOF
 }
 
 set_action() {
-    [[ -z "$ACTION" ]] || { echo "t-history: only one action per call ($ACTION and $1)" >&2; exit 1; }
+    [[ -z "$ACTION" ]] || { echo "ting-history: only one action per call ($ACTION and $1)" >&2; exit 1; }
     ACTION="$1"
 }
 
@@ -567,14 +567,14 @@ while (($#)); do
     -h | --help) print_usage; exit 0 ;;
     -V | --version)
         # Answered before any dependency gate, like every other command in the suite.
-        printf 't-history %s\n' "$TING_VERSION"
+        printf 'ting-history %s\n' "$TING_VERSION"
         exit 0
         ;;
     -l | --list) OUTPUT_MODE="list"; shift ;;
     -j | --json) OUTPUT_MODE="json"; shift ;;
     --color=*) COLOR_MODE="${1#*=}"; shift ;;
     --color)
-        [[ $# -ge 2 ]] || { echo "t-history: $1 requires a value" >&2; exit 1; }
+        [[ $# -ge 2 ]] || { echo "ting-history: $1 requires a value" >&2; exit 1; }
         COLOR_MODE="$2"; shift 2
         ;;
     --ls) set_action ls; shift ;;
@@ -584,7 +584,7 @@ while (($#)); do
         case "$1" in
         --record=*) RECORD_INPUT="${1#*=}"; shift ;;
         *)
-            [[ $# -ge 2 ]] || { echo "t-history: --record requires '-' (the record is read from stdin)" >&2; exit 1; }
+            [[ $# -ge 2 ]] || { echo "ting-history: --record requires '-' (the record is read from stdin)" >&2; exit 1; }
             RECORD_INPUT="$2"; shift 2
             ;;
         esac
@@ -593,7 +593,7 @@ while (($#)); do
         case "$1" in
         -n=*) LIMIT="${1#*=}"; shift ;;
         *)
-            [[ $# -ge 2 ]] || { echo "t-history: -n requires a value" >&2; exit 1; }
+            [[ $# -ge 2 ]] || { echo "ting-history: -n requires a value" >&2; exit 1; }
             LIMIT="$2"; shift 2
             ;;
         esac
@@ -602,25 +602,25 @@ while (($#)); do
         case "$1" in
         --before=*) BEFORE="${1#*=}"; shift ;;
         *)
-            [[ $# -ge 2 ]] || { echo "t-history: --before requires a date (YYYY-MM or YYYY-MM-DD)" >&2; exit 1; }
+            [[ $# -ge 2 ]] || { echo "ting-history: --before requires a date (YYYY-MM or YYYY-MM-DD)" >&2; exit 1; }
             BEFORE="$2"; shift 2
             ;;
         esac
         ;;
-    # The gate arms. t-play, t-playlist and t-history share a prefix and two of them share
+    # The gate arms. ting-play, ting-playlist and ting-history share a prefix and two of them share
     # a --ls, so the likely wrong turns get a sentence naming the right command rather than a
     # bare unknown-flag error — what every other command in this suite does at its edges
     # (ARCH-cli-contract.md「门模型」).
     -d | --detach | --status | --stop | --set-volume | --pause | --resume | --seek | --seek-to | --queue | --enqueue | --next | --id | --all | --engine | -f)
-        echo "t-history: $1 is a playback flag — this command stores what was played, use t-play to play" >&2
+        echo "ting-history: $1 is a playback flag — this command stores what was played, use ting-play to play" >&2
         exit 1
         ;;
     --add | --show | --rm | --del | --rename | --index)
-        echo "t-history: $1 belongs to t-playlist — history is a log, not a list you edit" >&2
+        echo "ting-history: $1 belongs to ting-playlist — history is a log, not a list you edit" >&2
         exit 1
         ;;
     -m | -M | -s | -S | --info | --transcript)
-        echo "t-history: $1 belongs to an engine — use <engine>-search / <engine>-resolve" >&2
+        echo "ting-history: $1 belongs to an engine — use <engine>-search / <engine>-resolve" >&2
         exit 1
         ;;
     --)
@@ -629,52 +629,52 @@ while (($#)); do
         # argument: every value is attached to its verb, so anything here is a caller who
         # meant a different command.
         if (($#)); then
-            echo "t-history: unexpected argument '$1' — this command takes no positional argument (see 't-history -h')" >&2
+            echo "ting-history: unexpected argument '$1' — this command takes no positional argument (see 'ting-history -h')" >&2
             exit 1
         fi
         break
         ;;
     -*)
-        echo "t-history: unknown flag '$1' (verbs: --ls --record --clear)" >&2
+        echo "ting-history: unknown flag '$1' (verbs: --ls --record --clear)" >&2
         exit 1
         ;;
     *)
-        echo "t-history: unexpected argument '$1' — values belong to a flag (see 't-history -h')" >&2
+        echo "ting-history: unexpected argument '$1' — values belong to a flag (see 'ting-history -h')" >&2
         exit 1
         ;;
     esac
 done
 
-[[ -n "$ACTION" ]] || { echo "t-history: an action is required: --ls --record --clear (see 't-history -h')" >&2; exit 1; }
+[[ -n "$ACTION" ]] || { echo "ting-history: an action is required: --ls --record --clear (see 'ting-history -h')" >&2; exit 1; }
 validate_enum "$COLOR_MODE" auto always never || die "--color must be one of: auto, always, never"
 
 # A selector with no action to select for. Silently ignoring `--clear -n 5` would let a
-# caller believe it deleted five records; `t-play` and `t-playlist` reject the same shape.
+# caller believe it deleted five records; `ting-play` and `ting-playlist` reject the same shape.
 if [[ "$ACTION" == "ls" ]]; then
-    [[ "$LIMIT" =~ ^[0-9]+$ ]] || { echo "t-history: -n must be a non-negative integer" >&2; exit 1; }
-    ((LIMIT >= 1)) || { echo "t-history: -n must be at least 1" >&2; exit 1; }
-    ((LIMIT <= 10000)) || { echo "t-history: -n is capped at 10000" >&2; exit 1; }
+    [[ "$LIMIT" =~ ^[0-9]+$ ]] || { echo "ting-history: -n must be a non-negative integer" >&2; exit 1; }
+    ((LIMIT >= 1)) || { echo "ting-history: -n must be at least 1" >&2; exit 1; }
+    ((LIMIT <= 10000)) || { echo "ting-history: -n is capped at 10000" >&2; exit 1; }
 elif [[ "$LIMIT" != "20" ]]; then
-    echo "t-history: -n belongs to --ls, not --$ACTION" >&2
+    echo "ting-history: -n belongs to --ls, not --$ACTION" >&2
     exit 1
 fi
 
 if [[ "$ACTION" == "clear" ]]; then
     if [[ -n "$BEFORE" ]] && [[ ! "$BEFORE" =~ ^[0-9]{4}-[0-9]{2}(-[0-9]{2}([T\ ].*)?)?$ ]]; then
-        echo "t-history: --before takes YYYY-MM, YYYY-MM-DD or a full ISO timestamp" >&2
+        echo "ting-history: --before takes YYYY-MM, YYYY-MM-DD or a full ISO timestamp" >&2
         exit 1
     fi
 elif [[ -n "$BEFORE" ]]; then
-    echo "t-history: --before belongs to --clear, not --$ACTION" >&2
+    echo "ting-history: --before belongs to --clear, not --$ACTION" >&2
     exit 1
 fi
 
 if [[ "$ACTION" == "record" ]]; then
     # '-' only, and required. A path argument would be a second way to say the same thing,
-    # and the player has stdin; `t-play --queue` answers the same sentence.
-    [[ "$RECORD_INPUT" == "-" ]] || { echo "t-history: --record takes '-': the record is read from stdin" >&2; exit 1; }
+    # and the player has stdin; `ting-play --queue` answers the same sentence.
+    [[ "$RECORD_INPUT" == "-" ]] || { echo "ting-history: --record takes '-': the record is read from stdin" >&2; exit 1; }
 elif [[ -n "$RECORD_INPUT" ]]; then
-    echo "t-history: --record cannot be combined with --$ACTION" >&2
+    echo "ting-history: --record cannot be combined with --$ACTION" >&2
     exit 1
 fi
 

@@ -9,20 +9,20 @@ anywhere else — the third one was.
 
 ```sh
 ting                                   # interactive: search, browse, play, control
-t-play --search -j -n 25 -- "lofi hip hop"               # machine: one line of JSON out
-t-play --search --engine bili -j -n 25 -- "周杰伦"        # machine: the second source, the same envelope
-t-play --search --engine ne -j -n 25 -- "钢琴"            # machine: the third; rows carry a real `access`
-t-play -d -j -- "<url>"                # machine: launch detached, get {id, pid, sock}
-t-play -d --start 601 -- "<url>"       # machine: open at 601s (a link's own &t= does this too)
-t-play --transcript -j -- "<url>"      # machine: captions as clean text (--segments: timed cues)
-t-play --engines -j                    # machine: which engines, and the flags each accepts
-t-play --status -j                     # machine: what is playing, where, how loud
-t-play --pause --id <id> -j            # machine: also --resume, --seek ±N, --seek-to N
-t-playlist --show chill -j | t-play -d --queue -     # machine: play a list, one player
-t-play --enqueue - --id <id> -j        # machine: append to it; --next skips a track
-t-play --set-loop one --id <id> -j     # machine: repeat this track (off|one; a LIST is --queue)
-t-play --stop --id <id> -j             # machine: stop it
-t-history --ls -n 20 -j                # machine: what was played, when, for how long
+ting-play --search -j -n 25 -- "lofi hip hop"            # machine: one line of JSON out
+ting-play --search --engine bili -j -n 25 -- "周杰伦"     # machine: the second source, the same envelope
+ting-play --search --engine ne -j -n 25 -- "钢琴"         # machine: the third; rows carry a real `access`
+ting-play -d -j -- "<url>"             # machine: launch detached, get {id, pid, sock}
+ting-play -d --start 601 -- "<url>"    # machine: open at 601s (a link's own &t= does this too)
+ting-play --transcript -j -- "<url>"   # machine: captions as clean text (--segments: timed cues)
+ting-play --engines -j                 # machine: which engines, and the flags each accepts
+ting-play --status -j                  # machine: what is playing, where, how loud
+ting-play --pause --id <id> -j         # machine: also --resume, --seek ±N, --seek-to N
+ting-playlist --show chill -j | ting-play -d --queue -  # machine: play a list, one player
+ting-play --enqueue - --id <id> -j     # machine: append to it; --next skips a track
+ting-play --set-loop one --id <id> -j  # machine: repeat this track (off|one; a LIST is --queue)
+ting-play --stop --id <id> -j          # machine: stop it
+ting-history --ls -n 20 -j             # machine: what was played, when, for how long
 ```
 
 ## Status
@@ -40,7 +40,7 @@ sets for you.
 
 ## What it is
 
-- **`t-play`** — the one command-line entry, and the player. Source-agnostic: it drives mpv, owns the detached player lifecycle
+- **`ting-play`** — the one command-line entry, and the player. Source-agnostic: it drives mpv, owns the detached player lifecycle
   (id / pid / socket / lock / state dir / reap) and the **queue** a player consumes — a lone
   handle is a queue of one, each item resolved when it is reached because a stream URL expires —
   and defines the contract. It EXECUTES a start offset (`--start SEC`, or the one a link carried)
@@ -51,13 +51,13 @@ sets for you.
   and `--engines -j` says which engines are installed and which flags each accepts. Mutually
   exclusive flags are rejected up front — because that is what makes it safe for a small model
   to call.
-- **`t-engine-yt`** — the YouTube *engine*, one file, called only by `t-play`. It answers the
+- **`ting-engine-yt`** — the YouTube *engine*, one file, called only by `ting-play`. It answers the
   engine verbs, and turns a result id (or a URL) into a direct stream URL plus the HTTP headers
   it must be fetched with. Everything site-specific lives here: the yt-dlp calls, the cookie
   decision, the format-per-mode table, and the ten spellings of a timestamp that all become one
   `start_seconds`. Adding a source is adding a file. Its argv is internal: the contract is
-  `t-play`'s.
-- **`t-engine-bili`** — the Bilibili *engine*, and the proof that the sentence above is true:
+  `ting-play`'s.
+- **`ting-engine-bili`** — the Bilibili *engine*, and the proof that the sentence above is true:
   neither the player nor the TUI changed a line to admit it. Its verbs use **different
   primitives** — search and containers talk HTTP through `curl` because yt-dlp's Bilibili search
   returns no metadata at all, the stream shells out to `yt-dlp` because reimplementing this site's
@@ -65,7 +65,7 @@ sets for you.
   maintains. The seam between an engine and the player is the **envelope**, never the tool behind
   it. There is no `--transcript` here: the site has no captions, and an engine says what it cannot
   do by not having the verb. A multi-part video is a container, so its parts come from `--items`.
-- **`t-engine-ne`** — the NetEase Cloud Music *engine*, and the one that pays the sentence off
+- **`ting-engine-ne`** — the NetEase Cloud Music *engine*, and the one that pays the sentence off
   twice. Nothing outside this file changed to admit it: the player found it by name, the TUI's
   `e` key offered it, and the test suite's cross-engine invariants covered it the moment it
   landed. And it is the first engine whose search rows carry a **real `access`** — this site
@@ -75,18 +75,18 @@ sets for you.
   search speaks the browser's encrypted `weapi` — two AES passes through `openssl`, which is a
   dependency of that **one verb** and of nothing else in the suite. Its `--transcript` is the
   song's lyrics.
-- **`t-playlist`** — the playlist store, and the first piece of state the suite keeps *after* a
+- **`ting-playlist`** — the playlist store, and the first piece of state the suite keeps *after* a
   reboot. Durable, user-level, engine-agnostic: it holds `{engine, url, title, …}` records under
   `${XDG_STATE_HOME:-~/.local/state}/ting/playlists/`, one file per list, written atomically
   under a lock. It knows no site and no playback — `engine` + `url` are exactly the two arguments
-  of `t-play`, so a stored record is a call rather than a reference. Optional: without it the
+  of `ting-play`, so a stored record is a call rather than a reference. Optional: without it the
   rest of the suite is unchanged.
-- **`t-history`** — the listening log, and the other half of that store: one line of
+- **`ting-history`** — the listening log, and the other half of that store: one line of
   `history/<YYYY-MM>.jsonl` per track, written by the player itself as each track ends —
   whether it ended on its own, was skipped, or was stopped. Append-only and lock-free, which
   is why every line is kept under 4 KB. A row is the same record a playlist holds plus the
   four fields a listening has (`played_at`, `ended_at`, `seconds`, `reason`), so
-  `t-history --ls -j` pipes straight into `t-playlist --add` or `t-play -d --queue -`.
+  `ting-history --ls -j` pipes straight into `ting-playlist --add` or `ting-play -d --queue -`.
   `TING_HISTORY=0` turns the writing off; optional, like the playlist store.
 - **`ting`** — the human face. One self-rendered list, live filter, pagination that
   reflows against the measured chrome, three playback states, en/zh chrome, ASCII fallback, themes.
@@ -103,8 +103,8 @@ ncmpcpp, rmpc, musikcube, kew, termusic — and this is not a replacement for it
 comes from an engine, not from `~/Music`.
 
 **All three listening features have landed** (`docs/ARCHITECTURE.md`「两个存储」): playlist
-management (`t-playlist`, the `a` and `b` keys), the queue (`t-play
---queue/--enqueue/--next`, `+` and `>`), and the listening history (`t-history`, the `h` key).
+management (`ting-playlist`, the `a` and `b` keys), the queue (`ting-play
+--queue/--enqueue/--next`, `+` and `>`), and the listening history (`ting-history`, the `h` key).
 Each shipped with the rule they all carry: an agent surface — a verb and a `-j` envelope —
 alongside its keybinding, or it is not done. **Favourites is deliberately not a feature**: it is
 a playlist with a fixed name. A downloader and channel subscriptions are unscheduled.
@@ -179,7 +179,7 @@ value would defeat: `TING_LANG` (zh under a zh\* locale), `TING_ASCII` (on under
 locale) and `TING_STATE_DIR` (its default chains through `XDG_STATE_HOME`). Set those in your
 own config or the environment.
 
-**A source that does not ship with the suite** is still just one `t-engine-<name>` file.
+**A source that does not ship with the suite** is still just one `ting-engine-<name>` file.
 Three places are scanned for one, in this order: next to the suite's own scripts, then
 `$TING_ENGINE_DIR` (default `${XDG_DATA_HOME:-~/.local/share}/ting/engines`), then `PATH`. A
 name already installed beside the suite wins, so a file you drop in that directory can add a
@@ -206,14 +206,14 @@ brew install binlecode/actop/ting
 
 For daily use from a checkout, symlink the four public commands onto your PATH. Each goes
 under its own name — the suite ships no second spelling for anything. The three
-`t-engine-*` files stay where they are: `t-play` finds them next to its own resolved path,
+`ting-engine-*` files stay where they are: `ting-play` finds them next to its own resolved path,
 and nothing else calls them:
 
 ```sh
 ln -s "$PWD/shell/ting"         ~/bin/ting
-ln -s "$PWD/shell/t-play"       ~/bin/t-play
-ln -s "$PWD/shell/t-playlist"   ~/bin/t-playlist
-ln -s "$PWD/shell/t-history"    ~/bin/t-history
+ln -s "$PWD/shell/ting-play"       ~/bin/ting-play
+ln -s "$PWD/shell/ting-playlist"   ~/bin/ting-playlist
+ln -s "$PWD/shell/ting-history"    ~/bin/ting-history
 ```
 
 One name per command, one name per key, one path per store: no aliases.
@@ -258,7 +258,7 @@ key, and so do `a`, `R`, `+` and `x`; for three seconds after any of them the no
 name, the queue as it was. A confirmation guards nothing once `d y` has become one gesture; a
 cheap way back does. Deleting the track that is playing does not stop it until the undo has
 closed, so `z` inside the window never interrupts the sound. The copy is kept by the store
-that was written, for this `ting` only: `t-playlist` and `t-play` take `--owner PID` and
+that was written, for this `ting` only: `ting-playlist` and `ting-play` take `--owner PID` and
 `--undo` for any caller that wants the same (`docs/ARCH-player.md`「撤销副本」).
 
 **The hint block has three tiers and `?` cycles them.** `core` — the shipped default — prints
@@ -280,15 +280,15 @@ number on the status line: you could add to it blind and had no way to look, reo
 back a mistake. It puts the WHOLE queue on screen — played rows included, so the row numbers
 and the indexes the CLI takes are one set of numbers rather than two — with the track being
 heard on a ground of its own. Its four write keys only exist while it is open, and each one is
-a `t-play --queue-*` call: the TUI never edits the queue file, because the player's own child
+a `ting-play --queue-*` call: the TUI never edits the queue file, because the player's own child
 is writing to it too, at every track boundary. `x` on the track that is playing says so rather
 than doing it — `s` stops it and `>` skips it. `u` opens from the search rows only (there is
 one stash slot, so a queue opened on top of a playlist would lose the way back to it), and only
 when the queue holds more than the one track being played.
 
 `e` is drawn only when a second engine is installed — the TUI discovers engines by asking
-`t-play --engines -j`, so it holds no list of sources. `a` and `b` are
-drawn only when `t-playlist` is installed and `h` only when `t-history` is, by the same rule.
+`ting-play --engines -j`, so it holds no list of sources. `a` and `b` are
+drawn only when `ting-playlist` is installed and `h` only when `ting-history` is, by the same rule.
 `c` and `i` follow the same rule off a CAPABILITY rather than an install, read from that
 envelope's `flags[]`: `c` is drawn when the session's engine has `--items` — all three do, so
 on a YouTube or NetEase row, where one id is one file, `c` shows the engine's own refusal
@@ -341,12 +341,12 @@ either one directly.
 
 | Suite | What it is for |
 |---|---|
-| `tests/contract.sh` | The CLI contract, asserted by running it: the engine verbs' envelopes through `t-play`, the engine's internal `--stream` / `--capabilities` protocol, the player's engine seam (an unknown engine is usage, a dead media id is a propagated failure that still carries a reason), every documented rejection, the host gate stated as an invariant over every **discovered** engine (a real URL is claimed by exactly one; a confusable is refused by all), `--transcript` both ways, the idle lifecycle verbs (including the queue verbs, where a
+| `tests/contract.sh` | The CLI contract, asserted by running it: the engine verbs' envelopes through `ting-play`, the engine's internal `--stream` / `--capabilities` protocol, the player's engine seam (an unknown engine is usage, a dead media id is a propagated failure that still carries a reason), every documented rejection, the host gate stated as an invariant over every **discovered** engine (a real URL is claimed by exactly one; a confusable is refused by all), `--transcript` both ways, the idle lifecycle verbs (including the queue verbs, where a
 payload this process cannot use is a usage error and a well-formed one with nothing playing is
 "did not take effect"), the tombstone record for a player that died unasked, the exit-code taxonomy, the playlist store (driven under a disposable `TING_STATE_DIR`, including eight concurrent writers against the lock), the listening log's own contract in the same disposable store (an 8 KB title truncated and MEASURED, because "every line under 4096 bytes" is the premise its lock-free append rests on), and the TUI booting / surviving a resize / leaving on `q` under tmux — and leaving no player behind when it goes, because `ting` stops its playback on exit, so a TUI that did not leave is a TUI still holding one. It also runs three of the four pipelines `docs/ARCH-cli-contract.md`「调用面」 prints, rather than leaving them as prose nothing executes — the fourth launches a player and belongs below. Under two minutes in full; **`--offline` runs the hermetic prefix** — every gate, both stores, the lifecycle and the death record, in ~30s with no packet sent, which is what makes "run it before every commit" a rule and not a wish. The check total is deliberately not quoted here: it moves with every check that lands, it was already stale in this sentence twice over, and the suite prints its own — **`0 failed` is the number that means passing**.  |
 | `tests/playback.sh` | The detached-player lifecycle, whose bugs are **processes**: detach returns before mpv is up, two players, an ambiguous mutation → exit 4 *and* `status:"ambiguous"` (4 alone is also what an idle call answers, so the field is the half that separates them), a targeted one moves only its target, and zero orphan mpv at the end. It also owns the **live read** — the `--status` fields off a real mpv socket, `paused:false` distinguished from `paused:null`, and a really-running player whose socket is really removed degrading to nulls with volume off the record — because the peer has no stand-in and never will. It drives a **queue** end to end for the same reason — a mock engine would skip the
 resolve between two tracks, which is the thing most likely to break: `--queue` launches —
-from a real `t-playlist --show -j` envelope, so the documented pipeline is what starts the
+from a real `ting-playlist --show -j` envelope, so the documented pipeline is what starts the
 player rather than an array written to look like one —
 `--enqueue` appends (six concurrent writers, no lost update), `--next` moves the position and
 the player follows, and a track reaching its own end starts the next. It also plays a real
@@ -406,7 +406,7 @@ surface.
 - [`docs/ARCH-engine.md`](docs/ARCH-engine.md) — the site half: query shaping, the Bilibili
   transport, the login / PO-token probe, handle grammar, `--info` / `--transcript`.
 - [`docs/ARCH-player.md`](docs/ARCH-player.md) — the player, the queue and the two durable
-  stores: the detached lifecycle, runtime IPC, `t-playlist` and `t-history`.
+  stores: the detached lifecycle, runtime IPC, `ting-playlist` and `ting-history`.
 - [`docs/ARCH-tui.md`](docs/ARCH-tui.md) — the human face: one view with six row sources, in-place rendering,
   the width layer, the reflow and the three play states.
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — the recorded NOs with their reopen conditions, the

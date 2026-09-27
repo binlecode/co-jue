@@ -29,7 +29,7 @@
 # names each one, and 0 failed is the number that means passing. The biggest single item in
 # the offline half is one deliberate 5.5s lock spin — a FRESH held lock has to be waited out,
 # that being what the spin is for; the stale-lock steal beside it costs 0.1s because
-# staleness is tested before the spin, not after (shell/t-playlist:lock_playlist).
+# staleness is tested before the spin, not after (shell/ting-playlist:lock_playlist).
 #
 # Per-SECTION figures are deliberately absent: this file's output is block-buffered the moment
 # it is piped or redirected, so timestamping its section headers dates the flush, not the work.
@@ -90,7 +90,7 @@ fi
 # THE ARGUMENT FOR THIS LIVES HERE, and the other two files under tests/ point at it rather
 # than restating it. ARCHITECTURE.md「风险登记」 carries the one-line risk row; this is its why.
 #
-# `t-play` derives its state dir from TMPDIR ("${TMPDIR:-/tmp}/ting-$(id -u)", shell/t-play)
+# `ting-play` derives its state dir from TMPDIR ("${TMPDIR:-/tmp}/ting-$(id -u)", shell/ting-play)
 # and takes no override of its own. Left at the user's real TMPDIR, this file --stop --all's a
 # player they are listening to, touches players in their real players/, and
 # rm -rf's their real failure record — three side effects on live user state, in a suite whose
@@ -150,7 +150,7 @@ report_real_config() {
 # they had no guard at all — the discipline was three sections each remembering to point
 # TING_STATE_DIR somewhere disposable, which is exactly the kind of discipline that holds until
 # it doesn't. It didn't: a section added after the one that ends with `unset TING_STATE_DIR`
-# assigned the variable without exporting it, and every t-playlist call in it went to the
+# assigned the variable without exporting it, and every ting-playlist call in it went to the
 # user's real store and left a playlist there.
 #
 # So the same two fingerprints the config gets, around the same run, over the whole state
@@ -172,7 +172,7 @@ report_real_state() {
 # The reap comes FIRST and the directory second — the order playback.sh's cleanup already
 # uses, and for a reason this file learned the hard way. Nothing here presses Enter, but the
 # TUI section runs a real `ting`, and on 2026-08-25 a run whose `q` check came back red left
-# an `t-play --engine yt -f audio` child and its mpv behind. With `rm -rf` as the whole of
+# an `ting-play --engine yt -f audio` child and its mpv behind. With `rm -rf` as the whole of
 # the cleanup, the player's RECORD went with the directory: the process was orphaned to PID 1
 # and `--stop --all` could no longer reach it — a suite that "does not touch your state" had
 # left audio running that nothing but `kill` could stop.
@@ -181,7 +181,7 @@ report_real_state() {
 # its own: a bare `mpv .*--input-ipc-server` counts the user's players too. It is a report and
 # not a check because the CHECK for it is in the TUI section, where it can name the cause.
 cleanup() {
-    shell/t-play --stop --all -j >/dev/null 2>&1
+    shell/ting-play --stop --all -j >/dev/null 2>&1
     if pgrep -f "mpv .*--input-ipc-server=$STATE_DIR" >/dev/null 2>&1; then
         echo "contract.sh: ORPHAN mpv still running after --stop --all:" >&2
         pgrep -fl "mpv .*--input-ipc-server=$STATE_DIR" >&2
@@ -329,10 +329,10 @@ undo_pane() {
     UNDO_STATE=$(mktemp -d "${TMPDIR:-/tmp}/ting-undostore.XXXXXX")
     UNDO_CFG="$TING_TEST_TMP/undo-config"
     : >"$UNDO_CFG"
-    printf '%s' "$YT_S" | TING_STATE_DIR="$UNDO_STATE" shell/t-playlist --add undo-list -j >/dev/null 2>&1
-    [ "$(TING_STATE_DIR="$UNDO_STATE" shell/t-playlist --show undo-list -j 2>/dev/null | jq -r '.count // 0')" -ge 3 ] ||
+    printf '%s' "$YT_S" | TING_STATE_DIR="$UNDO_STATE" shell/ting-playlist --add undo-list -j >/dev/null 2>&1
+    [ "$(TING_STATE_DIR="$UNDO_STATE" shell/ting-playlist --show undo-list -j 2>/dev/null | jq -r '.count // 0')" -ge 3 ] ||
         { echo "contract.sh: the undo list did not seed — suite error, not a failure" >&2; exit 1; }
-    ul_show() { TING_STATE_DIR="$UNDO_STATE" shell/t-playlist --show "$1" -j 2>/dev/null; }
+    ul_show() { TING_STATE_DIR="$UNDO_STATE" shell/ting-playlist --show "$1" -j 2>/dev/null; }
     ul_count() { ul_show "$1" | jq -r '.count // "none"'; }
     TS="ctest-undo-$$"
     tmux kill-session -t "$TS" 2>/dev/null
@@ -391,7 +391,7 @@ undo_pane() {
         tmux send-keys -t "$TS" d
         poll_until 10 pane_has 'z to undo' >/dev/null
         ul_show undo-list | jq -c '{items: .items[0:1]}' |
-            TING_STATE_DIR="$UNDO_STATE" shell/t-playlist --add undo-list -j >/dev/null 2>&1
+            TING_STATE_DIR="$UNDO_STATE" shell/ting-playlist --add undo-list -j >/dev/null 2>&1
         U_MOVED=$(ul_show undo-list)
         tmux send-keys -t "$TS" z
         report "z on a list changed elsewhere says so" 1 "$(poll_until 10 pane_has 'changed elsewhere, not undone')"
@@ -405,7 +405,7 @@ undo_pane() {
         tmux send-keys -t "$TS" z
         report "R then z: the title is the old name" 1 "$(poll_until 10 pane_has "playlist='undo-list'")"
         report "…and so is the store" '["undo-list"]' \
-            "$(TING_STATE_DIR="$UNDO_STATE" shell/t-playlist --ls -j 2>/dev/null | jq -c '[.playlists[].name]')"
+            "$(TING_STATE_DIR="$UNDO_STATE" shell/ting-playlist --ls -j 2>/dev/null | jq -c '[.playlists[].name]')"
         # D, then z from the search it left us on: the list is reopened.
         tmux send-keys -t "$TS" D
         report "D lands on the search with the offer" 1 "$(poll_until 10 pane_has 'Deleted playlist .* z to undo')"
@@ -455,7 +455,7 @@ undo_pane() {
         # THE HELD-BACK STOP. Round one takes no undo: the player must survive the offer and
         # stop when it closes. Round two takes it: the player must survive the offer's END,
         # which is proved by outliving a second offer (the next d's) that closes after it.
-        ul_players() { shell/t-play --status -j 2>/dev/null | jq '.players | length'; }
+        ul_players() { shell/ting-play --status -j 2>/dev/null | jq '.players | length'; }
         tmux send-keys -t "$TS" b
         poll_until 10 pane_has '[0-9]\. undo-list' >/dev/null
         tmux send-keys -t "$TS" undo-list Enter
@@ -494,10 +494,10 @@ undo_pane() {
             tmux send-keys -t "$TS" z
             poll_until 10 pane_has 'Undo: Undone' >/dev/null
             report "+ then z: the queue is one track again" 1 \
-                "$(shell/t-play --status -j 2>/dev/null | jq -r '.players[0].queue.len // empty')"
+                "$(shell/ting-play --status -j 2>/dev/null | jq -r '.players[0].queue.len // empty')"
             # ONE SLOT ACROSS BOTH STORES: a queue write after a playlist write drops the
             # playlist's copy, so z takes back the + and the d before it stays done.
-            q_len_is() { [ "$(shell/t-play --status -j 2>/dev/null | jq -r '.players[0].queue.len // empty')" = "$1" ]; }
+            q_len_is() { [ "$(shell/ting-play --status -j 2>/dev/null | jq -r '.players[0].queue.len // empty')" = "$1" ]; }
             tmux send-keys -t "$TS" d
             poll_until 10 pane_has 'Removed from .* z to undo' >/dev/null
             U_N=$(ul_count undo-list)
@@ -508,8 +508,8 @@ undo_pane() {
             report "…and not the d before it" "$U_N" "$(ul_count undo-list)"
             # The queue view's own keys. A tail of two to edit, then the queue from the search
             # (u opens from search rows only). Every "came home" is the whole url order.
-            q_urls() { shell/t-play --queue-show -j 2>/dev/null | jq -c '[.items[].url]'; }
-            q_state() { shell/t-play --queue-show -j 2>/dev/null | jq -c '{pos, urls: [.items[].url]}'; }
+            q_urls() { shell/ting-play --queue-show -j 2>/dev/null | jq -c '[.items[].url]'; }
+            q_state() { shell/ting-play --queue-show -j 2>/dev/null | jq -c '{pos, urls: [.items[].url]}'; }
             tmux send-keys -t "$TS" +
             poll_until 10 q_len_is 2 >/dev/null
             tmux send-keys -t "$TS" Down
@@ -539,7 +539,7 @@ undo_pane() {
             tmux send-keys -t "$TS" x
             poll_until 10 pane_has 'Removed from the queue .* z to undo' >/dev/null
             tmux send-keys -t "$TS" '>'
-            q_pos_is() { [ "$(shell/t-play --queue-show -j 2>/dev/null | jq -r '.pos')" = "$1" ]; }
+            q_pos_is() { [ "$(shell/ting-play --queue-show -j 2>/dev/null | jq -r '.pos')" = "$1" ]; }
             poll_until 10 q_pos_is 1 >/dev/null
             Q1=$(q_state)
             tmux send-keys -t "$TS" z
@@ -584,7 +584,7 @@ undo_pane() {
             report "zh: the undo pane paints a list" 1 0
         fi
     fi
-    shell/t-play --stop --all -j >/dev/null 2>&1
+    shell/ting-play --stop --all -j >/dev/null 2>&1
     tmux kill-session -t "$TS" 2>/dev/null
     rm -rf "$UNDO_STATE"
 }
@@ -599,7 +599,7 @@ if [ "$ONLY" = undo ]; then
         echo "  skip  (needs tmux for a real tty)"
         summary
     fi
-    YT_S=$(shell/t-play --engine yt --search -j -n 10 -- lofi 2>/dev/null)
+    YT_S=$(shell/ting-play --engine yt --search -j -n 10 -- lofi 2>/dev/null)
     [ "$(printf '%s' "$YT_S" | jq -r '.count // 0' 2>/dev/null)" -ge 3 ] ||
         { echo "contract.sh: the search for the undo pane returned too little — suite error, not a failure" >&2; exit 1; }
     undo_pane
@@ -622,61 +622,61 @@ fi
 #   · the TUI section LAST, driven in a real tmux session.
 # Moving a section is therefore a deliberate act.
 echo "── rejections (1 = usage error) ───────────────────────────────────"
-report "core no args"             1 "$(rc /bin/bash shell/t-play)"
-report "t-engine-yt no verb"      1 "$(rc /bin/bash shell/t-engine-yt)"
-report "--search no query"        1 "$(rc /bin/bash shell/t-play --search)"
-report "--search -d"              1 "$(rc shell/t-play --search -d -- x)"
-report "--search -f audio"        1 "$(rc shell/t-play --search -f audio -- x)"
-report "…refused as another verb's" 0 "$(err_has 'applies only to --stream' shell/t-play --search -f audio -- x)"
-report "two verbs are refused"    0 "$(err_has 'two verbs' shell/t-play --info --transcript -- x)"
-# The engine's internal verbs are not on the public entry: asked of t-play they are unknown
+report "core no args"             1 "$(rc /bin/bash shell/ting-play)"
+report "ting-engine-yt no verb"   1 "$(rc /bin/bash shell/ting-engine-yt)"
+report "--search no query"        1 "$(rc /bin/bash shell/ting-play --search)"
+report "--search -d"              1 "$(rc shell/ting-play --search -d -- x)"
+report "--search -f audio"        1 "$(rc shell/ting-play --search -f audio -- x)"
+report "…refused as another verb's" 0 "$(err_has 'applies only to --stream' shell/ting-play --search -f audio -- x)"
+report "two verbs are refused"    0 "$(err_has 'two verbs' shell/ting-play --info --transcript -- x)"
+# The engine's internal verbs are not on the public entry: asked of ting-play they are unknown
 # flags, not forwarded. And a modifier with no verb beside it is the caller's argv, answered
-# by t-play before any engine runs.
-report "t-play has no --stream"   0 "$(err_has "unknown flag '--stream'" shell/t-play --stream -j -- x)"
-report "…nor --capabilities"      0 "$(err_has "unknown flag '--capabilities'" shell/t-play --capabilities -j)"
-report "a modifier needs its verb" 1 "$(rc shell/t-play --sort duration -- x)"
+# by ting-play before any engine runs.
+report "ting-play has no --stream"   0 "$(err_has "unknown flag '--stream'" shell/ting-play --stream -j -- x)"
+report "…nor --capabilities"      0 "$(err_has "unknown flag '--capabilities'" shell/ting-play --capabilities -j)"
+report "a modifier needs its verb" 1 "$(rc shell/ting-play --sort duration -- x)"
 # The site's own record is --raw, an engine self-check the entry refuses to forward; the
 # transcript's full form is --segments, which only the -j envelope can carry.
-report "t-play refuses --raw"      0 "$(err_has 'engine self-check' shell/t-play --info --raw -- dQw4w9WgXcQ)"
-report "--segments needs -j"       0 "$(err_has 'add -j' shell/t-play --transcript --segments -- dQw4w9WgXcQ)"
+report "ting-play refuses --raw"   0 "$(err_has 'engine self-check' shell/ting-play --info --raw -- dQw4w9WgXcQ)"
+report "--segments needs -j"       0 "$(err_has 'add -j' shell/ting-play --transcript --segments -- dQw4w9WgXcQ)"
 # Only argv AHEAD of `--` names a verb: a query that reads like one is still a handle to
 # refuse, not a search to forward.
-report "…a verb after -- is not a verb" 0 "$(err_has 'not a video id or URL' shell/t-play -- --search now)"
-report "t-play bare query"       1 "$(rc shell/t-play "a query")"
-report "t-play -n"               1 "$(rc shell/t-play -n 5 -- URL)"
-report "t-play two actions"      1 "$(rc shell/t-play --status --stop)"
-report "t-play selector alone"   1 "$(rc shell/t-play --status --id X)"
-report "t-play -d + action"      1 "$(rc shell/t-play -d --stop)"
-report "t-play -- <query>"       1 "$(rc shell/t-play -- "a query")"
-report "t-play --status rejects a handle" 1 "$(rc shell/t-play --status -- URL)"
-report "t-play --stop rejects a handle"   1 "$(rc shell/t-play --stop -- URL)"
+report "…a verb after -- is not a verb" 0 "$(err_has 'not a video id or URL' shell/ting-play -- --search now)"
+report "ting-play bare query"    1 "$(rc shell/ting-play "a query")"
+report "ting-play -n"            1 "$(rc shell/ting-play -n 5 -- URL)"
+report "ting-play two actions"   1 "$(rc shell/ting-play --status --stop)"
+report "ting-play selector alone"   1 "$(rc shell/ting-play --status --id X)"
+report "ting-play -d + action"   1 "$(rc shell/ting-play -d --stop)"
+report "ting-play -- <query>"    1 "$(rc shell/ting-play -- "a query")"
+report "ting-play --status rejects a handle" 1 "$(rc shell/ting-play --status -- URL)"
+report "ting-play --stop rejects a handle"   1 "$(rc shell/ting-play --stop -- URL)"
 # An unknown long flag must not reach getopts as a bare `-`, and a forwarded verb's refusal
 # is the engine's exit code, passed through.
-report "t-play unknown long flag" 1 "$(rc shell/t-play --no-such-flag -- URL)"
-report "a forwarded refusal keeps its 1" 1 "$(rc shell/t-play --info -- URL)"
+report "ting-play unknown long flag" 1 "$(rc shell/ting-play --no-such-flag -- URL)"
+report "a forwarded refusal keeps its 1" 1 "$(rc shell/ting-play --info -- URL)"
 
 echo "── idle lifecycle: exit 0, ONE compact line, idempotent ───────────"
-report "--status exit"      0 "$(rc shell/t-play --status -j)"
-report "--status one line"  1 "$(shell/t-play --status -j | wc -l | tr -d ' ')"
-report "--status is empty"  0 "$(jq_ok '.players==[]' shell/t-play --status -j)"
-report "--stop --all exit"  0 "$(rc shell/t-play --stop --all -j)"
-report "--stop --all line"  1 "$(shell/t-play --stop --all -j | wc -l | tr -d ' ')"
+report "--status exit"      0 "$(rc shell/ting-play --status -j)"
+report "--status one line"  1 "$(shell/ting-play --status -j | wc -l | tr -d ' ')"
+report "--status is empty"  0 "$(jq_ok '.players==[]' shell/ting-play --status -j)"
+report "--stop --all exit"  0 "$(rc shell/ting-play --stop --all -j)"
+report "--stop --all line"  1 "$(shell/ting-play --stop --all -j | wc -l | tr -d ' ')"
 # --stop treats an empty set as idempotent success; --set-volume must NOT — there is no
 # volume it could have set, so this is the did-not-take-effect class (4), and the envelope
 # names the why so a caller can tell it from ambiguity (ARCH-cli-contract.md「数据契约」与「退出码」).
-report "idle --set-volume is 4"   4 "$(rc shell/t-play --set-volume 50 -j)"
-report "idle --set-volume says why" 0 "$(jq_ok '.status=="not_playing"' shell/t-play --set-volume 50 -j)"
+report "idle --set-volume is 4"   4 "$(rc shell/ting-play --set-volume 50 -j)"
+report "idle --set-volume says why" 0 "$(jq_ok '.status=="not_playing"' shell/ting-play --set-volume 50 -j)"
 # Every socket verb answers the empty set the way --set-volume does — ONE taxonomy, not one
 # per verb. Stated as a loop over the verbs so a sixth one is covered the day it lands
 # instead of needing its own copied pair of lines.
 for v in --pause --resume "--seek +30" "--seek-to 0"; do
     # shellcheck disable=SC2086  # $v carries a flag AND its value on purpose
-    report "idle $v is 4"        4 "$(rc shell/t-play $v -j)"
+    report "idle $v is 4"        4 "$(rc shell/ting-play $v -j)"
 done
 # The envelope text comes from ONE helper (require_live_target), so asserting it once per
 # verb is raising a count, not covering a case — the exit codes above are what catch a verb
 # wired to the wrong helper.
-report "idle --pause says why"   0 "$(jq_ok '.status=="not_playing"' shell/t-play --pause -j)"
+report "idle --pause says why"   0 "$(jq_ok '.status=="not_playing"' shell/ting-play --pause -j)"
 # THE STOCK CLIENT IS ENOUGH. Every socket verb needs a unix-socket netcat, and macOS ships
 # one — but the probe used to be `nc -h | grep -q` under pipefail, which carries nc's own
 # exit, and BSD `nc -h` exits 1. So the stock client was refused everywhere and the suite
@@ -692,7 +692,7 @@ _nch=""
 [ -x /usr/bin/nc ] && _nch=$(/usr/bin/nc -h 2>&1 || true)
 if [[ "$_nch" =~ [[:space:]]-U[[:space:]] ]] &&
     ! env "PATH=/usr/bin:/bin" command -v ncat >/dev/null 2>&1; then
-    report "the stock nc drives the socket verbs" 4 "$(env "PATH=$NC_ONLY:/usr/bin:/bin" shell/t-play --pause -j >/dev/null 2>&1; echo $?)"
+    report "the stock nc drives the socket verbs" 4 "$(env "PATH=$NC_ONLY:/usr/bin:/bin" shell/ting-play --pause -j >/dev/null 2>&1; echo $?)"
 else
     echo "  skip  (no BSD nc with -U in /usr/bin, or an ncat beside it — the stock-client claim cannot be tested here)"
 fi
@@ -700,45 +700,45 @@ rm -rf "$NC_ONLY"
 # The 1-vs-4 split on the one verb that can fail both ways. A malformed value never reaches a
 # player, so it is usage (1); a well-formed call with no player to receive it is 4. Getting
 # these the same way round is what makes an agent retry a call it should have fixed instead.
-report "--seek unsigned is 1"     1 "$(rc shell/t-play --seek 30 -j)"
-report "--seek non-numeric is 1"  1 "$(rc shell/t-play --seek abc -j)"
-report "--seek-to negative is 1"  1 "$(rc shell/t-play --seek-to -5 -j)"
+report "--seek unsigned is 1"     1 "$(rc shell/ting-play --seek 30 -j)"
+report "--seek non-numeric is 1"  1 "$(rc shell/ting-play --seek abc -j)"
+report "--seek-to negative is 1"  1 "$(rc shell/ting-play --seek-to -5 -j)"
 # --seek -15 is a VALUE, not an unknown flag: the parser must take $2 verbatim.
-report "--seek accepts -15"       4 "$(rc shell/t-play --seek -15 -j)"
+report "--seek accepts -15"       4 "$(rc shell/ting-play --seek -15 -j)"
 # --start is the LAUNCH-time offset, and its whole gate is the value one. Whole seconds and
 # nothing else: mpv's own --start grammar (-60 counts from the end, 50% is a fraction) is
 # deliberately not published on this surface, so every spelling of it that a caller might
 # reach for has to come back 1 rather than start somewhere surprising. --start -60 is also
 # the mirror of the --seek case above — there a leading dash is a legal VALUE, here it is a
 # legal value that this flag refuses, and both go through $2 verbatim.
-report "--start negative is 1"    1 "$(rc shell/t-play --start -60 -- URL)"
-report "--start hh:mm:ss is 1"    1 "$(rc shell/t-play --start 10:00 -- URL)"
-report "--start non-numeric is 1" 1 "$(rc shell/t-play --start abc -- URL)"
-report "--start fractional is 1"  1 "$(rc shell/t-play --start 1.5 -- URL)"
-report "--start needs a value"    1 "$(rc shell/t-play --start)"
+report "--start negative is 1"    1 "$(rc shell/ting-play --start -60 -- URL)"
+report "--start hh:mm:ss is 1"    1 "$(rc shell/ting-play --start 10:00 -- URL)"
+report "--start non-numeric is 1" 1 "$(rc shell/ting-play --start abc -- URL)"
+report "--start fractional is 1"  1 "$(rc shell/ting-play --start 1.5 -- URL)"
+report "--start needs a value"    1 "$(rc shell/ting-play --start)"
 # …and it is refused BESIDE a lifecycle verb rather than silently ignored. Both verbs below
 # answer 4 when idle and this call has no player either, so a 1 can only have come from the
 # combination gate — the check cannot pass by accident on the idle path.
-report "--start with --status is 1" 1 "$(rc shell/t-play --start 60 --status -j)"
-report "--start with --seek is 1"   1 "$(rc shell/t-play --start 60 --seek +5 -j)"
+report "--start with --status is 1" 1 "$(rc shell/ting-play --start 60 --status -j)"
+report "--start with --seek is 1"   1 "$(rc shell/ting-play --start 60 --seek +5 -j)"
 # --id now names the playback verbs too, so it has to be ACCEPTED by one of them; the arms
-# that reject it elsewhere are already covered by "t-play selector alone" and
-# "t-play -d + action" above, which exercise the same case statement.
-report "--id on --pause parses"   4 "$(rc shell/t-play --pause --id nope -j)"
+# that reject it elsewhere are already covered by "ting-play selector alone" and
+# "ting-play -d + action" above, which exercise the same case statement.
+report "--id on --pause parses"   4 "$(rc shell/ting-play --pause --id nope -j)"
 
 # ── the queue verbs, idle. They address a player exactly as the socket verbs do (same
 # require_live_target, same 4), but they reach its queue FILE rather than mpv — so they are
 # checked here rather than folded into the loop above, and they must answer without nc.
 Q1='[{"engine":"yt","url":"https://www.youtube.com/watch?v=jNQXAC9IVRw"}]'
-report "idle --next is 4"        4 "$(rc shell/t-play --next -j)"
-report "idle --next says why"    0 "$(jq_ok '.status=="not_playing"' shell/t-play --next -j)"
-report "idle --enqueue is 4"     4 "$(rc_in "$Q1" shell/t-play --enqueue - -j)"
+report "idle --next is 4"        4 "$(rc shell/ting-play --next -j)"
+report "idle --next says why"    0 "$(jq_ok '.status=="not_playing"' shell/ting-play --next -j)"
+report "idle --enqueue is 4"     4 "$(rc_in "$Q1" shell/ting-play --enqueue - -j)"
 # The one place a repeated envelope assertion is NOT raising a count: --enqueue can exit 4
 # for two different reasons (no such player, or a queue it could not write), and only the
 # envelope says which. Proved by making it skip require_live_target — the exit code stayed 4
 # and this line is what went red.
-report "idle --enqueue says why" 0 "$(jq_in '.status=="not_playing"' "$Q1" shell/t-play --enqueue - -j)"
-report "--id on --next parses"   4 "$(rc shell/t-play --next --id nope -j)"
+report "idle --enqueue says why" 0 "$(jq_in '.status=="not_playing"' "$Q1" shell/ting-play --enqueue - -j)"
+report "--id on --next parses"   4 "$(rc shell/ting-play --next --id nope -j)"
 
 # The 1-vs-4 split again, on the verbs that take a PAYLOAD: a queue this process could not
 # parse never reaches a player, so it is usage (1) — and it is refused in the PARENT, which
@@ -747,25 +747,25 @@ report "--id on --next parses"   4 "$(rc shell/t-play --next --id nope -j)"
 # got past its gate would LAUNCH A PLAYER, and this file starts none. The pairing with
 # "idle --enqueue is 4" above is what gives each of these teeth — 1 where the payload is
 # wrong, 4 where only the player is missing.
-report "bad JSON is 1"           1 "$(rc_in 'not json' shell/t-play --enqueue -)"
-report "an empty queue is 1"     1 "$(rc_in '[]' shell/t-play --enqueue -)"
-report "a url with a space is 1" 1 "$(rc_in '[{"engine":"yt","url":"a b"}]' shell/t-play --enqueue -)"
-report "an empty url is 1"       1 "$(rc_in '[{"engine":"yt","url":""}]' shell/t-play --enqueue -)"
-report "a record with no url is 1" 1 "$(rc_in '[{"engine":"bili"}]' shell/t-play --enqueue - -j)"
-report "a bad engine name is 1"  1 "$(rc_in '[{"engine":"../evil","url":"x"}]' shell/t-play --enqueue -)"
+report "bad JSON is 1"           1 "$(rc_in 'not json' shell/ting-play --enqueue -)"
+report "an empty queue is 1"     1 "$(rc_in '[]' shell/ting-play --enqueue -)"
+report "a url with a space is 1" 1 "$(rc_in '[{"engine":"yt","url":"a b"}]' shell/ting-play --enqueue -)"
+report "an empty url is 1"       1 "$(rc_in '[{"engine":"yt","url":""}]' shell/ting-play --enqueue -)"
+report "a record with no url is 1" 1 "$(rc_in '[{"engine":"bili"}]' shell/ting-play --enqueue - -j)"
+report "a bad engine name is 1"  1 "$(rc_in '[{"engine":"../evil","url":"x"}]' shell/ting-play --enqueue -)"
 # The three shapes the verb takes, each proved by the SAME rejection: a payload that parses
 # reaches the player check (4), one that does not is usage (1). A search envelope is accepted
 # because a search result does not carry `engine` — that field is on the envelope, so only
 # taking the whole thing can label an item with its source (ARCH-cli-contract.md「数据契约」).
-report "a --show envelope parses" 4 "$(rc_in '{"status":"playlist","items":[{"engine":"yt","url":"x"}]}' shell/t-play --enqueue - -j)"
-report "a search envelope parses" 4 "$(rc_in '{"status":"ok","engine":"yt","results":[{"url":"x"}]}' shell/t-play --enqueue - -j)"
-report "a shapeless object is 1"  1 "$(rc_in '{"status":"ok"}' shell/t-play --enqueue -)"
+report "a --show envelope parses" 4 "$(rc_in '{"status":"playlist","items":[{"engine":"yt","url":"x"}]}' shell/ting-play --enqueue - -j)"
+report "a search envelope parses" 4 "$(rc_in '{"status":"ok","engine":"yt","results":[{"url":"x"}]}' shell/ting-play --enqueue - -j)"
+report "a shapeless object is 1"  1 "$(rc_in '{"status":"ok"}' shell/ting-play --enqueue -)"
 # --queue is a LAUNCH modifier: it needs -d, and it takes its handles from stdin ONLY. Each
 # arm names what to do instead rather than saying "invalid combination".
-report "--queue needs -d"        1 "$(rc_in "$Q1" shell/t-play --queue -)"
-report "--queue rejects a handle" 1 "$(rc_in "$Q1" shell/t-play -d --queue - -- URL)"
-report "--enqueue rejects a handle" 1 "$(rc_in "$Q1" shell/t-play --enqueue - -- URL)"
-report "--queue rejects an action" 1 "$(rc_in "$Q1" shell/t-play -d --queue - --status)"
+report "--queue needs -d"        1 "$(rc_in "$Q1" shell/ting-play --queue -)"
+report "--queue rejects a handle" 1 "$(rc_in "$Q1" shell/ting-play -d --queue - -- URL)"
+report "--enqueue rejects a handle" 1 "$(rc_in "$Q1" shell/ting-play --enqueue - -- URL)"
+report "--queue rejects an action" 1 "$(rc_in "$Q1" shell/ting-play -d --queue - --status)"
 
 # ── the five queue-EDIT verbs, idle. The whole point of this block is the 1-vs-4 line: an
 # argument that is not a queue position at all is the argv being wrong, and no player could
@@ -776,83 +776,83 @@ report "--queue rejects an action" 1 "$(rc_in "$Q1" shell/t-play -d --queue - --
 #
 # "idle --queue-show is 4" is what gives the 1s their teeth: without it a gate that quietly
 # accepted a bad index would still exit non-zero here and look green.
-report "idle --queue-show is 4"   4 "$(rc shell/t-play --queue-show -j)"
-report "idle --queue-show says why" 0 "$(jq_ok '.status=="not_playing"' shell/t-play --queue-show -j)"
-report "idle --queue-clear is 4"  4 "$(rc shell/t-play --queue-clear -j)"
-report "--id on --queue-show parses" 4 "$(rc shell/t-play --queue-show --id nope -j)"
+report "idle --queue-show is 4"   4 "$(rc shell/ting-play --queue-show -j)"
+report "idle --queue-show says why" 0 "$(jq_ok '.status=="not_playing"' shell/ting-play --queue-show -j)"
+report "idle --queue-clear is 4"  4 "$(rc shell/ting-play --queue-clear -j)"
+report "--id on --queue-show parses" 4 "$(rc shell/ting-play --queue-show --id nope -j)"
 # No index at all: the flag needs a value, and the message says which flag wanted one.
-report "--queue-rm needs an index" 1 "$(rc shell/t-play --queue-rm -j)"
-report "--queue-mv needs an index" 1 "$(rc shell/t-play --queue-mv -j)"
-report "--queue-jump needs an index" 1 "$(rc shell/t-play --queue-jump -j)"
+report "--queue-rm needs an index" 1 "$(rc shell/ting-play --queue-rm -j)"
+report "--queue-mv needs an index" 1 "$(rc shell/ting-play --queue-mv -j)"
+report "--queue-jump needs an index" 1 "$(rc shell/ting-play --queue-jump -j)"
 # An index that is not a non-negative integer is argv, not state. Kept separate from the
 # range check (4, in playback.sh) on purpose: -1 can never name a track, while 9 might.
-report "a negative index is 1"     1 "$(rc shell/t-play --queue-rm -1 --expect-url x -j)"
-report "a non-numeric index is 1"  1 "$(rc shell/t-play --queue-rm two --expect-url x -j)"
-report "a negative --to is 1"      1 "$(rc shell/t-play --queue-mv 2 --to -1 --expect-url x -j)"
+report "a negative index is 1"     1 "$(rc shell/ting-play --queue-rm -1 --expect-url x -j)"
+report "a non-numeric index is 1"  1 "$(rc shell/ting-play --queue-rm two --expect-url x -j)"
+report "a negative --to is 1"      1 "$(rc shell/ting-play --queue-mv 2 --to -1 --expect-url x -j)"
 # THE PIN IS MANDATORY, and this is the line that says so. It is the only guard standing
 # between a stale index and a track removed from a queue that dies with its player — an
 # optional one would be missing exactly when it was needed.
-report "--queue-rm demands the pin" 1 "$(rc shell/t-play --queue-rm 2 -j)"
-report "--queue-mv demands the pin" 1 "$(rc shell/t-play --queue-mv 2 --to 1 -j)"
-report "--queue-jump demands the pin" 1 "$(rc shell/t-play --queue-jump 2 -j)"
-report "…and the message names the flag" 0 "$(err_has 'expect-url' shell/t-play --queue-rm 2)"
+report "--queue-rm demands the pin" 1 "$(rc shell/ting-play --queue-rm 2 -j)"
+report "--queue-mv demands the pin" 1 "$(rc shell/ting-play --queue-mv 2 --to 1 -j)"
+report "--queue-jump demands the pin" 1 "$(rc shell/ting-play --queue-jump 2 -j)"
+report "…and the message names the flag" 0 "$(err_has 'expect-url' shell/ting-play --queue-rm 2)"
 # --to belongs to exactly one verb, and --queue-mv cannot do without it: a move with no
 # destination is not a move, and guessing one is how a track lands somewhere nobody asked.
-report "--queue-mv demands --to"   1 "$(rc shell/t-play --queue-mv 2 --expect-url x -j)"
-report "--to is only --queue-mv's" 1 "$(rc shell/t-play --queue-rm 2 --to 1 --expect-url x -j)"
-report "--expect-url is not --queue-show's" 1 "$(rc shell/t-play --queue-show --expect-url x -j)"
-report "--expect-url is not --queue-clear's" 1 "$(rc shell/t-play --queue-clear --expect-url x -j)"
+report "--queue-mv demands --to"   1 "$(rc shell/ting-play --queue-mv 2 --expect-url x -j)"
+report "--to is only --queue-mv's" 1 "$(rc shell/ting-play --queue-rm 2 --to 1 --expect-url x -j)"
+report "--expect-url is not --queue-show's" 1 "$(rc shell/ting-play --queue-show --expect-url x -j)"
+report "--expect-url is not --queue-clear's" 1 "$(rc shell/ting-play --queue-clear --expect-url x -j)"
 # The verbs are mutually exclusive actions like every other one, named in the error.
-report "two queue verbs conflict"  1 "$(rc shell/t-play --queue-show --queue-clear -j)"
+report "two queue verbs conflict"  1 "$(rc shell/ting-play --queue-show --queue-clear -j)"
 # The undo pair. Idle, --undo has no copy to find (4, undo_none), and that 4 is what gives
 # the 1s beside it their teeth; --discard with nothing to drop is 0. What a copy restores
 # needs a real queue and is playback.sh's.
-report "idle --undo is 4, undo_none" 0 "$(jq_ok '.reason=="undo_none"' shell/t-play --undo --owner $$ -j)"
-report "idle --undo --discard is 0"  0 "$(jq_ok '.status=="ok" and .discarded==false' shell/t-play --undo --discard --owner $$ -j)"
-report "--undo needs --owner"        1 "$(rc shell/t-play --undo -j)"
-report "--owner not a number is 1"   1 "$(rc shell/t-play --queue-clear --owner x -j)"
-report "--owner is not --queue-mv's" 1 "$(rc shell/t-play --queue-mv 2 --to 1 --expect-url x --owner $$ -j)"
-report "--discard needs --undo"      1 "$(rc shell/t-play --queue-clear --discard -j)"
-report "--undo takes no --id"        1 "$(rc shell/t-play --undo --owner $$ --id nope -j)"
+report "idle --undo is 4, undo_none" 0 "$(jq_ok '.reason=="undo_none"' shell/ting-play --undo --owner $$ -j)"
+report "idle --undo --discard is 0"  0 "$(jq_ok '.status=="ok" and .discarded==false' shell/ting-play --undo --discard --owner $$ -j)"
+report "--undo needs --owner"        1 "$(rc shell/ting-play --undo -j)"
+report "--owner not a number is 1"   1 "$(rc shell/ting-play --queue-clear --owner x -j)"
+report "--owner is not --queue-mv's" 1 "$(rc shell/ting-play --queue-mv 2 --to 1 --expect-url x --owner $$ -j)"
+report "--discard needs --undo"      1 "$(rc shell/ting-play --queue-clear --discard -j)"
+report "--undo takes no --id"        1 "$(rc shell/ting-play --undo --owner $$ --id nope -j)"
 
 # ── the loop mode, idle. REPEAT is what the player has; playing ON to the next track is a
 # queue, and the two are told apart at the door. --loop and --set-loop are one enum with two
 # spellings, so both are driven — a value that is not off|one never reaches a player (1),
 # and a well-formed one with no player to receive it is the did-not-take-effect class (4).
-report "--loop needs a value"        1 "$(rc shell/t-play --loop)"
-report "--loop bogus is 1"           1 "$(rc shell/t-play --loop bogus -- URL)"
-report "--set-loop bogus is 1"       1 "$(rc shell/t-play --set-loop bogus -j)"
+report "--loop needs a value"        1 "$(rc shell/ting-play --loop)"
+report "--loop bogus is 1"           1 "$(rc shell/ting-play --loop bogus -- URL)"
+report "--set-loop bogus is 1"       1 "$(rc shell/ting-play --set-loop bogus -j)"
 # The value a caller is most likely to reach for, and the one arm whose TEXT is asserted:
 # playing on to the next track is a real feature under a different flag, so the message has
 # to route them to it. A plain "must be off or one" passes the exit code above and fails
 # here, which is what makes the pair worth two lines instead of one.
-report "--loop sequential is 1"      1 "$(rc shell/t-play --loop sequential -- URL)"
-report "…and it names the queue"     0 "$(err_has 'queue' shell/t-play --loop sequential -- URL)"
+report "--loop sequential is 1"      1 "$(rc shell/ting-play --loop sequential -- URL)"
+report "…and it names the queue"     0 "$(err_has 'queue' shell/ting-play --loop sequential -- URL)"
 # The same 1-vs-4 split the socket verbs carry, on the verb that reaches a player's RECORD
 # rather than its socket — so, like --enqueue and --next, it must answer without nc.
-report "idle --set-loop is 4"        4 "$(rc shell/t-play --set-loop one -j)"
-report "idle --set-loop says why"    0 "$(jq_ok '.status=="not_playing"' shell/t-play --set-loop one -j)"
-report "--id on --set-loop parses"   4 "$(rc shell/t-play --set-loop one --id nope -j)"
-report "--set-loop rejects a handle" 1 "$(rc shell/t-play --set-loop one -- URL)"
+report "idle --set-loop is 4"        4 "$(rc shell/ting-play --set-loop one -j)"
+report "idle --set-loop says why"    0 "$(jq_ok '.status=="not_playing"' shell/ting-play --set-loop one -j)"
+report "--id on --set-loop parses"   4 "$(rc shell/ting-play --set-loop one --id nope -j)"
+report "--set-loop rejects a handle" 1 "$(rc shell/ting-play --set-loop one -- URL)"
 # --loop is a LAUNCH modifier: beside a verb that addresses a running player it is a caller
 # who means --set-loop. Both verbs below answer 4 when idle, so a 1 can only have come from
 # the combination gate — the check cannot pass on the idle path by accident. (--start's own
 # pair of lines above has the same shape and is there for the same reason.)
-report "--loop with --pause is 1"    1 "$(rc shell/t-play --loop one --pause -j)"
+report "--loop with --pause is 1"    1 "$(rc shell/ting-play --loop one --pause -j)"
 # --watch is a socket verb and takes their taxonomy whole: nothing to follow is 4 with the
 # same not_playing shape, a stray handle is argv (1). What it streams needs a real player
 # and is playback.sh's.
-report "idle --watch is 4"           4 "$(rc shell/t-play --watch -j)"
-report "idle --watch says why"       0 "$(jq_ok '.status=="not_playing"' shell/t-play --watch -j)"
-report "--id on --watch parses"      4 "$(rc shell/t-play --watch --id nope -j)"
-report "--watch rejects a handle"    1 "$(rc shell/t-play --watch -- URL)"
-report "--loop with --status is 1"   1 "$(rc shell/t-play --loop one --status -j)"
+report "idle --watch is 4"           4 "$(rc shell/ting-play --watch -j)"
+report "idle --watch says why"       0 "$(jq_ok '.status=="not_playing"' shell/ting-play --watch -j)"
+report "--id on --watch parses"      4 "$(rc shell/ting-play --watch --id nope -j)"
+report "--watch rejects a handle"    1 "$(rc shell/ting-play --watch -- URL)"
+report "--loop with --status is 1"   1 "$(rc shell/ting-play --loop one --status -j)"
 
 # The tombstone list itself — a player that died unasked, a normal finish leaving nothing,
 # the cap — is proved where a real player really dies: playback.sh. What an idle machine can
 # say about it is the SHAPE, which every --status caller reads: the key is always there.
 echo "── the death record: contract fields present ───────────────────────"
-report "failed[] always present"   0 "$(jq_ok '.failed|type=="array"' shell/t-play --status -j)"
+report "failed[] always present"   0 "$(jq_ok '.failed|type=="array"' shell/ting-play --status -j)"
 
 echo "── the playlist store: durable state, one file, one lock ──────────"
 # TING_STATE_DIR is exported, and that is the whole reason the knob exists: without it every
@@ -860,12 +860,12 @@ echo "── the playlist store: durable state, one file, one lock ────�
 # for the rest of this file.
 export TING_STATE_DIR
 TING_STATE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/ting-plstore.XXXXXX")
-PL=shell/t-playlist
+PL=shell/ting-playlist
 ENV_JSON='{"status":"ok","engine":"yt","query":"q","count":2,"results":[{"id":"a1","title":"One","url":"https://www.youtube.com/watch?v=a1","channel":"c","duration":213,"duration_fmt":"00h:03m:33s","view_count":5,"live_status":"not_live"},{"id":"a2","title":"Two","url":"https://www.youtube.com/watch?v=a2","channel":"c","duration":null,"duration_fmt":null,"view_count":null,"live_status":"is_live"}]}'
 
 report "empty store: ok, exit 0"      0 "$(jq_ok '.status=="ok" and .count==0 and .playlists==[]' $PL --ls -j)"
 # ── ARCH-cli-contract.md「调用面」's first pipeline, RUN rather than printed:
-#     yt-search -j -n 20 -- "lofi hip hop" | t-playlist --add chill
+#     yt-search -j -n 20 -- "lofi hip hop" | ting-playlist --add chill
 # That block is the one place the suite documents commands COMPOSING, and until now nothing
 # executed a line of it: the storage side had checks, the pipeline did not, so a flag
 # misspelled there, an argument reordered, or a combination that stopped being legal would sit
@@ -873,7 +873,7 @@ report "empty store: ok, exit 0"      0 "$(jq_ok '.status=="ok" and .count==0 an
 # its reader's view; when the two disagree, the doc moves.
 #
 # The left half is a real search, which this hermetic half may not make, so it is a FIXTURE:
-# a search envelope is DATA the real t-playlist really reads, not something that RUNS in
+# a search envelope is DATA the real ting-playlist really reads, not something that RUNS in
 # place of yt-search (CLAUDE.md's testing rules). The right half is the doc's argv verbatim,
 # `-j` and all — prose mode, because that is what the documented line says, and the prose
 # writer is a different exit path from the -j one.
@@ -881,13 +881,13 @@ printf '%s' "$ENV_JSON" | $PL --add chill >/dev/null 2>&1
 report "search envelope | --add: 0"    0 "$?"
 report "a search envelope tags engine" 0 "$(jq_ok '.count==2 and ([.items[].engine]|unique==["yt"])' $PL --show chill -j)"
 # An ITEM carries no engine — the envelope does. An engine tag that survived the store is
-# the only thing that makes a stored record a callable `t-play --engine E -- URL`.
+# the only thing that makes a stored record a callable `ting-play --engine E -- URL`.
 echo '[{"engine":"bili","id":"BV1","url":"https://www.bilibili.com/video/BV1","title":"三","duration":90}]' | $PL --add chill -j >/dev/null 2>&1
 report "an array keeps its own engine"  0 "$(jq_ok '[.items[].engine]|unique==["bili","yt"]' $PL --show chill -j)"
 report "--show is ONE line"             1 "$($PL --show chill -j | wc -l | tr -d ' ')"
 report "duration_fmt derived on read"   0 "$(jq_ok '.items[0].duration_fmt=="00h:03m:33s" and (.items[1].duration_fmt==null)' $PL --show chill -j)"
 # 4, not 1: the argv was well formed and the store had nothing to answer with — the same
-# split t-play makes when --set-volume finds no player. 1 stays for a malformed call.
+# split ting-play makes when --set-volume finds no player. 1 stays for a malformed call.
 report "--show missing: 4, not_found"   4 "$(rc $PL --show nope)"
 report "…and says so in the envelope"   0 "$(jq_ok '.status=="error" and .reason=="not_found"' $PL --show nope -j)"
 report "--rm out of range: 1"           1 "$(rc $PL --rm chill --index 9)"
@@ -905,8 +905,8 @@ report "…with reason exists"            0 "$(jq_ok '.reason=="exists"' $PL --r
 $PL --show mellow -j | $PL --add copy -j >/dev/null 2>&1
 report "a playlist envelope re-adds"    0 "$(jq_ok '.count==2' $PL --show copy -j)"
 # ── ARCH-cli-contract.md「调用面」's last pipeline, minus the player it needs:
-#     t-playlist --show chill -j | t-play --enqueue -
-# "a --show envelope parses" further up proves t-play accepts the SHAPE, but it is a
+#     ting-playlist --show chill -j | ting-play --enqueue -
+# "a --show envelope parses" further up proves ting-play accepts the SHAPE, but it is a
 # hand-written object and so cannot notice --show drifting away from it. This one can: a real
 # --show on the left, the real player's gate on the right. 4 is the whole claim — the payload
 # got past the parser and only a player to receive it was missing. The 1s beside it (bad JSON,
@@ -915,7 +915,7 @@ report "a playlist envelope re-adds"    0 "$(jq_ok '.count==2' $PL --show copy -
 #
 # --enqueue rather than the doc's `-d --queue -` on purpose: --queue would LAUNCH a player and
 # this file starts none. The launch off a real --show envelope is proved in playback.sh.
-report "a real --show reaches the gate" 4 "$($PL --show mellow -j | shell/t-play --enqueue - -j >/dev/null 2>&1; echo $?)"
+report "a real --show reaches the gate" 4 "$($PL --show mellow -j | shell/ting-play --enqueue - -j >/dev/null 2>&1; echo $?)"
 # An unreadable file on disk. Before this, jq's parse error escaped as exit 5 with no
 # envelope at all under -j — the failure yt-search was fixed for, reintroduced in a second
 # command. --show fails (the question was about that list); --ls still answers (the question
@@ -966,7 +966,7 @@ report "a held lock: 4, not 1"          4 "$LOCKED_ST"
 report "…with reason locked"            0 "$(jqv '.reason=="locked"' "$LOCKED")"
 # A lock left by a SIGKILLed writer must not wedge a playlist forever — and must not make the
 # next caller WAIT for it either: staleness is tested on the first failed mkdir, so this is
-# the fast path, not a second 5s spin (shell/t-playlist:lock_playlist). Measured before the
+# the fast path, not a second 5s spin (shell/ting-playlist:lock_playlist). Measured before the
 # reorder: 5.46s. After: 0.10s.
 touch -t 202001010000 "$TING_STATE_DIR/playlists/.lock-race"
 report "a stale lock is stolen"         0 "$(printf '[{"engine":"yt","url":"https://x/z"}]' | $PL --add race -j >/dev/null 2>&1; echo $?)"
@@ -1070,7 +1070,7 @@ echo "── the listening log: append-only, one line, bounded ─────�
 # these checks append to the log of what the user actually listened to, and --clear deletes
 # from it.
 TING_STATE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/ting-histore.XXXXXX")
-HL=shell/t-history
+HL=shell/ting-history
 # A listening is the ITEM record plus the four fields a listening has and a list entry does
 # not. `channel` is in here on purpose: it is the field a caller would carry in by accident,
 # and the row on disk must not have it.
@@ -1099,18 +1099,18 @@ report "-n bounds what is printed"     0 "$(jq_ok '.count==1 and .items[0].id=="
 # that block documents commands COMPOSING, and a documented composition nothing runs is a
 # claim that reports green by default. Both halves here are the real commands; nothing offline
 # about this one is a substitute.
-$HL --ls -n 20 -j | shell/t-playlist --add rediscover >/dev/null 2>&1
-report "--ls feeds t-playlist --add"  0 "$(jq_ok '.count==2 and ([.items[].engine]|unique==["yt"])' shell/t-playlist --show rediscover -j)"
-# …and the fourth pipeline, `t-history --ls -n 20 -j | t-play -d --queue -`, at the SHAPE
+$HL --ls -n 20 -j | shell/ting-playlist --add rediscover >/dev/null 2>&1
+report "--ls feeds ting-playlist --add"  0 "$(jq_ok '.count==2 and ([.items[].engine]|unique==["yt"])' shell/ting-playlist --show rediscover -j)"
+# …and the fourth pipeline, `ting-history --ls -n 20 -j | ting-play -d --queue -`, at the SHAPE
 # level only — --queue launches, and this file starts nothing. A distinct producer from the
 # --show envelope the playlist section pipes in: both land on read_queue_items' `.items` arm,
 # but this one is emitted by a different command, so a --ls that renamed its array or dropped
 # `url` off a row would come back 1 here and nowhere else. What the 4 does NOT say is that the
-# per-item engine tag survived: read_queue_items falls back to t-play's default engine for an
+# per-item engine tag survived: read_queue_items falls back to ting-play's default engine for an
 # untagged item, so both spellings pass this gate. That claim is the store's own
-# ("an unknown key never lands" above reads the row; "--ls feeds t-playlist --add" reads the
+# ("an unknown key never lands" above reads the row; "--ls feeds ting-playlist --add" reads the
 # engine), and it is not restated here.
-report "--ls reaches the queue gate"   4 "$($HL --ls -n 20 -j | shell/t-play --enqueue - -j >/dev/null 2>&1; echo $?)"
+report "--ls reaches the queue gate"   4 "$($HL --ls -n 20 -j | shell/ting-play --enqueue - -j >/dev/null 2>&1; echo $?)"
 
 # THE 4096-BYTE PREMISE. The lock-free append is only atomic while one line fits under
 # PIPE_BUF, so the title is truncated to 200 bytes and the whole row is measured after. A
@@ -1140,7 +1140,7 @@ report "--clear empties the log"       0 "$(jq_ok '.status=="ok"' $HL --clear -j
 # Idempotent, like --stop on a player that already exited: the caller asked for an end state.
 report "--clear on an empty log: 0"    0 "$(jq_ok '.status=="ok" and .removed==0' $HL --clear -j)"
 
-# The gate. Same shape as t-playlist's, and every arm names the command that owns the flag
+# The gate. Same shape as ting-playlist's, and every arm names the command that owns the flag
 # rather than answering "unknown flag" to a caller who reached for a sibling.
 report "two actions at once: 1"        1 "$(rc $HL --ls --clear)"
 report "no action at all: 1"           1 "$(rc $HL -n 5)"
@@ -1262,37 +1262,37 @@ YT_CHANNEL="https://www.youtube.com/@RickAstleyYT/videos"
 YT_BIG="https://www.youtube.com/@TED/videos"
 
 # Shape validation lives in the ENGINE now — the player cannot tell a good id from a bad one.
-report "resolve rejects a non-id" 1 "$(rc shell/t-engine-yt --stream -j -- "not an id")"
-report "resolve rejects -d"       1 "$(rc shell/t-engine-yt --stream -d -- "$MEDIA_ID")"
-report "resolve rejects -n"       1 "$(rc shell/t-engine-yt --stream -n 5 -- "$MEDIA_ID")"
+report "resolve rejects a non-id" 1 "$(rc shell/ting-engine-yt --stream -j -- "not an id")"
+report "resolve rejects -d"       1 "$(rc shell/ting-engine-yt --stream -d -- "$MEDIA_ID")"
+report "resolve rejects -n"       1 "$(rc shell/ting-engine-yt --stream -n 5 -- "$MEDIA_ID")"
 # The read-only verb refuses the two flags that would make it write or play. Asserted on the
 # plain handle, not on the captioned handle the envelope checks use: the gate is decided
 # before the handle is looked at, and that handle's reason to exist (it must HAVE captions)
 # belongs to the live check that needs it.
-report "transcript rejects -f"    1 "$(rc shell/t-play --engine yt --transcript -f audio -- "$MEDIA_ID")"
-report "transcript rejects -d"    1 "$(rc shell/t-play --engine yt --transcript -d -- "$MEDIA_ID")"
-report "t-engine-bili rejects a non-id" 1 "$(rc shell/t-engine-bili --stream -j -- "not an id")"
-report "t-engine-bili rejects audio menu URL" 1 \
-    "$(rc shell/t-engine-bili --stream -j -- "https://www.bilibili.com/audio/am10624")"
-report "t-engine-bili rejects bare am id" 1 \
-    "$(rc shell/t-engine-bili --stream -j -- am10624)"
+report "transcript rejects -f"    1 "$(rc shell/ting-play --engine yt --transcript -f audio -- "$MEDIA_ID")"
+report "transcript rejects -d"    1 "$(rc shell/ting-play --engine yt --transcript -d -- "$MEDIA_ID")"
+report "ting-engine-bili rejects a non-id" 1 "$(rc shell/ting-engine-bili --stream -j -- "not an id")"
+report "ting-engine-bili rejects audio menu URL" 1 \
+    "$(rc shell/ting-engine-bili --stream -j -- "https://www.bilibili.com/audio/am10624")"
+report "ting-engine-bili rejects bare am id" 1 \
+    "$(rc shell/ting-engine-bili --stream -j -- am10624)"
 # Capability differs per engine and is stated, not faked: this site's videos carry no
 # caption track, so the verb is absent rather than always answering "none" — and the refusal
 # says why instead of calling a reasonable expectation an unknown flag.
-report "t-engine-bili has no --transcript" 1 "$(rc shell/t-play --engine bili --transcript -- "$BILI_ID")"
+report "ting-engine-bili has no --transcript" 1 "$(rc shell/ting-play --engine bili --transcript -- "$BILI_ID")"
 report "…and says the site has no captions" 0 \
-    "$(err_has 'no caption track' shell/t-play --engine bili --transcript -- "$BILI_ID")"
+    "$(err_has 'no caption track' shell/ting-play --engine bili --transcript -- "$BILI_ID")"
 # The third engine states its own absence of a DIFFERENT kind: `--transcript` IS here, but the
 # CAPABILITY behind `--sub-lang` is not — one lyric per song, tagged with no language, so there
 # is nothing to choose between and the flag is refused rather than accepted and ignored
 # (ARCH-engine.md「字幕」).
-report "t-engine-ne has no --sub-lang" 1 \
-    "$(rc shell/t-play --engine ne --transcript --sub-lang zh-Hans -- "$NE_LYRIC")"
+report "ting-engine-ne has no --sub-lang" 1 \
+    "$(rc shell/ting-play --engine ne --transcript --sub-lang zh-Hans -- "$NE_LYRIC")"
 
 # A video handle --items cannot turn into an id is refused before a request: a b23.tv short
 # link is a REDIRECT, not a spelling of an id, and the parts endpoints take only an id.
 report "bili --items refuses a short link" 0 \
-    "$(err_has 'redirect, not an id' shell/t-play --engine bili --items -- https://b23.tv/abc)"
+    "$(err_has 'redirect, not an id' shell/ting-play --engine bili --items -- https://b23.tv/abc)"
 
 # --items is the one read-only verb EVERY engine has, so presence is not the discriminator —
 # the per-engine GRAMMAR is, and each of these refusals is a different site's reason.
@@ -1300,41 +1300,41 @@ report "bili --items refuses a short link" 0 \
 # claim (a container verb that had to ask the site whether a handle was a container would
 # cost a request per typo).
 report "--items refuses a video id"     0 \
-    "$(err_has 'not a container' shell/t-play --engine yt --items -- "$MEDIA_ID")"
+    "$(err_has 'not a container' shell/ting-play --engine yt --items -- "$MEDIA_ID")"
 # A MIX IS REFUSED BY NAME, and it is the one shape that stayed refused after channels were let
 # in: a mix is regenerated on every request, so two calls are not two pages of one list and a
 # cursor over it could promise nothing. A channel's uploads measured identical across segmented
 # reads, which is exactly the property that made them admissible.
 report "--items refuses an endless list" 0 \
-    "$(err_has 'no last item' shell/t-play --engine yt --items -- RDdQw4w9WgXcQ)"
+    "$(err_has 'no last item' shell/ting-play --engine yt --items -- RDdQw4w9WgXcQ)"
 report "--items refuses a bare word on bili" 0 \
-    "$(err_has 'not a Bilibili container' shell/t-play --engine bili --items -- notahandle)"
+    "$(err_has 'not a Bilibili container' shell/ting-play --engine bili --items -- notahandle)"
 # A SERIES IS NOT A COLLECTION on this site — different endpoint, same-looking URL — so it is
 # refused by name rather than read with the wrong one and answered with someone else's videos.
 report "--items refuses a bili series"  0 \
-    "$(err_has 'is a series' shell/t-play --engine bili --items -- 'https://space.bilibili.com/946974/lists/12345?type=series')"
+    "$(err_has 'is a series' shell/ting-play --engine bili --items -- 'https://space.bilibili.com/946974/lists/12345?type=series')"
 # The third site's own reason, and it is not fussiness: `song`, `album` and `playlist` ids
 # share no namespace here, so a bare number cannot say what it identifies. The song verb
 # accepts one only because it has already decided what it means.
 report "--items refuses a bare number"  0 \
-    "$(err_has 'does not say what it identifies' shell/t-play --engine ne --items -- "$NE_LYRIC")"
+    "$(err_has 'does not say what it identifies' shell/ting-play --engine ne --items -- "$NE_LYRIC")"
 report "--items refuses a song URL"     0 \
-    "$(err_has 'not an album or playlist' shell/t-play --engine ne --items -- "https://music.163.com/song?id=$NE_LYRIC")"
+    "$(err_has 'not an album or playlist' shell/ting-play --engine ne --items -- "https://music.163.com/song?id=$NE_LYRIC")"
 # The cross-engine half of this — one verb per invocation, a handle required, exactly one —
 # is stated over every DISCOVERED engine, and it lives in the discovery section below where
 # $ENGINES exists.
-report "bili --search rejects -d" 1 "$(rc shell/t-play --engine bili --search -d -- 音乐)"
+report "bili --search rejects -d" 1 "$(rc shell/ting-play --engine bili --search -d -- 音乐)"
 # A mistyped engine must be a USAGE error. If it fell into 2+ an agent would read it as
 # "the tool failed, retry later" and retry a name that will never exist.
-report "unknown engine is usage"  1 "$(rc shell/t-play --engine nope -- "$MEDIA_ID")"
-report "engine name is validated" 1 "$(rc shell/t-play --engine ../evil -- "$MEDIA_ID")"
+report "unknown engine is usage"  1 "$(rc shell/ting-play --engine nope -- "$MEDIA_ID")"
+report "engine name is validated" 1 "$(rc shell/ting-play --engine ../evil -- "$MEDIA_ID")"
 # The quality tier is validated at the door, before any dependency gate: a mistyped tier
 # is a usage error, and a legal one still falls into the gates the handle and the engine
 # own — the tier must not change what a wrong verb is worth (ARCH-cli-contract.md「命令规格」).
-report "t-play rejects a bogus tier"     1 "$(rc shell/t-play --quality ultra -- "$MEDIA_ID")"
-report "t-play --quality needs a handle" 1 "$(rc shell/t-play --quality low)"
-report "t-play --quality keeps the engine gate" 1 \
-    "$(rc shell/t-play --quality low --engine nope -- "$MEDIA_ID")"
+report "ting-play rejects a bogus tier"  1 "$(rc shell/ting-play --quality ultra -- "$MEDIA_ID")"
+report "ting-play --quality needs a handle" 1 "$(rc shell/ting-play --quality low)"
+report "ting-play --quality keeps the engine gate" 1 \
+    "$(rc shell/ting-play --quality low --engine nope -- "$MEDIA_ID")"
 # A bogus SCALAR knob in the user's config dies in ting the same way, naming the key the
 # user actually wrote. Stated over every scalar door rather
 # than the tier that
@@ -1359,7 +1359,7 @@ done
 # keeps every one of them offline, because the host gate answers before yt-dlp is reached.
 VIZ_URL="https://example.com/x"
 viz_says_key() {
-    case "$(env "$1" shell/t-play -f "$2" -- "$VIZ_URL" 2>&1 || true)" in
+    case "$(env "$1" shell/ting-play -f "$2" -- "$VIZ_URL" 2>&1 || true)" in
     *TING_VIZ_STYLE*) echo yes ;;
     *) echo no ;;
     esac
@@ -1373,7 +1373,7 @@ report "TING_VIZ_STYLE: a legal value reaches the handle gate" "no" "$(viz_says_
 report "TING_VIZ_STYLE: silent outside -f viz" "no" "$(viz_says_key TING_VIZ_STYLE=bogus audio)"
 
 viz_says_color_key() {
-    case "$(env "$1" shell/t-play -f "$2" -- "$VIZ_URL" 2>&1 || true)" in
+    case "$(env "$1" shell/ting-play -f "$2" -- "$VIZ_URL" 2>&1 || true)" in
     *TING_VIZ_COLOR*) echo yes ;;
     *) echo no ;;
     esac
@@ -1396,7 +1396,7 @@ report "TING_VIZ_COLOR: silent outside -f viz" "no" "$(viz_says_color_key 'TING_
 VIZCFG="$TING_TEST_TMP/vizcolor.config"
 viz_cfg_says() {
     printf '%s\n' "$1" > "$VIZCFG"
-    case "$(TING_CONFIG="$VIZCFG" shell/t-play -f viz -- "$VIZ_URL" 2>&1 || true)" in
+    case "$(TING_CONFIG="$VIZCFG" shell/ting-play -f viz -- "$VIZ_URL" 2>&1 || true)" in
     *"0xff0000zz"*) echo quoted ;;
     *TING_VIZ_COLOR*) echo other ;;
     *) echo gone ;;
@@ -1419,7 +1419,7 @@ report "…and a #-spelled value never arrives"           "gone" \
 # and "one of these flags is not", and a check that cannot separate them cannot fail. The
 # handle is the check's own — a host no engine claims, which keeps every one of these offline
 # (the engine's host gate answers before yt-dlp is reached; measured at 0.05s) while still
-# proving the call got past t-play entirely. Reaching the ENGINE is the pass, and the engine
+# proving the call got past ting-play entirely. Reaching the ENGINE is the pass, and the engine
 # NAME in the message is what makes the --engine line more than a repeat of the first.
 #
 # LC_ALL is PINNED, and that is not decoration: -f viz refuses a non-UTF-8 locale (tct draws
@@ -1436,32 +1436,32 @@ viz_reaches_engine() { # <engine> <env assignments and argv…> — yes if it go
     local want=$1
     shift
     case "$(env LC_ALL=en_US.UTF-8 http_proxy=$NOPROXY https_proxy=$NOPROXY "$@" 2>&1 </dev/null || true)" in
-    *"t-engine-$want could not resolve"*) echo yes ;;
+    *"ting-engine-$want could not resolve"*) echo yes ;;
     *) echo no ;;
     esac
 }
-report "-f viz: the minimal call"     yes "$(viz_reaches_engine yt shell/t-play -f viz -- "$VIZ_URL")"
+report "-f viz: the minimal call"     yes "$(viz_reaches_engine yt shell/ting-play -f viz -- "$VIZ_URL")"
 # `bars` beside `wave`: the check above proves a legal style is not answered at the door, but
 # it drives one member of a two-member enum, and the default is the OTHER one — so a door that
 # only ever admitted its own default would be green up there and red here.
-report "…TING_VIZ_STYLE=bars, the default" yes "$(viz_reaches_engine yt TING_VIZ_STYLE=bars shell/t-play -f viz -- "$VIZ_URL")"
-report "…with --volume 0"             yes "$(viz_reaches_engine yt shell/t-play -f viz --volume 0 -- "$VIZ_URL")"
+report "…TING_VIZ_STYLE=bars, the default" yes "$(viz_reaches_engine yt TING_VIZ_STYLE=bars shell/ting-play -f viz -- "$VIZ_URL")"
+report "…with --volume 0"             yes "$(viz_reaches_engine yt shell/ting-play -f viz --volume 0 -- "$VIZ_URL")"
 # Three flags at once, which is the line most likely to rot: --start and --quality each have a
 # value gate of their own and each is checked alone above, but nothing had ever given both to
 # a MODE whose own gate refuses -d and --queue. A combination gate that grew one arm too wide
 # is exactly what this catches, and it is invisible to any single-flag check.
-report "…with --start 90 --quality low" yes "$(viz_reaches_engine yt shell/t-play -f viz --start 90 --quality low -- "$VIZ_URL")"
+report "…with --start 90 --quality low" yes "$(viz_reaches_engine yt shell/ting-play -f viz --start 90 --quality low -- "$VIZ_URL")"
 # The mode is engine-agnostic — it is the player's, not a site's — so the same -f viz has to
 # survive being pointed at the other engine. The name in the message is the assertion: a
 # --engine that was parsed and then dropped would come back naming `yt`.
-report "…and --engine bili keeps it"  yes "$(viz_reaches_engine bili shell/t-play --engine bili -f viz -- "$VIZ_URL")"
-report "…with --viz-color magenta"     yes "$(viz_reaches_engine yt shell/t-play --viz-color magenta -f viz -- "$VIZ_URL")"
-report "…with bogus --viz-color is 1"  1 "$(rc shell/t-play --viz-color 'bad color!' -f viz -- "$VIZ_URL")"
+report "…and --engine bili keeps it"  yes "$(viz_reaches_engine bili shell/ting-play --engine bili -f viz -- "$VIZ_URL")"
+report "…with --viz-color magenta"     yes "$(viz_reaches_engine yt shell/ting-play --viz-color magenta -f viz -- "$VIZ_URL")"
+report "…with bogus --viz-color is 1"  1 "$(rc shell/ting-play --viz-color 'bad color!' -f viz -- "$VIZ_URL")"
 # URL auto-sniffing when --engine is omitted:
-report "…auto-routes bili URL to bili"   yes "$(viz_reaches_engine bili shell/t-play -f viz -- "https://www.bilibili.com/video/BV0000000000")"
-report "…auto-routes netease URL to ne"  yes "$(viz_reaches_engine ne shell/t-play -f viz -- "https://music.163.com/song?id=000000")"
-report "…auto-routes youtube URL to yt"  yes "$(viz_reaches_engine yt shell/t-play -f viz -- "https://www.youtube.com/watch?v=00000000000")"
-report "…explicit --engine overrides"    yes "$(viz_reaches_engine yt shell/t-play --engine yt -f viz -- "https://www.bilibili.com/video/BV0000000000")"
+report "…auto-routes bili URL to bili"   yes "$(viz_reaches_engine bili shell/ting-play -f viz -- "https://www.bilibili.com/video/BV0000000000")"
+report "…auto-routes netease URL to ne"  yes "$(viz_reaches_engine ne shell/ting-play -f viz -- "https://music.163.com/song?id=000000")"
+report "…auto-routes youtube URL to yt"  yes "$(viz_reaches_engine yt shell/ting-play -f viz -- "https://www.youtube.com/watch?v=00000000000")"
+report "…explicit --engine overrides"    yes "$(viz_reaches_engine yt shell/ting-play --engine yt -f viz -- "https://www.bilibili.com/video/BV0000000000")"
 
 # THE TERMINAL-RENDERING MODES CANNOT DETACH, and the refusal is a usage error, not a
 # tool failure — an agent reading 2+ would retry a combination that can never work. Stated
@@ -1470,15 +1470,15 @@ report "…explicit --engine overrides"    yes "$(viz_reaches_engine yt shell/t-
 # The queue is the same claim from the other side: it STARTS a detached player, so it
 # inherits the same impossibility without naming a mode at all.
 for _m in ascii viz; do
-    report "-d refuses -f $_m" 1 "$(rc shell/t-play -d -f "$_m" -- "$VIZ_URL")"
-    report "--queue refuses -f $_m" 1 "$(rc_in '[]' shell/t-play -f "$_m" --queue - )"
+    report "-d refuses -f $_m" 1 "$(rc shell/ting-play -d -f "$_m" -- "$VIZ_URL")"
+    report "--queue refuses -f $_m" 1 "$(rc_in '[]' shell/ting-play -f "$_m" --queue - )"
     # The third arm, and it was missing until 2026-09-01: -j captures the player's whole
     # stdout to emit one envelope, and stdout is where tct draws — so `-f viz -j` used to be
     # ACCEPTED, run the track to its end, and answer with a success-shaped envelope having
     # drawn nothing. The suite's only silent trap, and silent is why it had no check: an
     # unresolvable handle under -j also exits 1, so the exit code cannot separate "refused the
     # combination" from "could not resolve". The claim is the MESSAGE, like both siblings.
-    case "$(shell/t-play -j -f "$_m" -- "$VIZ_URL" </dev/null 2>&1 || true)" in
+    case "$(shell/ting-play -j -f "$_m" -- "$VIZ_URL" </dev/null 2>&1 || true)" in
     *"-j cannot use -f $_m"*) _jhit=yes ;;
     *) _jhit=no ;;
     esac
@@ -1494,7 +1494,7 @@ for _m in ascii viz; do
     # shell). Its partner is viz_reaches_engine above, which pins a UTF-8 locale and asserts
     # the call goes THROUGH — a gate that fired unconditionally would be green here and red
     # there, so neither check alone can pass by accident.
-    case "$(env LC_ALL=C shell/t-play -f "$_m" -- "$VIZ_URL" </dev/null 2>&1 || true)" in
+    case "$(env LC_ALL=C shell/ting-play -f "$_m" -- "$VIZ_URL" </dev/null 2>&1 || true)" in
     *"needs a UTF-8 locale"*) _lhit=yes ;;
     *) _lhit=no ;;
     esac
@@ -1526,11 +1526,11 @@ sock_tmpdir() { # <total socket path bytes> — a TMPDIR under this run's scratc
     while [ "${#d}" -lt "$want" ]; do d="${d}s"; done
     printf '%s' "$d"
 }
-sock_gate() { # <total bytes> <extra t-play args…> — which gate answered
+sock_gate() { # <total bytes> <extra ting-play args…> — which gate answered
     local d
     d=$(sock_tmpdir "$1")
     shift
-    case "$(env TMPDIR="$d" shell/t-play -d "$@" --engine yt -- dQw4w9WgXcQ </dev/null 2>&1 || true)" in
+    case "$(env TMPDIR="$d" shell/ting-play -d "$@" --engine yt -- dQw4w9WgXcQ </dev/null 2>&1 || true)" in
     *"control socket"*) echo socket ;;
     *"no terminal to render"*) echo mode ;;
     *) echo other ;;
@@ -1539,7 +1539,7 @@ sock_gate() { # <total bytes> <extra t-play args…> — which gate answered
 report "-d: a socket path at the limit passes" mode   "$(sock_gate "$_sk_max" -f ascii)"
 report "…one byte past it is refused"          socket "$(sock_gate "$((_sk_max + 1))" -f ascii)"
 report "…with exit 1"                          1 \
-    "$(rc env TMPDIR="$(sock_tmpdir "$((_sk_max + 1))")" shell/t-play -d -j --engine yt -- dQw4w9WgXcQ)"
+    "$(rc env TMPDIR="$(sock_tmpdir "$((_sk_max + 1))")" shell/ting-play -d -j --engine yt -- dQw4w9WgXcQ)"
 
 # ── THE ORDER OF `ting`'s TWO GATES, and ARCH-tui.md「调用面」's worked calls, which are
 # the same check from two sides. That doc states the order as a fact — the flag gate answers
@@ -1574,14 +1574,14 @@ report "…chrome args"               tty "$(ting_gate TING_LANG=zh shell/ting -
 # ── WHERE A THIRD-PARTY ENGINE MAY LIVE: three places, one order. `ting` once scanned PATH
 # only when the sibling glob came up empty, which made the one situation an installed
 # third-party engine can actually be in — a checkout carrying yt/bili/ne, the new engine
-# somewhere else — unreachable: the TUI offered three sources while `t-play --engine` happily
-# played a fourth. The rule now lives in ONE place, `t-play --engines`, and `ting` reads it.
+# somewhere else — unreachable: the TUI offered three sources while `ting-play --engine` happily
+# played a fourth. The rule now lives in ONE place, `ting-play --engines`, and `ting` reads it.
 # ARCH-cli-contract.md「加一个引擎 —— 清单」's last item states the claim.
 #
 # What is put in each place is the REAL yt engine reached under a second name: the variables
 # under test are its LOCATION and the name it answers to, and nothing runs in PLACE of an
 # engine (CLAUDE.md's testing rules). A fourth name is what the condition needs — a symlink
-# called `t-engine-yt` would be deduplicated against the sibling copy and prove nothing.
+# called `ting-engine-yt` would be deduplicated against the sibling copy and prove nothing.
 #
 # Asked of BOTH faces. The TUI's registry is read out of its --engine gate — a name it does not
 # have comes back as "must be one of: <the registry, in discovery order>" — so the checks hold
@@ -1590,14 +1590,14 @@ engine_list() { # <env assignments and argv…> — the TUI's registry, in disco
     env "$@" shell/ting --engine zzz-none q </dev/null 2>&1 | sed -n 's/.*must be one of: //p'
 }
 engines_verb() { # <env assignments…> — the verb's names, in its order
-    env "$@" shell/t-play --engines -j 2>/dev/null | jq -r '[.engines[].name] | join(" ")' 2>/dev/null
+    env "$@" shell/ting-play --engines -j 2>/dev/null | jq -r '[.engines[].name] | join(" ")' 2>/dev/null
 }
 PLUG=$TING_TEST_TMP/plugin-engines
 PATH_ENG=$TING_TEST_TMP/path-engines
 XDG_HOME=$TING_TEST_TMP/xdg-data
 mkdir -p "$PLUG" "$PATH_ENG" "$XDG_HOME/ting/engines"
 for _d in "$PLUG" "$PATH_ENG" "$XDG_HOME/ting/engines"; do
-    ln -sf "$PWD/shell/t-engine-yt" "$_d/t-engine-zz"
+    ln -sf "$PWD/shell/ting-engine-yt" "$_d/ting-engine-zz"
 done
 SIBLINGS=$(engines_verb)
 report "the checkout's own engines are the registry" "bili ne yt" "$SIBLINGS"
@@ -1609,13 +1609,13 @@ report "…and its default chains through XDG_DATA_HOME" "$SIBLINGS zz" \
     "$(engines_verb XDG_DATA_HOME="$XDG_HOME")"
 # PRECEDENCE, which only the ORDER can state: the same name in the plugin dir does not appear
 # twice and does not move to the front, so the built-in is what runs. A plugin directory is
-# reachable by anything that can write one directory; letting it replace `t-engine-yt` would
+# reachable by anything that can write one directory; letting it replace `ting-engine-yt` would
 # make "which yt am I running" unanswerable.
-ln -sf "$PWD/shell/t-engine-yt" "$PLUG/t-engine-yt"
+ln -sf "$PWD/shell/ting-engine-yt" "$PLUG/ting-engine-yt"
 report "a plugin cannot shadow a built-in" "$SIBLINGS zz" "$(engines_verb TING_ENGINE_DIR="$PLUG")"
 # A name the player would refuse as --engine is not listed, even when the file is a real
 # engine: listing a source the player then refuses is the disagreement the verb exists to end.
-ln -sf "$PWD/shell/t-engine-yt" "$PLUG/t-engine-Bad"
+ln -sf "$PWD/shell/ting-engine-yt" "$PLUG/ting-engine-Bad"
 report "…and a name --engine refuses is not one" "$SIBLINGS zz" "$(engines_verb TING_ENGINE_DIR="$PLUG")"
 # TING_ENGINE_DIR IS REFUSED FROM A CONFIG FILE, and this is the check that says why the name
 # is on that list at all: it points at a directory of EXECUTABLES the suite runs, so a file
@@ -1630,22 +1630,22 @@ _eng_agree=0
 for _env in "" "PATH=$PATH_ENG:$PATH" "TING_ENGINE_DIR=$PLUG" "XDG_DATA_HOME=$XDG_HOME" "TING_CONFIG=$ENGCFG"; do
     [ "$(engines_verb $_env)" = "$(engine_list $_env shell/ting)" ] && _eng_agree=$((_eng_agree + 1))
 done
-report "ting's registry is t-play --engines" 5 "$_eng_agree"
+report "ting's registry is ting-play --engines" 5 "$_eng_agree"
 # THE PLAYER finds by the same three places: an engine that was FOUND gets as far as the host
 # gate, one that was not names the places it looked. Both exit 1.
 report "the player finds a plugin engine"  yes \
-    "$(viz_reaches_engine zz TING_ENGINE_DIR="$PLUG" shell/t-play --engine zz -- "$VIZ_URL")"
+    "$(viz_reaches_engine zz TING_ENGINE_DIR="$PLUG" shell/ting-play --engine zz -- "$VIZ_URL")"
 report "…by the same XDG default"          yes \
-    "$(viz_reaches_engine zz XDG_DATA_HOME="$XDG_HOME" shell/t-play --engine zz -- "$VIZ_URL")"
+    "$(viz_reaches_engine zz XDG_DATA_HOME="$XDG_HOME" shell/ting-play --engine zz -- "$VIZ_URL")"
 report "…and a config file cannot aim it"  no \
-    "$(viz_reaches_engine zz TING_CONFIG="$ENGCFG" shell/t-play --engine zz -- "$VIZ_URL")"
+    "$(viz_reaches_engine zz TING_CONFIG="$ENGCFG" shell/ting-play --engine zz -- "$VIZ_URL")"
 # …and forwards by them: an engine verb asked of the plugin engine reaches it.
 report "an engine verb reaches a plugin engine" 0 \
-    "$(jq_ok '.status=="ok"' env TING_ENGINE_DIR="$PLUG" shell/t-play --engine zz --auth -j)"
+    "$(jq_ok '.status=="ok"' env TING_ENGINE_DIR="$PLUG" shell/ting-play --engine zz --auth -j)"
 # The path is what a call would RUN. With `yt` in the plugin dir too (the shadow case), the
 # built-in copy is the one named; `zz` exists only in the plugin dir and is named there.
-_eng_paths=$(env TING_ENGINE_DIR="$PLUG" shell/t-play --engines -j 2>/dev/null)
-report "…naming the file a call would run" "$PWD/shell/t-engine-yt $PLUG/t-engine-zz" \
+_eng_paths=$(env TING_ENGINE_DIR="$PLUG" shell/ting-play --engines -j 2>/dev/null)
+report "…naming the file a call would run" "$PWD/shell/ting-engine-yt $PLUG/ting-engine-zz" \
     "$(printf '%s' "$_eng_paths" | jq -r '[(.engines[] | select(.name=="yt") | .bin),
                                           (.engines[] | select(.name=="zz") | .bin)] | join(" ")')"
 # …and each listed engine's flags are that file's own answer, copied, not rebuilt.
@@ -1658,34 +1658,34 @@ for _n in $(printf '%s' "$_eng_paths" | jq -r '.engines[].name'); do
       "$("$_b" --capabilities -j 2>/dev/null | jq -c '.flags')" ] && _eng_run=$((_eng_run + 1))
 done
 report "…with the flags that engine states" "$_eng_n" "$_eng_run"
-report "--engines refuses --engine"    1 "$(rc shell/t-play --engines --engine yt -j)"
-report "…a positional argument"        1 "$(rc shell/t-play --engines -j -- yt)"
-report "…and a second verb"            1 "$(rc shell/t-play --engines --status -j)"
+report "--engines refuses --engine"    1 "$(rc shell/ting-play --engines --engine yt -j)"
+report "…a positional argument"        1 "$(rc shell/ting-play --engines -j -- yt)"
+report "…and a second verb"            1 "$(rc shell/ting-play --engines --status -j)"
 
 # One engine, one site. `yt-resolve` used to accept ANY http(s) URL and hand it to yt-dlp,
 # which supports 1700+ sites — so a Bilibili URL resolved fine and came back labelled
 # `engine:"yt"`. It WORKED, which is why it went unnoticed, and it made the one field whose
 # job is routing a result back to its resolver into a field that lies.
 #
-# Engine-DISCOVERED, not hardcoded: an engine is a `t-engine-<name>` file, the convention
-# `t-play --engines` lists by, so a fourth engine is covered the day its file lands rather
+# Engine-DISCOVERED, not hardcoded: an engine is a `ting-engine-<name>` file, the convention
+# `ting-play --engines` lists by, so a fourth engine is covered the day its file lands rather
 # than when someone remembers to add it here. And the claim is stated as an invariant over ALL
 # engines, needing no table of who owns what — which is why it cannot drift from the engines
 # themselves. Every host-gate function is written per engine, so a check that drove only one
 # engine would be green while the other copies said nothing.
 ENGINES=""
-for f in shell/t-engine-*; do
-    [ -x "$f" ] && ENGINES="$ENGINES ${f##*/t-engine-}"
+for f in shell/ting-engine-*; do
+    [ -x "$f" ] && ENGINES="$ENGINES ${f##*/ting-engine-}"
 done
 NENG=$(echo "$ENGINES" | wc -w | tr -d ' ')
-# How each engine is reached, as a command prefix. The PUBLIC verbs go through t-play, the one
+# How each engine is reached, as a command prefix. The PUBLIC verbs go through ting-play, the one
 # entry, so every check on them also holds the forward; the INTERNAL ones (--stream, which the
 # player calls, and --capabilities, which the registry asks) are driven on the file itself.
 # Used unquoted, so the words split off; no path here holds a space.
-search_cmd() { echo "shell/t-play --search --engine $1"; }
-verb_cmd() { echo "shell/t-play --engine $1"; }
-stream_cmd() { echo "shell/t-engine-$1 --stream"; }
-caps_cmd() { echo "shell/t-engine-$1 --capabilities"; }
+search_cmd() { echo "shell/ting-play --search --engine $1"; }
+verb_cmd() { echo "shell/ting-play --engine $1"; }
+stream_cmd() { echo "shell/ting-engine-$1 --stream"; }
+caps_cmd() { echo "shell/ting-engine-$1 --capabilities"; }
 # >= 2, not == 2: this section's whole premise is that engine #4 is covered the day its file
 # lands, and a hardcoded count is the one line that would go red on exactly that day. What it
 # has to rule out is NENG=0, which would make every `refusals` check below pass vacuously.
@@ -1732,8 +1732,8 @@ for n in $ENGINES; do
 done
 report "every --cursor needs --items and one token shape" "$NENG" "$_cursor_gate"
 
-# --capabilities: what each engine accepts through t-play, as one envelope. It is the INTERNAL
-# question `t-play --engines` asks (ARCH-cli-contract.md「命令规格」), so it is driven on the
+# --capabilities: what each engine accepts through ting-play, as one envelope. It is the INTERNAL
+# question `ting-play --engines` asks (ARCH-cli-contract.md「命令规格」), so it is driven on the
 # file. Stated over every discovered engine, so engine #4 is covered the day it lands.
 _caps_env=0
 for n in $ENGINES; do
@@ -1757,16 +1757,16 @@ report "every engine answers --capabilities -j" "$NENG" "$_caps_env"
 # A flag this engine leaves out must be refused before the host gate. The handle is one no
 # engine claims, so a flag that was accepted after all is caught when the call gets through to
 # the host gate's own sentence. Checking for refusal rather than for the unknown-flag wording
-# keeps a friendlier named refusal legal (t-engine-bili --transcript explains that the site
+# keeps a friendlier named refusal legal (ting-engine-bili --transcript explains that the site
 # carries no captions).
 #
-# And the internal verbs work and are not advertised: the list is what a caller of t-play can
+# And the internal verbs work and are not advertised: the list is what a caller of ting-play can
 # ask for.
 _vocab=$(for n in $ENGINES; do $(caps_cmd "$n") -j 2>/dev/null | jq -r '.flags[]'; done | sort -u)
 _caps_true=0
 _caps_true_n=0
 for n in $ENGINES; do
-    _e=shell/t-engine-$n
+    _e=shell/ting-engine-$n
     _mine=" $($(caps_cmd "$n") -j 2>/dev/null | jq -r '.flags | join(" ")') "
     for _f in $_vocab; do
         _caps_true_n=$((_caps_true_n + 1))
@@ -1834,10 +1834,10 @@ done
 report "every --capabilities -j needs no jq, curl or yt-dlp" "$NENG" "$_caps_nod"
 # The player's registry verb is asked the same question for the same reason: it is what a
 # caller runs before it knows what to run — and its flags must survive the missing jq too.
-_eng_nojq=$(env "PATH=$CAPS_BIN" shell/t-play --engines -j 2>/dev/null) || _eng_nojq=""
-report "t-play --engines -j needs no jq" "$(echo $ENGINES)" \
+_eng_nojq=$(env "PATH=$CAPS_BIN" shell/ting-play --engines -j 2>/dev/null) || _eng_nojq=""
+report "ting-play --engines -j needs no jq" "$(echo $ENGINES)" \
     "$(printf '%s' "$_eng_nojq" | jq -r '[.engines[] | select(.flags | index("--search")) | .name] | join(" ")' 2>/dev/null)"
-# THE FORWARD HAPPENS BEFORE EVERY GATE OF t-play's OWN: searching must not need mpv, and an
+# THE FORWARD HAPPENS BEFORE EVERY GATE OF ting-play's OWN: searching must not need mpv, and an
 # engine verb must not need anything the player gates for itself. --auth in prose needs
 # nothing but the engine, so a PATH with no mpv and no jq is the discriminating input — a
 # forward placed after require_deps answers 2 here.
@@ -1846,12 +1846,12 @@ for n in $ENGINES; do
     [ "$(env "PATH=$CAPS_BIN" $(verb_cmd "$n") --auth >/dev/null 2>&1; echo $?)" = 0 ] &&
         _fwd_nod=$((_fwd_nod + 1))
 done
-report "an engine verb through t-play needs no mpv or jq" "$NENG" "$_fwd_nod"
+report "an engine verb through ting-play needs no mpv or jq" "$NENG" "$_fwd_nod"
 # Without --engine, a URL routes to the engine that claims its host, exactly as a play does.
-# The discriminating input is a Bilibili short link: t-engine-bili refuses it by name (a b23.tv
+# The discriminating input is a Bilibili short link: ting-engine-bili refuses it by name (a b23.tv
 # link is a redirect, not an id) while the default engine would answer something else.
 report "a URL picks its engine for an engine verb" 0 \
-    "$(err_has 'redirect, not an id' shell/t-play --items -- https://b23.tv/abc)"
+    "$(err_has 'redirect, not an id' shell/ting-play --items -- https://b23.tv/abc)"
 
 # THE READ-ONLY VERBS ARE HELD TO THE SAME RULE. `--info`, `--transcript` and `--items` resolve
 # no stream, so both stream flags are values they cannot act on.
@@ -1906,7 +1906,7 @@ report "every read-only verb refuses a stream flag" "$_ro_n" "$_ro"
 # The message is the discriminator, and it is the host gate's own sentence — engine-agnostic on
 # purpose, so another engine's copy matches it the day its file lands. An engine that does not
 # accept the verb answers `unknown flag '<verb>' (flags: …)` and goes red here while its exit
-# code stays exactly 1. Driven through t-play, so it also holds the documented public line.
+# code stays exactly 1. Driven through ting-play, so it also holds the documented public line.
 #
 # What neither check catches, stated so nobody reads more into the count: a verb DELETED from
 # one engine. Discovery adapts — the case simply stops being generated — and pinning it would
@@ -2070,8 +2070,8 @@ done
 # same dead proxy a gate that ACCEPTS this host reaches the transport and fails 2, and a gate
 # that dropped it dies at 1 without one. Extraction itself is proved on the canonical URL
 # form by the resolve envelope, live, in the half below.
-report "t-engine-yt still takes youtu.be" 1 \
-    "$([ "$(http_proxy=$NOPROXY https_proxy=$NOPROXY rc shell/t-engine-yt --stream -j -- https://youtu.be/$MEDIA_ID)" != 1 ] && echo 1 || echo 0)"
+report "ting-engine-yt still takes youtu.be" 1 \
+    "$([ "$(http_proxy=$NOPROXY https_proxy=$NOPROXY rc shell/ting-engine-yt --stream -j -- https://youtu.be/$MEDIA_ID)" != 1 ] && echo 1 || echo 0)"
 
 # ── ONE SONG, FOUR SPELLINGS, ONE CANONICAL URL ────────────────────────────────────────────
 # Every handle grammar in this suite is per-engine and duplicated (each `normalize_target` is
@@ -2084,7 +2084,7 @@ report "t-engine-yt still takes youtu.be" 1 \
 # plain URL, the desktop app's single-page route (the id lives in a FRAGMENT there, invisible
 # to a query parser), the mobile share host, and the bare number — and all four must
 # canonicalise to the one string `ne-search` puts in results[].url. They must, because
-# `t-playlist --add` stores that string: two spellings of one track that do not collapse are
+# `ting-playlist --add` stores that string: two spellings of one track that do not collapse are
 # two rows in a playlist and two rows in the listening log.
 #
 # It cannot pass vacuously — an engine that passed the typed handle through would answer four
@@ -2095,7 +2095,7 @@ for h in "$NE_CANON" \
          'https://music.163.com/#/song?id=1824020871' \
          'https://y.music.163.com/m/song?id=1824020871' \
          '1824020871'; do
-    [ "$(http_proxy=$NOPROXY https_proxy=$NOPROXY shell/t-engine-ne --stream -j -- "$h" 2>/dev/null |
+    [ "$(http_proxy=$NOPROXY https_proxy=$NOPROXY shell/ting-engine-ne --stream -j -- "$h" 2>/dev/null |
          jq -r '.url' 2>/dev/null)" = "$NE_CANON" ] && _nec=$((_nec + 1))
 done
 report "ne: four spellings, one canonical url" 4 "$_nec"
@@ -2112,7 +2112,7 @@ for h in 'https://music.163.com/artist?id=6452' \
          'https://music.163.com/song' \
          'notanid' \
          '-'; do
-    [ "$(http_proxy=$NOPROXY https_proxy=$NOPROXY rc shell/t-engine-ne --stream -j -- "$h")" = 1 ] &&
+    [ "$(http_proxy=$NOPROXY https_proxy=$NOPROXY rc shell/ting-engine-ne --stream -j -- "$h")" = 1 ] &&
         _ner=$((_ner + 1))
 done
 report "ne refuses a non-song handle" 4 "$_ner"
@@ -2132,7 +2132,7 @@ echo "── --items on a video: the offline gate ──────────
 # is WHO SPOKE: the gate names the tool it wanted, a dead transport never does. So the value
 # compared is the code AND the shape of the message — one run, both facts.
 _parts_err=$(env "PATH=$NODEP_PATH" "http_proxy=$NOPROXY" "https_proxy=$NOPROXY" \
-    shell/t-play --engine bili --items -j -- "$BILI_ID" 2>&1 >/dev/null)
+    shell/ting-play --engine bili --items -j -- "$BILI_ID" 2>&1 >/dev/null)
 _parts_rc=$?
 case "$_parts_err" in
 *'required command not found'*) _parts_who=gate ;;
@@ -2157,26 +2157,26 @@ CFG="$CFGD/config"
 printf 'TING_DEFAULT_ENGINE=cfgwins\n' > "$CFG"
 eng() { TING_CONFIG="$CFG" "$@" 2>&1 | sed -n "s/.*unknown engine '\([^']*\)'.*/\1/p"; }
 report "config file sets the default engine" "cfgwins" \
-    "$(eng shell/t-play -- https://x/y)"
+    "$(eng shell/ting-play -- https://x/y)"
 report "environment beats the config file" "envwins" \
-    "$(TING_DEFAULT_ENGINE=envwins eng shell/t-play -- https://x/y)"
+    "$(TING_DEFAULT_ENGINE=envwins eng shell/ting-play -- https://x/y)"
 report "TING_DEFAULT_ENGINE environment works" "envwins" \
-    "$(TING_DEFAULT_ENGINE=envwins eng shell/t-play -- https://x/y)"
+    "$(TING_DEFAULT_ENGINE=envwins eng shell/ting-play -- https://x/y)"
 report "the flag beats both" "flagwins" \
-    "$(TING_DEFAULT_ENGINE=envwins eng shell/t-play --engine flagwins -- https://x/y)"
+    "$(TING_DEFAULT_ENGINE=envwins eng shell/ting-play --engine flagwins -- https://x/y)"
 
 printf 'TING_DEFAULT_ENGINE=tingcfg\n' > "$CFG"
 report "a TING_ key in the config file is read" "tingcfg" \
-    "$(eng shell/t-play -- https://x/y)"
+    "$(eng shell/ting-play -- https://x/y)"
 report "…and the environment still beats it" "envwins" \
-    "$(TING_DEFAULT_ENGINE=envwins eng shell/t-play -- https://x/y)"
+    "$(TING_DEFAULT_ENGINE=envwins eng shell/ting-play -- https://x/y)"
 
 # TING_CONFIG says WHICH FILE is read, so a file cannot set it; the environment moves it.
 CFG_TING="$CFGD/relocated"
 printf 'TING_DEFAULT_ENGINE=relocated\n' > "$CFG_TING"
 engv() { "$@" 2>&1 | sed -n "s/.*unknown engine '\([^']*\)'.*/\1/p"; }
 report "TING_CONFIG relocates the file" "relocated" \
-    "$(TING_CONFIG="$CFG_TING" engv shell/t-play -- https://x/y)"
+    "$(TING_CONFIG="$CFG_TING" engv shell/ting-play -- https://x/y)"
 printf 'TING_DEFAULT_ENGINE=cfgwins\n' > "$CFG"
 
 # THE SECURITY BOUNDARY, and the reason the file is read as data instead of sourced. A config
@@ -2185,11 +2185,11 @@ printf 'TING_DEFAULT_ENGINE=cfgwins\n' > "$CFG"
 # the file cannot name anything outside the suite's own namespaces.
 printf 'PATH=/nonexistent\nLD_PRELOAD=/evil.so\nlowercase_key=x\nTING_INJECT=$(touch %s/PWNED)\n' \
     "$CFGD" > "$CFG"
-# Asserted through a command that NEEDS its PATH after the file is read: `t-play --status -j`
+# Asserted through a command that NEEDS its PATH after the file is read: `ting-play --status -j`
 # runs jq, so a PATH=/nonexistent that got through would fail it. `ting --version` could not
 # — it answers from a builtin printf, and was green whether the key was inert or not.
 report "a config key outside TING_ is inert" "0" \
-    "$(TING_CONFIG="$CFG" rc shell/t-play --status -j)"
+    "$(TING_CONFIG="$CFG" rc shell/ting-play --status -j)"
 report "command substitution is never executed" "absent" \
     "$([ -e "$CFGD/PWNED" ] && echo present || echo absent)"
 
@@ -2237,9 +2237,9 @@ report "…and that set really holds names" "yes" "$THEME_SET_OK"
 # shape of a half-installed checkout.
 CFG_BROKE="$CFGD/broke"
 mkdir -p "$CFG_BROKE/shell"
-cp shell/t-play "$CFG_BROKE/shell/" && echo 0.0.0 > "$CFG_BROKE/VERSION"
-report "no shipped defaults exits 2" "2" "$(rc "$CFG_BROKE/shell/t-play" --version)"
-CFG_OUT=$("$CFG_BROKE/shell/t-play" --version 2>&1 || true)
+cp shell/ting-play "$CFG_BROKE/shell/" && echo 0.0.0 > "$CFG_BROKE/VERSION"
+report "no shipped defaults exits 2" "2" "$(rc "$CFG_BROKE/shell/ting-play" --version)"
+CFG_OUT=$("$CFG_BROKE/shell/ting-play" --version 2>&1 || true)
 case "$CFG_OUT" in
 *"cannot read the shipped defaults"*) CFG_HIT=yes ;;
 *) CFG_HIT=no ;;
@@ -2353,14 +2353,14 @@ ck() { local h=$1; shift
        HOME="$CK_BASE/$h" TING_COOKIE_BROWSER=chrome \
            http_proxy=$NOPROXY https_proxy=$NOPROXY "$@" 2>"$CK_ERR" | jq -r '.reason // "none"' 2>/dev/null; }
 ck_said() { grep -c "$1" "$CK_ERR" 2>/dev/null | awk '{print ($1 > 0) ? 1 : 0}'; }
-report "search retries without an unreadable store" network "$(ck missing shell/t-play --engine yt --search -j -n 3 -- lofi)"
+report "search retries without an unreadable store" network "$(ck missing shell/ting-play --engine yt --search -j -n 3 -- lofi)"
 report "…and says the store is missing, and the fix" 1 "$(ck_said 'no chrome cookies: chrome has no cookie database - sign in')"
-report "--info retries without it too" network "$(ck missing shell/t-play --engine yt --info -j -- "$YT_WATCH")"
+report "--info retries without it too" network "$(ck missing shell/ting-play --engine yt --info -j -- "$YT_WATCH")"
 # The permission twin reaches the classifier as a raw OS error on the cookie file, not as
 # "could not find" — so it is driven through the OTHER wrapped call site, and the pair covers
 # both call sites and both wordings with one launch each.
 report "--transcript retries on a cookie file it may not open" network \
-    "$(ck denied shell/t-play --engine yt --transcript -j -- "$YT_WATCH")"
+    "$(ck denied shell/ting-play --engine yt --transcript -j -- "$YT_WATCH")"
 report "…and names the error and the file" 1 "$(ck_said 'no chrome cookies: Permission denied reading ')"
 # The probe, the diagnosis and the wrapper are COPIED into every engine that reads cookies
 # (site knowledge stays per engine), so each copy is driven, not only yt's: its own --info
@@ -2371,7 +2371,7 @@ for n in bili ne; do
     ne) CK_URL="https://music.163.com/song?id=1824020871" ;;
     esac
     report "$n --info retries without the store" network "$(ck missing $(verb_cmd "$n") --info -j -- "$CK_URL")"
-    report "…and t-engine-$n says why" 1 "$(ck_said "^t-engine-$n: no chrome cookies: ")"
+    report "…and ting-engine-$n says why" 1 "$(ck_said "^ting-engine-$n: no chrome cookies: ")"
 done
 # --auth: the decision was always `cookie` whenever the folder existed; the new field is
 # whether the store can be read, in both directions so an always-false field fails too —
@@ -2504,44 +2504,44 @@ for n in $ENGINES; do
     SEARCH_PIDS="$SEARCH_PIDS $!"
 done
 for n in $ENGINES; do
-    spawn "searchJ-$n"   shell/t-engine-$n --search --raw -n 5  -- lofi
+    spawn "searchJ-$n"   shell/ting-engine-$n --search --raw -n 5  -- lofi
     spawn "dflt-$n"      env TING_CONFIG="$TING_TEST_TMP/cfg-dflt" $(search_cmd "$n") -j -- lofi
 done
-spawn yt-resolve   shell/t-engine-yt --stream -j -- "$MEDIA_ID"
-spawn yt-info      shell/t-play --engine yt --info -j -- "$MEDIA_ID"
-spawn yt-trans     shell/t-play --engine yt --transcript -j -- "$CAPTIONED"
-spawn yt-transJ    shell/t-play --engine yt --transcript --segments -j -- "$CAPTIONED"
-spawn yt-nocap     shell/t-play --engine yt --transcript -j -- "$BARE"
-spawn yt-argv      shell/t-play --engine yt --search -j -n 1 -- --status
-spawn yt-dead      shell/t-play      -j -- AAAAAAAAAAA
-spawn bili-resolve shell/t-engine-bili --stream -j -- "$BILI_ID"
-spawn bili-info    shell/t-play --engine bili --info -j -- "$BILI_ID"
-spawn bili-zh      shell/t-play --engine bili --search -j -n 20 --max-duration 600 -- 周杰伦
-spawn yt-zh        shell/t-engine-yt --search --raw -n 15 -- 周杰伦
-spawn bili-offset  shell/t-engine-bili --stream -j -- "https://www.bilibili.com/video/$BILI_PARTS_ID?p=2&t=601"
-spawn bili-parts   shell/t-play --engine bili --items -j -- "$BILI_PARTS_ID"
-spawn bili-part1   shell/t-play --engine bili --items -j -- "$BILI_ID"
-spawn bili-nopart  shell/t-play --engine bili --items -j -- av999999999999
-spawn bili-route   shell/t-play      --engine bili -j -- BV1111111111
-spawn ne-vip       env TING_NE_INCLUDE_VIP=1 shell/t-play --engine ne --search -j -n 20 -- 周杰伦
-spawn ne-trans     shell/t-play --engine ne --transcript -j -- "$NE_LYRIC"
-spawn ne-notrans   shell/t-play --engine ne --transcript -j -- "$NE_SILENT"
-spawn ne-novip     shell/t-play --engine ne --search -j -n 20 -- 周杰伦
-spawn yt-items     shell/t-play --engine yt --items -j -- "$YT_LIST"
-spawn bili-items   shell/t-play --engine bili --items -j -- "$BILI_MENU"
-spawn ne-items     env TING_NE_INCLUDE_VIP=1 shell/t-play --engine ne --items -j -- "$NE_LIST"
-spawn ne-items-def shell/t-play --engine ne --items -j -- "$NE_LIST"
-spawn bili-fav     shell/t-play --engine bili --items -j -- "$BILI_FAV"
-spawn bili-season  shell/t-play --engine bili --items -j -- "$BILI_SEASON"
-spawn yt-channel   shell/t-play --engine yt --items -j -- "$YT_CHANNEL"
+spawn yt-resolve   shell/ting-engine-yt --stream -j -- "$MEDIA_ID"
+spawn yt-info      shell/ting-play --engine yt --info -j -- "$MEDIA_ID"
+spawn yt-trans     shell/ting-play --engine yt --transcript -j -- "$CAPTIONED"
+spawn yt-transJ    shell/ting-play --engine yt --transcript --segments -j -- "$CAPTIONED"
+spawn yt-nocap     shell/ting-play --engine yt --transcript -j -- "$BARE"
+spawn yt-argv      shell/ting-play --engine yt --search -j -n 1 -- --status
+spawn yt-dead      shell/ting-play   -j -- AAAAAAAAAAA
+spawn bili-resolve shell/ting-engine-bili --stream -j -- "$BILI_ID"
+spawn bili-info    shell/ting-play --engine bili --info -j -- "$BILI_ID"
+spawn bili-zh      shell/ting-play --engine bili --search -j -n 20 --max-duration 600 -- 周杰伦
+spawn yt-zh        shell/ting-engine-yt --search --raw -n 15 -- 周杰伦
+spawn bili-offset  shell/ting-engine-bili --stream -j -- "https://www.bilibili.com/video/$BILI_PARTS_ID?p=2&t=601"
+spawn bili-parts   shell/ting-play --engine bili --items -j -- "$BILI_PARTS_ID"
+spawn bili-part1   shell/ting-play --engine bili --items -j -- "$BILI_ID"
+spawn bili-nopart  shell/ting-play --engine bili --items -j -- av999999999999
+spawn bili-route   shell/ting-play   --engine bili -j -- BV1111111111
+spawn ne-vip       env TING_NE_INCLUDE_VIP=1 shell/ting-play --engine ne --search -j -n 20 -- 周杰伦
+spawn ne-trans     shell/ting-play --engine ne --transcript -j -- "$NE_LYRIC"
+spawn ne-notrans   shell/ting-play --engine ne --transcript -j -- "$NE_SILENT"
+spawn ne-novip     shell/ting-play --engine ne --search -j -n 20 -- 周杰伦
+spawn yt-items     shell/ting-play --engine yt --items -j -- "$YT_LIST"
+spawn bili-items   shell/ting-play --engine bili --items -j -- "$BILI_MENU"
+spawn ne-items     env TING_NE_INCLUDE_VIP=1 shell/ting-play --engine ne --items -j -- "$NE_LIST"
+spawn ne-items-def shell/ting-play --engine ne --items -j -- "$NE_LIST"
+spawn bili-fav     shell/ting-play --engine bili --items -j -- "$BILI_FAV"
+spawn bili-season  shell/ting-play --engine bili --items -j -- "$BILI_SEASON"
+spawn yt-channel   shell/ting-play --engine yt --items -j -- "$YT_CHANNEL"
 # The two halves of one cursor round trip, fired TOGETHER: the second is not waiting on the
 # first's token, it asserts that the token the first hands out is the offset the second reads.
-spawn yt-big1      shell/t-play --engine yt --items -j -- "$YT_BIG"
-spawn yt-big2      shell/t-play --engine yt --items -j --cursor o:500 -- "$YT_BIG"
-spawn yt-nolist    shell/t-play --engine yt --items -j -- PLzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
-spawn bili-nofav   shell/t-play --engine bili --items -j -- ml999999999999
-spawn bili-nomenu  shell/t-play --engine bili --items -j -- am999999999
-spawn ne-nolist    shell/t-play --engine ne --items -j -- "https://music.163.com/album?id=999999999"
+spawn yt-big1      shell/ting-play --engine yt --items -j -- "$YT_BIG"
+spawn yt-big2      shell/ting-play --engine yt --items -j --cursor o:500 -- "$YT_BIG"
+spawn yt-nolist    shell/ting-play --engine yt --items -j -- PLzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
+spawn bili-nofav   shell/ting-play --engine bili --items -j -- ml999999999999
+spawn bili-nomenu  shell/ting-play --engine bili --items -j -- am999999999
+spawn ne-nolist    shell/ting-play --engine ne --items -j -- "https://music.163.com/album?id=999999999"
 for n in $ENGINES; do
     spawn_once "net-j-$n" env http_proxy="$NOPROXY" https_proxy="$NOPROXY" $(search_cmd "$n") -j -n 2 -- lofi
     spawn_once "net-t-$n" env http_proxy="$NOPROXY" https_proxy="$NOPROXY" $(search_cmd "$n")    -n 2 -- lofi
@@ -2689,7 +2689,7 @@ echo "── --items: a container is not a row ───────────
 # ONE ENVELOPE OVER THREE SITES, and the shape is the claim: whatever a container is called
 # there, what comes back is `{id, url, title, count, total, items[]}` and every element is an
 # item record — an engine to route to, a playable url of its own, a title and a duration. The
-# offline half already proved such a list feeds t-playlist and t-play with no field renamed;
+# offline half already proved such a list feeds ting-playlist and ting-play with no field renamed;
 # this half is what proves the engines still EMIT it.
 #
 # `count == total` is asserted where the container fits under the ceiling, because that is the
@@ -2762,7 +2762,7 @@ report "…and says unavailable" 0 \
 echo "── --items: the video side, and the cursor ────────────────────────"
 # THE SAME ENVELOPE OVER THE SITES' OTHER LISTS. The keys are the audio containers' keys plus
 # the two the cursor added, and the item records are the same records — which is the claim:
-# a favourites list and a collection reach t-playlist through the same pipe an audio menu does,
+# a favourites list and a collection reach ting-playlist through the same pipe an audio menu does,
 # with the site's own video ids in them.
 _vid_ok=0
 for _slot in bili-fav bili-season yt-channel; do
@@ -2828,17 +2828,17 @@ report "has_more and next_cursor answer together" 7 "$_cursor_shape"
 
 BILI_ITEMS_OUT=$(out bili-items)
 report "an item list adds to a playlist, unmapped" 0 \
-    "$(jq_in '.status=="ok" and .added>=1 and .count>=1' "$BILI_ITEMS_OUT" shell/t-playlist --add items -j)"
+    "$(jq_in '.status=="ok" and .added>=1 and .count>=1' "$BILI_ITEMS_OUT" shell/ting-playlist --add items -j)"
 report "…and every stored row is a call"  0 \
     "$(jq_ok '(.items|length)>=1 and all(.items[];
                  .engine=="bili"
                  and (.url|startswith("https://www.bilibili.com/audio/au"))
                  and (.id|type)=="string"
                  and (.title|type)=="string" and (.title|length)>0
-                 and (.duration|type)=="number")' shell/t-playlist --show items -j)"
-report "an item list enqueues"            4 "$(rc_in "$BILI_ITEMS_OUT" shell/t-play --enqueue - -j)"
+                 and (.duration|type)=="number")' shell/ting-playlist --show items -j)"
+report "an item list enqueues"            4 "$(rc_in "$BILI_ITEMS_OUT" shell/ting-play --enqueue - -j)"
 report "…parsed, not refused"             0 \
-    "$(jq_in '.status=="not_playing"' "$BILI_ITEMS_OUT" shell/t-play --enqueue - -j)"
+    "$(jq_in '.status=="not_playing"' "$BILI_ITEMS_OUT" shell/ting-play --enqueue - -j)"
 
 echo "── the second engine: the same envelope, or the split is a fiction ─"
 # The second engine's envelopes. The SEARCH is the one the live half already made — a key
@@ -2870,7 +2870,7 @@ report "search result keys agree" \
 #     is why they are injected before the lean projection rather than inside it: an engine
 #     that adds them to the projection alone hands the caller who asked for MORE data (--raw) an
 #     envelope missing two required fields, and every -j check in this file stays green.
-#   · A row whose `url` is null is not a row: `t-play` has nothing to call. bili-search
+#   · A row whose `url` is null is not a row: `ting-play` has nothing to call. bili-search
 #     shipped exactly that — search_type=video mixes in `ketang` (paid-course) records that
 #     carry no `bvid`, 3 of 20 on "钢琴", and an EMPTY bvid is TRUTHY in jq, so the `.id !=
 #     null` gate passed them through with `id: ""` and `url: null`.
@@ -3011,7 +3011,7 @@ report "resolve envelopes agree" \
 for n in $ENGINES; do
     SR=$(out "off601-$n")
     report "$n --stream reads a t= offset" 0 "$(jqv '.start_seconds == 601' "$SR")"
-    # The url answers WHICH MEDIA, never where to start — t-playlist --add stores exactly
+    # The url answers WHICH MEDIA, never where to start — ting-playlist --add stores exactly
     # this string, so an offset riding along in it would make a saved track replay from
     # 10:01 for ever. Not a property inherited from the extractor: bili's webpage_url keeps
     # the whole query, because ?p=N lives in it, so for that engine this is a real strip.
@@ -3166,16 +3166,16 @@ report "a part's id is its resolve id" \
     "$(printf '%s' "$BILI_P" | jq -r '.items[1].id')"
 BILI_PARTS_ITEMS=$BILI_P
 report "a part list adds to a playlist" 0 \
-    "$(jq_in '.status=="ok" and .added>=2 and .count>=2' "$BILI_PARTS_ITEMS" shell/t-playlist --add parts -j)"
+    "$(jq_in '.status=="ok" and .added>=2 and .count>=2' "$BILI_PARTS_ITEMS" shell/ting-playlist --add parts -j)"
 report "…and every stored row is a call"  0 \
     "$(jq_ok '(.items|length)>=2 and all(.items[];
                  .engine=="bili"
                  and (.url|contains("?p="))
                  and (.title|type)=="string" and (.title|length)>0
-                 and (.duration|type)=="number")' shell/t-playlist --show parts -j)"
-report "a part list enqueues"             4 "$(rc_in "$BILI_PARTS_ITEMS" shell/t-play --enqueue - -j)"
+                 and (.duration|type)=="number")' shell/ting-playlist --show parts -j)"
+report "a part list enqueues"             4 "$(rc_in "$BILI_PARTS_ITEMS" shell/ting-play --enqueue - -j)"
 report "…parsed, not refused"             0 \
-    "$(jq_in '.status=="not_playing"' "$BILI_PARTS_ITEMS" shell/t-play --enqueue - -j)"
+    "$(jq_in '.status=="not_playing"' "$BILI_PARTS_ITEMS" shell/ting-play --enqueue - -j)"
 # A single-part video is a list of ONE and is NOT an error — the contract says so, and the
 # plausible wrong implementation (treat "no parts to choose between" as a failure) would pass
 # every other part-list check in this file. BILI_ID is that handle, which is why it is separate
@@ -3198,7 +3198,7 @@ report "…and it is still a tool failure" 2 "$(src bili-nopart)"
 
 # The player routes by NAME, and the name is the command prefix — the whole reason the
 # lookup is a string concatenation instead of a registry.
-report "t-play routes to the bili engine" 0 \
+report "ting-play routes to the bili engine" 0 \
     "$(jqv '.status=="error" and .exit_code>=2 and (.reason|type)=="string"' "$(out bili-route)")"
 
 echo "── failure taxonomy: 2 is a tool failure, never 1 ─────────────────"
@@ -3257,11 +3257,11 @@ else
     TUI_STATE=$(mktemp -d "${TMPDIR:-/tmp}/ting-tuistore.XXXXXX")
     # Seed the stores from real command envelopes ($YT_R and $YT_S) — real command output,
     # never synthetic JSON.
-    printf '%s' "$YT_R" | TING_STATE_DIR="$TUI_STATE" shell/t-history --record - -j >/dev/null 2>&1
-    [ "$(TING_STATE_DIR="$TUI_STATE" shell/t-history --ls -j 2>/dev/null | jq -r '.count // 0')" = 1 ] ||
+    printf '%s' "$YT_R" | TING_STATE_DIR="$TUI_STATE" shell/ting-history --record - -j >/dev/null 2>&1
+    [ "$(TING_STATE_DIR="$TUI_STATE" shell/ting-history --ls -j 2>/dev/null | jq -r '.count // 0')" = 1 ] ||
         { echo "contract.sh: the log did not seed — suite error, not a failure" >&2; exit 1; }
-    printf '%s' "$YT_S" | TING_STATE_DIR="$TUI_STATE" shell/t-playlist --add seeded-list -j >/dev/null 2>&1
-    [ "$(TING_STATE_DIR="$TUI_STATE" shell/t-playlist --ls -j 2>/dev/null | jq -r '.count // 0')" -ge 1 ] ||
+    printf '%s' "$YT_S" | TING_STATE_DIR="$TUI_STATE" shell/ting-playlist --add seeded-list -j >/dev/null 2>&1
+    [ "$(TING_STATE_DIR="$TUI_STATE" shell/ting-playlist --ls -j 2>/dev/null | jq -r '.count // 0')" -ge 1 ] ||
         { echo "contract.sh: the playlist did not seed — suite error, not a failure" >&2; exit 1; }
     # A config file of the pane's own. No staged behavior keys: TING_ROW_INDEX and TING_LIST_MODE
     # start unset and are driven by real keystrokes.
@@ -3763,8 +3763,8 @@ else
     # it, because the check above needs rows and this one needs none: the two claims disagree
     # about the store's state, not about the pane. Deterministic either way — no query decides
     # whether this door is closed, which is what the `i` walk below cannot say for itself.
-    TING_STATE_DIR="$TUI_STATE" shell/t-history --clear -j >/dev/null 2>&1
-    [ "$(TING_STATE_DIR="$TUI_STATE" shell/t-history --ls -j 2>/dev/null | jq -r '.count // 0')" = 0 ] ||
+    TING_STATE_DIR="$TUI_STATE" shell/ting-history --clear -j >/dev/null 2>&1
+    [ "$(TING_STATE_DIR="$TUI_STATE" shell/ting-history --ls -j 2>/dev/null | jq -r '.count // 0')" = 0 ] ||
         { echo "contract.sh: the log did not clear — suite error, not a failure" >&2; exit 1; }
     tmux send-keys -t "$TS" h
     said=$(poll_until 10 pane_has 'nothing listened to yet')
@@ -3847,7 +3847,7 @@ else
     del_backed=$(poll_until 10 pane_back "playlist='" "query='")
     report "D deletes the playlist and returns to search" 1 "$del_backed"
     report "…without asking first" 1 "$(pane_lacks 'y/N' && echo 1 || echo 0)"
-    del_stored=$(TING_STATE_DIR="$TUI_STATE" shell/t-playlist --ls -j 2>/dev/null | jq -r '.count // 0')
+    del_stored=$(TING_STATE_DIR="$TUI_STATE" shell/ting-playlist --ls -j 2>/dev/null | jq -r '.count // 0')
     report "…and the playlist file is deleted from store" 0 "$del_stored"
 
     # `i` — the fifth row source, and its whole round trip. Three claims in one sequence, and
@@ -4035,7 +4035,7 @@ else
     # result list. The trap reaps it now whatever happens, which is why this is a check rather
     # than a silent stop: the reap makes the leak harmless, and only this line makes it VISIBLE.
     report "the TUI left no player behind" 0 \
-        "$(shell/t-play --status -j 2>/dev/null | jq '.players | length')"
+        "$(shell/ting-play --status -j 2>/dev/null | jq '.players | length')"
     tmux kill-session -t "$TS" 2>/dev/null
     rm -rf "$TUI_STATE"
 
@@ -4043,7 +4043,7 @@ else
 
     # ── The install goes away under a running session: `q` must still stop the player ─────
     # Measured at the 0.14.0 release: `brew upgrade` deleted the old cellar a second after a
-    # session opened from it had started a track, and `q` then ran a deleted `t-play --stop`
+    # session opened from it had started a track, and `q` then ran a deleted `ting-play --stop`
     # and left the mpv playing with nothing attached. The upgrade is reproduced for real: a
     # copy of the suite is the install, the pane runs `ting` from it, and the copy is removed
     # while the track plays. Two answers, told apart by what PATH still holds — the stable
@@ -4058,7 +4058,7 @@ else
     for _t in jq mpv yt-dlp curl nc ncat; do
         command -v "$_t" >/dev/null 2>&1 && ln -s "$(command -v "$_t")" "$RL_BASE/tools/$_t"
     done
-    rl_players() { shell/t-play --status -j 2>/dev/null | jq '.players | length'; }
+    rl_players() { shell/ting-play --status -j 2>/dev/null | jq '.players | length'; }
     # rl_run <PATH for the pane> — boots from a fresh copy, plays, deletes the copy, presses q.
     rl_run() {
         rm -rf "$RL_BASE/inst"
@@ -4076,26 +4076,26 @@ else
         return 0
     }
     TS="ctest-relocate-$$"
-    shell/t-play --stop --all -j >/dev/null 2>&1
+    shell/ting-play --stop --all -j >/dev/null 2>&1
     if rl_run "$PWD/shell:$RL_BASE/tools:/usr/bin:/bin"; then
-        report "install gone, t-play on PATH: q stops the player" 0 "$(rl_players)"
+        report "install gone, ting-play on PATH: q stops the player" 0 "$(rl_players)"
     else
         report "the relocate pane's player starts" 1 0
     fi
-    shell/t-play --stop --all -j >/dev/null 2>&1
+    shell/ting-play --stop --all -j >/dev/null 2>&1
     if rl_run "$RL_BASE/tools:/usr/bin:/bin"; then
-        report "install gone, no t-play anywhere: q says how to stop it" 1 \
-            "$(pane_has 'still playing .* t-play --stop --id [A-Za-z0-9]+' && echo 1 || echo 0)"
+        report "install gone, no ting-play anywhere: q says how to stop it" 1 \
+            "$(pane_has 'still playing .* ting-play --stop --id [A-Za-z0-9]+' && echo 1 || echo 0)"
         report "…and the player it names is really still up" 1 "$(rl_players)"
     else
-        report "the relocate pane's player starts (no t-play)" 1 0
+        report "the relocate pane's player starts (no ting-play)" 1 0
     fi
-    shell/t-play --stop --all -j >/dev/null 2>&1
+    shell/ting-play --stop --all -j >/dev/null 2>&1
     tmux kill-session -t "$TS" 2>/dev/null
     rm -rf "$RL_BASE"
 
     # ── Startup adoption: the player this screen did NOT launch ─────────────────────────
-    # The bug this section pins was audible. With `t-play -d` already playing, ting started
+    # The bug this section pins was audible. With `ting-play -d` already playing, ting started
     # with an empty banner (the state block initialises to "nothing is attached", and nothing
     # ever asked otherwise), every key that needs a target fell through its own
     # `[[ -n "$CURRENT_PLAY_ID" ]]` guard as a silent no-op, and Enter launched a SECOND mpv
@@ -4104,7 +4104,7 @@ else
     #
     # TWO panes, and it cannot be fewer: adoption is decided ONCE per process, at startup,
     # so each answer needs a startup of its own. Every player below is a real detached player
-    # and every answer is read back from `t-play --status` in THIS shell, not from the frame.
+    # and every answer is read back from `ting-play --status` in THIS shell, not from the frame.
     ADOPT_STATE=$(mktemp -d "${TMPDIR:-/tmp}/ting-adopt.XXXXXX")
     # An EMPTY config, and empty is the point: it stages nothing, it is only somewhere for the
     # pane's preference write-back to land that is not the developer's real file — the same
@@ -4131,10 +4131,10 @@ else
         # the spinner line that precedes it says `searching "…"` and never `results`.
         poll_until 40 pane_has 'results'
     }
-    adopt_n()       { shell/t-play --status -j 2>/dev/null | jq '.players | length'; }
-    adopt_id()      { shell/t-play --status -j 2>/dev/null | jq -r '.players[0].id // ""'; }
-    adopt_paused()  { [ "$(shell/t-play --status -j 2>/dev/null | jq -r '.players[0].paused')" = true ]; }
-    adopt_playing() { [ "$(shell/t-play --status -j 2>/dev/null | jq -r '.players[0].paused')" = false ]; }
+    adopt_n()       { shell/ting-play --status -j 2>/dev/null | jq '.players | length'; }
+    adopt_id()      { shell/ting-play --status -j 2>/dev/null | jq -r '.players[0].id // ""'; }
+    adopt_paused()  { [ "$(shell/ting-play --status -j 2>/dev/null | jq -r '.players[0].paused')" = true ]; }
+    adopt_playing() { [ "$(shell/ting-play --status -j 2>/dev/null | jq -r '.players[0].paused')" = false ]; }
     adopt_swapped() { local i; i=$(adopt_id); [ -n "$i" ] && [ "$i" != "$A_ID" ]; }
     adopt_none()    { [ "$(adopt_n)" = 0 ]; }
     # PLAYING, not merely started. A detached player exists as a record the moment it forks,
@@ -4142,18 +4142,18 @@ else
     # the banner is legitimately blank (it fills itself on the first tick, once mpv answers
     # with a media-title). Polled, never slept: the wait is a yt-dlp call, so its length is
     # the network's to decide.
-    adopt_ready()   { [ -n "$(shell/t-play --status -j 2>/dev/null | jq -r '.players[0].title // ""')" ]; }
+    adopt_ready()   { [ -n "$(shell/ting-play --status -j 2>/dev/null | jq -r '.players[0].title // ""')" ]; }
 
     # The queue view's playlist (the refusal check below), written by the REAL store from the
-    # REAL search envelope this suite already fetched. Nothing here is staged: t-playlist
+    # REAL search envelope this suite already fetched. Nothing here is staged: ting-playlist
     # produces the file it is later asked to read.
-    printf '%s' "$YT_S" | TING_STATE_DIR="$ADOPT_STATE" shell/t-playlist --add qv-list -j >/dev/null 2>&1
-    qv_len()  { shell/t-play --queue-show -j 2>/dev/null | jq -r '.len // 0'; }
-    qv_urls() { shell/t-play --queue-show -j 2>/dev/null | jq -c '[.items[].url]'; }
+    printf '%s' "$YT_S" | TING_STATE_DIR="$ADOPT_STATE" shell/ting-playlist --add qv-list -j >/dev/null 2>&1
+    qv_len()  { shell/ting-play --queue-show -j 2>/dev/null | jq -r '.len // 0'; }
+    qv_urls() { shell/ting-play --queue-show -j 2>/dev/null | jq -c '[.items[].url]'; }
     qv_is()   { [ "$(qv_len)" = "$1" ]; }
 
     # ---- one background player: adopted, controllable, and replaced on Enter ----------
-    A_ID=$(shell/t-play -d -j --engine yt -- "$BARE" 2>/dev/null | jq -r '.id // ""')
+    A_ID=$(shell/ting-play -d -j --engine yt -- "$BARE" 2>/dev/null | jq -r '.id // ""')
     [ -n "$A_ID" ] ||
         { echo "contract.sh: the background player did not start — suite error, not a failure" >&2; exit 1; }
     report "the background player is playing before the screen opens" 1 "$(poll_until 60 adopt_ready)"
@@ -4164,7 +4164,7 @@ else
     # only worth its line if the TRACK reached it.
     report "a running player is on the banner of the FIRST frame" 1 "$(poll_until 10 pane_has 'Playing: .+')"
     # The banner alone could be drawn from a record read once. This is the half that cannot:
-    # Space goes out as `t-play --pause --id`, and the answer is read back here from the
+    # Space goes out as `ting-play --pause --id`, and the answer is read back here from the
     # player's own state — so it proves the pane adopted the ID AND the socket of the process
     # that is actually decoding.
     tmux send-keys -t "$ADOPT_TS" Space
@@ -4184,7 +4184,7 @@ else
 
     # ── The queue view (key: u), the one row source that WRITES ────────────────────────
     # Here rather than in playback.sh because the claim is a MAPPING and only a real terminal
-    # can drive it: from the cursor, through the row record, to the index `t-play` is asked
+    # can drive it: from the cursor, through the row record, to the index `ting-play` is asked
     # to act on. playback.sh proves the verbs themselves against a real player; what it cannot
     # reach is whether the TUI names the row the user is looking at.
     #
@@ -4218,8 +4218,8 @@ else
     # index 2, and `x` must remove THAT one. Asserted by naming the url beforehand and
     # looking for its absence afterwards — a length check alone would pass if the wrong
     # track went.
-    qv_doomed=$(shell/t-play --queue-show -j 2>/dev/null | jq -r '.items[2].url')
-    qv_spared=$(shell/t-play --queue-show -j 2>/dev/null | jq -c '[.items[0].url,.items[1].url]')
+    qv_doomed=$(shell/ting-play --queue-show -j 2>/dev/null | jq -r '.items[2].url')
+    qv_spared=$(shell/ting-play --queue-show -j 2>/dev/null | jq -c '[.items[0].url,.items[1].url]')
     tmux send-keys -t "$TS" Down
     tmux send-keys -t "$TS" Down
     tmux send-keys -t "$TS" x
@@ -4268,11 +4268,11 @@ else
     tmux kill-session -t "$ADOPT_TS" 2>/dev/null
 
     # ---- two: ambiguous, so the screen adopts neither and says so ----------------------
-    # `t-play` answers `ambiguous` to a bare command with two live players (resolve_target).
+    # `ting-play` answers `ambiguous` to a bare command with two live players (resolve_target).
     # The screen guesses no harder than the core does, and it must not quietly stop either one
     # on the way out — the same claim as above for a player it never took.
-    A_ID=$(shell/t-play -d -j --engine yt -- "$BARE" 2>/dev/null | jq -r '.id // ""')
-    B_ID=$(shell/t-play -d -j --engine yt -- "$CAPTIONED" 2>/dev/null | jq -r '.id // ""')
+    A_ID=$(shell/ting-play -d -j --engine yt -- "$BARE" 2>/dev/null | jq -r '.id // ""')
+    B_ID=$(shell/ting-play -d -j --engine yt -- "$CAPTIONED" 2>/dev/null | jq -r '.id // ""')
     [ -n "$A_ID" ] && [ -n "$B_ID" ] ||
         { echo "contract.sh: background players did not start — suite error, not a failure" >&2; exit 1; }
     report "two players are live for the ambiguous case" 2 "$(adopt_n)"
@@ -4284,7 +4284,7 @@ else
     tmux send-keys -t "$ADOPT_TS" q
     report "the ambiguous pane quits too" 1 "$(poll_until 10 pane_has 'RC=0')"
     report "…and stopped neither player" 2 "$(adopt_n)"
-    shell/t-play --stop --all -j >/dev/null 2>&1
+    shell/ting-play --stop --all -j >/dev/null 2>&1
     report "q leaves players it did not adopt running" 1 "$(poll_until 10 adopt_none)"
     tmux kill-session -t "$ADOPT_TS" 2>/dev/null
     rm -rf "$ADOPT_STATE"
@@ -4409,7 +4409,7 @@ else
         tmux send-keys -t "$TS" q 2>/dev/null
         poll_until 5 pane_has 'RC=0' >/dev/null
         tmux kill-session -t "$TS" 2>/dev/null
-        TING_STATE_DIR="$PTS_STATE" shell/t-play --stop --all >/dev/null 2>&1
+        TING_STATE_DIR="$PTS_STATE" shell/ting-play --stop --all >/dev/null 2>&1
         rm -rf "$PTS_STATE"
     fi
 fi

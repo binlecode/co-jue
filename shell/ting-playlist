@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# t-playlist — the PLAYLIST STORE: durable, user-level, engine-agnostic. Agent-facing.
+# ting-playlist — the PLAYLIST STORE: durable, user-level, engine-agnostic. Agent-facing.
 #
 # The seventh command, and the first one that owns state a user would be upset to lose.
 # It knows nothing about sites (no yt-dlp, no cookie, no host grammar) and nothing about
@@ -13,7 +13,7 @@
 # stays with the player. A queue that survives a reboot IS a playlist, which is the whole
 # reason these are two different things. ARCH-player.md「状态机」.
 #
-# ONE INPUT SHAPE: JSON on stdin, either a search envelope (`t-play --search -j` verbatim) or a
+# ONE INPUT SHAPE: JSON on stdin, either a search envelope (`ting-play --search -j` verbatim) or a
 # bare array of items. Taking the envelope is correctness, not convenience — a search
 # RESULT carries no `engine` field, the envelope does, so only the whole package tags the
 # items with the engine that produced them. ARCH-cli-contract.md「数据契约」.
@@ -44,7 +44,7 @@ fi
 
 # CONFIGURATION — the chain is flag > environment > the user's config > the shipped defaults
 # in `<checkout>/config`, which is where every default value in the suite is declared once.
-# Duplicated VERBATIM in every entry point — see the same block in t-play for why, and
+# Duplicated VERBATIM in every entry point — see the same block in ting-play for why, and
 # ARCH-cli-contract.md「配置面」 for the keys.
 TING_CONFIG="${TING_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/ting/config}"
 TING_DEFAULTS="$SCRIPT_DIR/../config"
@@ -160,7 +160,7 @@ validate_enum() {
 #
 # WHICH CODE EACH REASON CARRIES, and why it is not all 1. The suite reserves 1 for "the
 # argv was wrong" and 4 for "the request was well formed and did not take effect"
-# (ARCH-cli-contract.md「退出码」) — the split `t-play` already makes when `--set-volume` finds no
+# (ARCH-cli-contract.md「退出码」) — the split `ting-play` already makes when `--set-volume` finds no
 # player (4) rather than calling the caller's flags bad. So:
 #
 #   1  invalid_name · invalid_input   the caller's own argv or stdin is malformed
@@ -170,7 +170,7 @@ validate_enum() {
 # and the end state holds, exactly as `--stop` does on a player that already exited.
 fail() {
     local code=$1 reason=$2 msg=$3
-    echo "t-playlist: $msg" >&2
+    echo "ting-playlist: $msg" >&2
     if [[ "$OUTPUT_MODE" == "json" ]]; then
         jq -nc --arg name "$NAME" --arg reason "$reason" \
             '{status: "error", name: (if $name == "" then null else $name end), reason: $reason}'
@@ -211,7 +211,7 @@ ensure_store() {
 }
 
 # `mkdir` is atomic on POSIX, which makes it the portable lock on bash 3.2 (no flock on
-# stock macOS) — the same one `t-play` uses for its player records. Two differences from
+# stock macOS) — the same one `ting-play` uses for its player records. Two differences from
 # that one, both because this data is durable and the player's is not:
 #
 #   1. On timeout we FAIL (exit 4, did-not-take-effect) rather than proceeding unlocked.
@@ -432,7 +432,7 @@ def fmt_dur:
 # Normalise whatever arrived on stdin into the item record (ARCH-cli-contract.md「数据契约」): the
 # search envelope's own field names, minus the ones that expire (channel, view_count,
 # live_status), plus our timestamp. `engine` + `url` are exactly the two arguments of
-# `t-play --engine E -- URL`, so a stored record IS a call.
+# `ting-play --engine E -- URL`, so a stored record IS a call.
 #
 # The result lands in a GLOBAL, not on stdout. `items=$(read_items)` reads better and was
 # how this was first written, but a command substitution runs in a SUBSHELL: `fail`'s -j
@@ -441,13 +441,13 @@ def fmt_dur:
 # stdout.
 ITEMS_JSON=""
 read_items() {
-    [[ -t 0 ]] && fail 1 invalid_input "--add reads items from stdin (try: t-play --search -j -- QUERY | t-playlist --add NAME)"
+    [[ -t 0 ]] && fail 1 invalid_input "--add reads items from stdin (try: ting-play --search -j -- QUERY | ting-playlist --add NAME)"
     local raw items rc=0
     raw=$(cat)
     # A MATCH, not `${raw//[[:space:]]/}`. That substitution has a fast path when the pattern
     # occurs NOWHERE, which is why it read as free — but the moment one space exists ahead,
     # bash 3.2 walks every byte position running a glob match, each attempt costing O(remaining)
-    # in a UTF-8 locale. Measured on the floor: a 7KB search envelope — i.e. `yt-search -j -n 25`,
+    # in a UTF-8 locale. Measured on the floor: a 7KB search envelope — i.e. `ting-play --search -j -n 25`,
     # the example in this command's own usage — spent 16s in that one expansion, against 5ms
     # here. Every real title contains a space, so the slow path was the only path.
     [[ "$raw" == *[![:space:]]* ]] || fail 1 invalid_input "no input on stdin"
@@ -462,7 +462,7 @@ read_items() {
          elif type == "object" and has("items") then
             # A playlist envelope, i.e. the --show output of this same command. Items
             # already carry their own engine, so no envelope-level tag is needed: this is
-            # what makes `t-playlist --show a -j | t-playlist --add b` work.
+            # what makes `ting-playlist --show a -j | ting-playlist --add b` work.
             [ .items[] | {engine: (.engine // null), id: (.id // null), url: (.url // null),
                           title: (.title // null), duration: (.duration // null)} ]
          elif type == "array" then
@@ -496,7 +496,7 @@ do_ls() {
     for f in "$PLAYLISTS_DIR"/*.json; do
         [[ -e "$f" ]] || continue
         if ! jq -e . "$f" >/dev/null 2>&1; then
-            echo "t-playlist: skipping unreadable playlist file: $f" >&2
+            echo "ting-playlist: skipping unreadable playlist file: $f" >&2
             continue
         fi
         files+=("$f")
@@ -516,7 +516,7 @@ do_ls() {
 
     if ((${#files[@]} == 0)); then
         echo "No playlists yet."
-        echo "  Add one:  yt-search -j -n 5 -- \"lofi\" | t-playlist --add chill"
+        echo "  Add one:  ting-play --search -j -n 5 -- \"lofi\" | ting-playlist --add chill"
         return 0
     fi
     jq -r '"\(.name) - \(.items | length) items - updated \(.updated_at)"' "${files[@]}"
@@ -607,7 +607,7 @@ do_rm() {
 }
 
 # Deleting something that is already gone is not a failure — the caller asked for an end
-# state and the end state holds. Same rule as `t-play --stop` on a player that already
+# state and the end state holds. Same rule as `ting-play --stop` on a player that already
 # exited (ARCH-cli-contract.md「退出码」); `deleted` is the field that says which happened.
 # A delete that found nothing leaves no copy either: nothing was written, so there is nothing
 # to take back, and the owner's copy of its previous write stays where it is.
@@ -765,16 +765,16 @@ do_undo() {
 
 print_usage() {
     cat <<'EOF'
-t-playlist — the playlist store (durable, user-level, engine-agnostic)
+ting-playlist — the playlist store (durable, user-level, engine-agnostic)
 
 Usage:
-  t-playlist --ls
-  t-playlist --show NAME
-  t-playlist --add NAME            < items on stdin
-  t-playlist --rm NAME --index N
-  t-playlist --del NAME
-  t-playlist --rename NAME NEWNAME
-  t-playlist --undo --owner PID [--discard]
+  ting-playlist --ls
+  ting-playlist --show NAME
+  ting-playlist --add NAME         < items on stdin
+  ting-playlist --rm NAME --index N
+  ting-playlist --del NAME
+  ting-playlist --rename NAME NEWNAME
+  ting-playlist --undo --owner PID [--discard]
 
 Options:
   --index N     Which item --rm removes (0-based, as printed by --show)
@@ -788,13 +788,13 @@ Options:
   -h            This help
   -V            Print the suite version
 
-Input (--add): JSON on stdin — a search envelope (an engine's -j output, verbatim), this
+Input (--add): JSON on stdin — a search envelope (ting-play --search -j, verbatim), this
   command's own --show envelope, or an array of {engine, url, [id], [title], [duration]}.
   The search-envelope form is preferred: a search RESULT carries no engine field, the
   envelope does.
 
-    yt-search -j -n 5 -- "lofi hip hop" | t-playlist --add chill
-    t-playlist --show chill -j | jq '.items[0]'
+    ting-play --search -j -n 5 -- "lofi hip hop" | ting-playlist --add chill
+    ting-playlist --show chill -j | jq '.items[0]'
 
 Storage: $TING_STATE_DIR/playlists/<name>.json
   (default $XDG_STATE_HOME/ting, else ~/.local/state/ting) — one file per playlist,
@@ -811,12 +811,12 @@ Exit codes: 0 ok
   --undo restores nothing unless every list it names is byte-for-byte what the write left.
 
 This store holds no playback state: to play a list, hand it to the player —
-  t-playlist --show chill -j | t-play -d --queue -
+  ting-playlist --show chill -j | ting-play -d --queue -
 EOF
 }
 
 set_action() {
-    [[ -z "$ACTION" ]] || { echo "t-playlist: only one action per call ($ACTION and $1)" >&2; exit 1; }
+    [[ -z "$ACTION" ]] || { echo "ting-playlist: only one action per call ($ACTION and $1)" >&2; exit 1; }
     ACTION="$1"
 }
 
@@ -825,14 +825,14 @@ while (($#)); do
     -h | --help) print_usage; exit 0 ;;
     -V | --version)
         # Answered before any dependency gate, like every other command in the suite.
-        printf 't-playlist %s\n' "$TING_VERSION"
+        printf 'ting-playlist %s\n' "$TING_VERSION"
         exit 0
         ;;
     -l | --list) OUTPUT_MODE="list"; shift ;;
     -j | --json) OUTPUT_MODE="json"; shift ;;
     --color=*) COLOR_MODE="${1#*=}"; shift ;;
     --color)
-        [[ $# -ge 2 ]] || { echo "t-playlist: $1 requires a value" >&2; exit 1; }
+        [[ $# -ge 2 ]] || { echo "ting-playlist: $1 requires a value" >&2; exit 1; }
         COLOR_MODE="$2"; shift 2
         ;;
     # One spelling each. --playlists and --delete used to be accepted as second names for
@@ -845,13 +845,13 @@ while (($#)); do
         case "$1" in
         --owner=*) OWNER="${1#*=}"; shift ;;
         *)
-            [[ $# -ge 2 ]] || { echo "t-playlist: --owner requires a process id" >&2; exit 1; }
+            [[ $# -ge 2 ]] || { echo "ting-playlist: --owner requires a process id" >&2; exit 1; }
             OWNER="$2"; shift 2
             ;;
         esac
         ;;
     --show | --add | --rm | --del)
-        [[ $# -ge 2 ]] || { echo "t-playlist: $1 requires a playlist name" >&2; exit 1; }
+        [[ $# -ge 2 ]] || { echo "ting-playlist: $1 requires a playlist name" >&2; exit 1; }
         case "$1" in
         --show) set_action show ;;
         --add)  set_action add ;;
@@ -861,7 +861,7 @@ while (($#)); do
         NAME="$2"; shift 2
         ;;
     --rename)
-        [[ $# -ge 3 ]] || { echo "t-playlist: --rename requires two names (OLD NEW)" >&2; exit 1; }
+        [[ $# -ge 3 ]] || { echo "ting-playlist: --rename requires two names (OLD NEW)" >&2; exit 1; }
         set_action rename
         NAME="$2"; NEW_NAME="$3"; shift 3
         ;;
@@ -869,21 +869,21 @@ while (($#)); do
         case "$1" in
         --index=*) INDEX="${1#*=}"; shift ;;
         *)
-            [[ $# -ge 2 ]] || { echo "t-playlist: --index requires a value" >&2; exit 1; }
+            [[ $# -ge 2 ]] || { echo "ting-playlist: --index requires a value" >&2; exit 1; }
             INDEX="$2"; shift 2
             ;;
         esac
         ;;
-    # The gate arms. t-play and t-playlist are one suffix apart, so the two most likely
+    # The gate arms. ting-play and ting-playlist are one suffix apart, so the two most likely
     # wrong turns get a sentence naming the right verb rather than a bare unknown-flag
     # error — the same thing every other command in this suite does at its edges
     # (ARCH-cli-contract.md「门模型」).
     -d | --detach | --status | --stop | --set-volume | --all | --engine | -f)
-        echo "t-playlist: $1 is a playback flag — this command stores lists, use t-play to play one" >&2
+        echo "ting-playlist: $1 is a playback flag — this command stores lists, use ting-play to play one" >&2
         exit 1
         ;;
     -n | -m | -M | -s | --info | --transcript)
-        echo "t-playlist: $1 belongs to an engine — use <engine>-search / <engine>-resolve" >&2
+        echo "ting-playlist: $1 belongs to an engine — use <engine>-search / <engine>-resolve" >&2
         exit 1
         ;;
     --)
@@ -892,50 +892,50 @@ while (($#)); do
         # positional argument: every name is attached to its verb, so anything here is a
         # caller who meant a different command — most likely the player.
         if (($#)); then
-            echo "t-playlist: unexpected argument '$1' — names belong to a verb (--add NAME); to play a handle use t-play" >&2
+            echo "ting-playlist: unexpected argument '$1' — names belong to a verb (--add NAME); to play a handle use ting-play" >&2
             exit 1
         fi
         break
         ;;
     -*)
-        echo "t-playlist: unknown flag '$1' (verbs: --ls --show --add --rm --del --rename --undo)" >&2
+        echo "ting-playlist: unknown flag '$1' (verbs: --ls --show --add --rm --del --rename --undo)" >&2
         exit 1
         ;;
     *)
-        echo "t-playlist: unexpected argument '$1' — names belong to a verb (see 't-playlist -h')" >&2
+        echo "ting-playlist: unexpected argument '$1' — names belong to a verb (see 'ting-playlist -h')" >&2
         exit 1
         ;;
     esac
 done
 
-[[ -n "$ACTION" ]] || { echo "t-playlist: an action is required: --ls --show --add --rm --del --rename --undo (see 't-playlist -h')" >&2; exit 1; }
+[[ -n "$ACTION" ]] || { echo "ting-playlist: an action is required: --ls --show --add --rm --del --rename --undo (see 'ting-playlist -h')" >&2; exit 1; }
 validate_enum "$COLOR_MODE" auto always never || die "--color must be one of: auto, always, never"
 
-# A selector with no action to select for. `t-play` rejects the same shape (--id without
+# A selector with no action to select for. `ting-play` rejects the same shape (--id without
 # --stop/--set-volume); silently ignoring it would let a caller believe --add --index 3
 # inserted at a position. ARCH-cli-contract.md「门模型」. Checked for EVERY verb — it used to live
 # inside the name-taking branch, so `--ls --index 3` alone escaped it and exited 0.
 if [[ "$ACTION" == "rm" ]]; then
-    [[ -n "$INDEX" ]] || { echo "t-playlist: --rm requires --index N (0-based, from --show)" >&2; exit 1; }
-    [[ "$INDEX" =~ ^[0-9]+$ ]] || { echo "t-playlist: --index must be a non-negative integer" >&2; exit 1; }
+    [[ -n "$INDEX" ]] || { echo "ting-playlist: --rm requires --index N (0-based, from --show)" >&2; exit 1; }
+    [[ "$INDEX" =~ ^[0-9]+$ ]] || { echo "ting-playlist: --index must be a non-negative integer" >&2; exit 1; }
 elif [[ -n "$INDEX" ]]; then
-    echo "t-playlist: --index belongs to --rm, not --$ACTION" >&2
+    echo "ting-playlist: --index belongs to --rm, not --$ACTION" >&2
     exit 1
 fi
 # The same kind of gate for the undo pair. --owner is not checked for being ALIVE: a dead
 # owner only means its copy goes to the reaper on the next call, which is not a usage error.
 if ((DISCARD)) && [[ "$ACTION" != "undo" ]]; then
-    echo "t-playlist: --discard belongs to --undo, not --$ACTION" >&2
+    echo "ting-playlist: --discard belongs to --undo, not --$ACTION" >&2
     exit 1
 fi
 if [[ -n "$OWNER" ]]; then
-    [[ "$OWNER" =~ ^[1-9][0-9]{0,9}$ ]] || { echo "t-playlist: --owner must be a positive integer (a process id)" >&2; exit 1; }
+    [[ "$OWNER" =~ ^[1-9][0-9]{0,9}$ ]] || { echo "ting-playlist: --owner must be a positive integer (a process id)" >&2; exit 1; }
     case "$ACTION" in
     add | rm | del | rename | undo) ;;
-    *) echo "t-playlist: --owner belongs to --add, --rm, --del, --rename and --undo, not --$ACTION" >&2; exit 1 ;;
+    *) echo "ting-playlist: --owner belongs to --add, --rm, --del, --rename and --undo, not --$ACTION" >&2; exit 1 ;;
     esac
 elif [[ "$ACTION" == "undo" ]]; then
-    echo "t-playlist: --undo requires --owner PID (the process whose write it takes back)" >&2
+    echo "ting-playlist: --undo requires --owner PID (the process whose write it takes back)" >&2
     exit 1
 fi
 

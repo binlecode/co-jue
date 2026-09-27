@@ -41,8 +41,8 @@ func suite(t *testing.T) *Suite {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.TPlay != filepath.Join(shell, "t-play") {
-		t.Fatalf("located %q, not the checkout's t-play", s.TPlay)
+	if s.TPlay != filepath.Join(shell, "ting-play") {
+		t.Fatalf("located %q, not the checkout's ting-play", s.TPlay)
 	}
 	return s
 }
@@ -77,7 +77,7 @@ func TestUsageErrorIsTyped(t *testing.T) {
 	if !errors.As(err, &ve) || ve.Kind() != Usage {
 		t.Fatalf("got %v, want a Usage error", err)
 	}
-	if ve.Error() != "t-play: --engines lists every installed engine — it takes no --engine" {
+	if ve.Error() != "ting-play: --engines lists every installed engine — it takes no --engine" {
 		t.Errorf("message: %q", ve.Error())
 	}
 }

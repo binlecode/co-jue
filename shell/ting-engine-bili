@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# t-engine-bili — the Bilibili ENGINE: everything this suite knows about one site, in one file.
+# ting-engine-bili — the Bilibili ENGINE: everything this suite knows about one site, in one file.
 #
 # An engine is one file per SITE, not one per operation. The User-Agent, the Referer, the host
 # list, the BV/av id shapes, the body codes this host answers with, the cookie store — each is
@@ -7,11 +7,11 @@
 # twice (about 214 duplicated lines in this pair). The verbs below share them; they share
 # nothing with any other engine.
 #
-# This file is BELOW the public contract. `t-play` is the one entry point: it forwards its
+# This file is BELOW the public contract. `ting-play` is the one entry point: it forwards its
 # engine verbs (--search --info --items --auth) here verbatim and calls --stream itself to turn
 # a handle into bytes. So the argv here is an internal protocol between two files of this
 # suite, and the flag gate lives in exactly one place — this one. --capabilities publishes
-# that gate so `t-play --engines` can answer for it. docs/ARCHITECTURE.md「命令拓扑」.
+# that gate so `ting-play --engines` can answer for it. docs/ARCHITECTURE.md「命令拓扑」.
 #
 # TWO TRANSPORTS, and each verb uses the one that works — measured, not preferred:
 #   --search --items   hand-built GETs to the site's own web API (curl + jq).
@@ -65,7 +65,7 @@ fi
 
 # CONFIGURATION — the chain is flag > environment > the user's config > the shipped defaults
 # in `<checkout>/config`, which is where every default value in the suite is declared once.
-# Duplicated VERBATIM in every entry point — see the same block in t-play for why, and
+# Duplicated VERBATIM in every entry point — see the same block in ting-play for why, and
 # ARCH-cli-contract.md「配置面」 for the keys.
 TING_CONFIG="${TING_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/ting/config}"
 TING_DEFAULTS="$SCRIPT_DIR/../config"
@@ -107,10 +107,10 @@ ting_read_config "$TING_CONFIG"
 ting_read_config "$TING_DEFAULTS"
 
 # The engine's own name, as it appears in every envelope AND as the suffix of this file's
-# name. Name == suffix is deliberate: it lets `t-play --engine bili` find `t-engine-bili` by
+# name. Name == suffix is deliberate: it lets `ting-play --engine bili` find `ting-engine-bili` by
 # string concatenation, with no name->command registry to keep in sync. docs/ARCHITECTURE.md「命令拓扑」.
 ENGINE_NAME="bili"
-PROG="t-engine-bili"
+PROG="ting-engine-bili"
 
 # ==============================================================================
 # 1. SETTINGS
@@ -716,7 +716,7 @@ ytdlp_cookied() {
 # `local` would be out of scope there and abort under `set -u`.
 #
 # 0700 rather than a bare /tmp path because a response body is content and the captured yt-dlp
-# stderr can name a cookie database. `players/` has exactly one owner (t-play), not this file.
+# stderr can name a cookie database. `players/` has exactly one owner (ting-play), not this file.
 SCRATCH_DIR=""
 ERR_FILE=""
 cleanup_scratch() {
@@ -727,7 +727,7 @@ trap cleanup_scratch EXIT
 
 ensure_scratch() {
     [[ -n "$SCRATCH_DIR" ]] && return 0
-    SCRATCH_DIR=$(mktemp -d "${TMPDIR:-/tmp}/t-engine-bili.XXXXXX") || die "cannot create a scratch directory"
+    SCRATCH_DIR=$(mktemp -d "${TMPDIR:-/tmp}/ting-engine-bili.XXXXXX") || die "cannot create a scratch directory"
     chmod 700 "$SCRATCH_DIR" 2>/dev/null || true
     ERR_FILE="$SCRATCH_DIR/yt-dlp.err"
     : >"$ERR_FILE"
@@ -773,7 +773,7 @@ host_gate() {
     local host
     host=$(url_host "$1")
     is_own_host "$host" ||
-        die "'$host' is not a Bilibili host — this engine resolves Bilibili only (another site needs its own engine: t-play --engine NAME)"
+        die "'$host' is not a Bilibili host — this engine resolves Bilibili only (another site needs its own engine: ting-play --engine NAME)"
 }
 
 # Does a search token look like a URL? A URL is a thing to play or inspect, never a query.
@@ -1351,7 +1351,7 @@ search_run() {
 
 # The yt-dlp format string a playback mode resolves to. This table is the reason format
 # selection belongs to the engine and not the player: `bv*+ba/b` is a yt-dlp expression,
-# and the player must never learn to read one. t-play sends a MODE and gets back bytes.
+# and the player must never learn to read one. ting-play sends a MODE and gets back bytes.
 format_for_mode() {
     case "$1" in
     video) echo "$TING_BILI_VIDEO_FORMAT" ;;
@@ -1622,8 +1622,8 @@ info_run() {
 # multi-part VIDEO, whose `?p=N` parts are a list in every way a caller cares about. A
 # single-part video lists one part; that is an answer, not an error.
 #
-# EVERY ITEM IS AN ITEM RECORD: `{engine, id, url, title, duration}` is what t-playlist stores
-# and what t-play --queue consumes, so `--items -j` pipes into either with nothing renamed. Each
+# EVERY ITEM IS AN ITEM RECORD: `{engine, id, url, title, duration}` is what ting-playlist stores
+# and what ting-play --queue consumes, so `--items -j` pipes into either with nothing renamed. Each
 # record's id and url are the pair resolving that record answers with (measured 2026-09-26:
 # yt-dlp reports `BV…_p2` for `?p=2` of a multi-part video, `BV…_p1` even for its bare URL, and
 # the bare BV for a single-part one; an audio track reports its digits for `/audio/au…`).
@@ -2040,16 +2040,16 @@ auth_run() {
 
 print_usage() {
     cat <<'EOF'
-t-engine-bili — the Bilibili engine. Internal: callers go through t-play, which forwards its
+ting-engine-bili — the Bilibili engine. Internal: callers go through ting-play, which forwards its
 engine verbs here unchanged; this argv is not part of the suite's public contract.
 
 Usage:
-  t-engine-bili --search [-n N] [--min-duration S] [--max-duration S] [--sort F] [-j] -- <query>
-  t-engine-bili --info [-j] -- <BV id | av id | URL>
-  t-engine-bili --items [--cursor TOKEN] [-j] -- <BV id | av id | am id | ml id | URL>
-  t-engine-bili --auth [-j]
-  t-engine-bili --stream [-f MODE] [--quality TIER] [-j] -- <BV id | av id | URL>
-  t-engine-bili --capabilities [-j]
+  ting-engine-bili --search [-n N] [--min-duration S] [--max-duration S] [--sort F] [-j] -- <query>
+  ting-engine-bili --info [-j] -- <BV id | av id | URL>
+  ting-engine-bili --items [--cursor TOKEN] [-j] -- <BV id | av id | am id | ml id | URL>
+  ting-engine-bili --auth [-j]
+  ting-engine-bili --stream [-f MODE] [--quality TIER] [-j] -- <BV id | av id | URL>
+  ting-engine-bili --capabilities [-j]
 
 Exactly one verb per call. A modifier belongs to one verb and is refused next to another.
 
@@ -2069,11 +2069,11 @@ Exactly one verb per call. A modifier belongs to one verb and is refused next to
   --stream        Resolve a handle to stream URL(s) + the HTTP headers they need, for the
                   player. -f audio | video | fast | ascii | viz; --quality auto | low |
                   medium | high. A multi-part video resolves to part one; ?p=N picks another
-  --capabilities  The public verbs and modifiers this engine accepts; what t-play --engines
+  --capabilities  The public verbs and modifiers this engine accepts; what ting-play --engines
                   reports for it. No network, no dependency
 
   -j / --json  JSON envelope · --color MODE
-  --raw  the site's own record, unprojected — an engine self-check, not forwarded by t-play
+  --raw  the site's own record, unprojected — an engine self-check, not forwarded by ting-play
   -h this help · -V the suite version
 
 There is no --transcript: this site's videos carry no caption track.
@@ -2090,7 +2090,7 @@ EOF
 # The public verbs and their modifiers, stated ONCE: the unknown-flag refusal prints it for a
 # person and --capabilities answers with it for the registry, so the two cannot disagree.
 # --stream, --capabilities and --raw are absent on purpose: the player's pipe, the registry's
-# question and a self-check are not things a caller of t-play can ask for.
+# question and a self-check are not things a caller of ting-play can ask for.
 PUBLIC_FLAGS=(--search -n --min-duration --max-duration --sort --info --items --cursor --auth)
 
 # Which verb a modifier belongs to. The gate below refuses it next to any other.
@@ -2121,7 +2121,7 @@ while (($#)); do
         shift
         ;;
     # --raw: the site's own record, unprojected. A SELF-CHECK of this engine against its site,
-    # not an output format: site fields cannot be versioned, so t-play refuses to forward it
+    # not an output format: site fields cannot be versioned, so ting-play refuses to forward it
     # and it is in no flag list. Long-only and spelled apart from -j on purpose.
     --raw)
         has_format=1
@@ -2169,7 +2169,7 @@ while (($#)); do
     -f)
         need_value "$@"
         add_modifier "$1" stream
-        # Canonical modes only — the alias table (ba/bv/…) is t-play's, which normalizes
+        # Canonical modes only — the alias table (ba/bv/…) is ting-play's, which normalizes
         # before it calls an engine (ARCH-cli-contract.md「命令规格」).
         validate_enum "$2" audio video fast ascii viz ||
             die "-f must be one of: audio, video, fast, ascii, viz"

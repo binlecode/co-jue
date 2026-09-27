@@ -12,12 +12,12 @@
 # It also owns two claims contract.sh's offline half can never reach, both for the same
 # reason — they need players that are really running: that a mutation with no `--id` and two
 # players answers `status:"ambiguous"` (4 alone does not separate it from an idle call), and
-# ARCH-cli-contract.md「调用面」's `t-playlist --show … -j | t-play -d --queue -`, run
+# ARCH-cli-contract.md「调用面」's `ting-playlist --show … -j | ting-play -d --queue -`, run
 # verbatim — contract.sh proves that envelope reaches the gate, this is where it launches.
 #
 # Cost: no figure is kept here — a total quoted in a header goes stale the first time a check
 # is added, and the run that measures it is the one that should say it. What is stable is
-# WHERE the time goes: live engine resolves (t-play's run_mpv records the measured median
+# WHERE the time goes: live engine resolves (ting-play's run_mpv records the measured median
 # between tracks) and the listening-log section playing a 19-second track out to its own end
 # rather than seeking there — that section cannot seek, because `duration` is null on a live
 # stream and a check must not go green or red on whether the track was streaming that
@@ -80,7 +80,7 @@ export TING_STATE_DIR="$TING_TEST_TMP/state"
 # that was missed. Every default this file leans on comes from the four-level chain, and the
 # user's own file wins over the shipped one: a `TING_DEFAULT_ENGINE=bili` written there by
 # `ting`'s own e key (it writes that key back) sends every YouTube handle below to
-# `t-engine-bili`, which refuses the host, and 23 checks go red saying nothing whatsoever about
+# `ting-engine-bili`, which refuses the host, and 23 checks go red saying nothing whatsoever about
 # the player. That is not hypothetical — it is what this file did on the machine that added
 # the paragraph, and the failures named sockets and volumes rather than the config that
 # caused them. An EMPTY file, not an unset variable: unset means "read ~/.config/ting/config"
@@ -132,7 +132,7 @@ wait_for_sock() {
 wait_live() {
     local id=$1 field=$2 v="" i
     for i in $(seq 1 160); do
-        v=$(shell/t-play --status -j 2>/dev/null \
+        v=$(shell/ting-play --status -j 2>/dev/null \
             | jq -r --arg i "$id" --arg f "$field" \
                 '.players[]|select(.id==$i)|getpath($f|split("."))//empty' 2>/dev/null)
         case "$v" in "" | null | 0) ;; *) printf '%s' "$v"; return 0 ;; esac
@@ -162,19 +162,19 @@ no_orphans() {
 
 # Always stop everything, however this exits — a leaked player outlives the shell.
 cleanup() {
-    shell/t-play --stop --all -j >/dev/null 2>&1
+    shell/ting-play --stop --all -j >/dev/null 2>&1
     rm -rf "$TING_TEST_TMP"
     return 0
 }
 trap cleanup EXIT INT TERM
 
-shell/t-play --stop --all -j >/dev/null 2>&1         # start from a clean slate
+shell/ting-play --stop --all -j >/dev/null 2>&1      # start from a clean slate
 
 echo "── detach returns BEFORE mpv is up ────────────────────────────────"
 # The envelope is the handle; if this waited for the player there would be nothing detached
 # about it. A slow return has meant the title updater holding the captured pipe.
 t0=$(date +%s)
-o1=$(shell/t-play -d -j --volume 0 -- "$U1" 2>/dev/null)
+o1=$(shell/ting-play -d -j --volume 0 -- "$U1" 2>/dev/null)
 t1=$(date +%s)
 report "detach envelope" 0 \
     "$(printf '%s' "$o1" | jq -e '.id and .pid and .sock' >/dev/null 2>&1; echo $?)"
@@ -182,30 +182,30 @@ if [ $((t1 - t0)) -le 3 ]; then ok "detach returned in $((t1 - t0))s (<= 3)"
 else bad "detach took $((t1 - t0))s — is something holding the pipe?"; fi
 
 id1=$(printf '%s' "$o1" | jq -r '.id // empty')
-o2=$(shell/t-play -d -j --volume 0 -- "$U2" 2>/dev/null)
+o2=$(shell/ting-play -d -j --volume 0 -- "$U2" 2>/dev/null)
 id2=$(printf '%s' "$o2" | jq -r '.id // empty')
 
 echo "── two players: the POPULATED envelope, one compact line ──────────"
-report "--status one line" 1 "$(shell/t-play --status -j | wc -l | tr -d ' ')"
-report "--status sees 2"   2 "$(shell/t-play --status -j | jq '.players | length')"
+report "--status one line" 1 "$(shell/ting-play --status -j | wc -l | tr -d ' ')"
+report "--status sees 2"   2 "$(shell/ting-play --status -j | jq '.players | length')"
 
 echo "── a selector-less mutation on 2 players is ambiguous -> exit 4 ───"
-report "--set-volume no --id" 4 "$(shell/t-play --set-volume 40 -j >/dev/null 2>&1; echo $?)"
+report "--set-volume no --id" 4 "$(shell/ting-play --set-volume 40 -j >/dev/null 2>&1; echo $?)"
 # The exit code alone leaves the third row of ARCH-cli-contract.md「调用面」's 1-vs-4 table
 # unproved: 4 is also what an IDLE mutation answers, so a caller told only "4" cannot tell
 # "nothing to act on" from "say which one". `status` is the field that separates them, and it
 # has no check anywhere else — contract.sh reaches the not_playing side and can never reach
 # this one, ambiguity needing two live players.
 # Captured FIRST, never piped straight from the command: under `set -o pipefail` the pipeline
-# carries t-play's own 4 and jq's verdict is thrown away — this line read FAIL/4 that way on
+# carries ting-play's own 4 and jq's verdict is thrown away — this line read FAIL/4 that way on
 # its first run, against correct behaviour. Same trap contract.sh's jq_ok exists to close.
-amb=$(shell/t-play --set-volume 40 -j 2>/dev/null)
+amb=$(shell/ting-play --set-volume 40 -j 2>/dev/null)
 report "…and says ambiguous"  0 "$(printf '%s' "$amb" | jq -e '.status=="ambiguous" and .reason=="multiple_players" and (.players|length)==2' >/dev/null 2>&1; echo $?)"
 # --stop takes the same ambiguity rule (ARCH-cli-contract.md「数据契约」): with 2 players and no
 # selector it must refuse with 4 AND stop nothing — a --stop that guessed would kill the
 # wrong listener's audio, which no exit code repairs.
-report "--stop no --id"       4 "$(shell/t-play --stop -j >/dev/null 2>&1; echo $?)"
-report "ambiguous --stop stopped nothing" 2 "$(shell/t-play --status -j | jq '.players | length')"
+report "--stop no --id"       4 "$(shell/ting-play --stop -j >/dev/null 2>&1; echo $?)"
+report "ambiguous --stop stopped nothing" 2 "$(shell/ting-play --status -j | jq '.players | length')"
 # Ambiguity is decided before any IPC, so the check above needs no player listening. The
 # targeted ones below do -- wait for player 1's socket first (see wait_for_sock).
 sock1=$(printf '%s' "$o1" | jq -r '.sock // empty')
@@ -216,15 +216,15 @@ wait_for_sock "$sock1" || bad "player 1's IPC socket never appeared -- the check
 # second script -- is the duplication the envelope exists to prevent (ARCH-player.md「运行时 IPC」).
 # Asserted as the SAME path rather than as "a socket exists", because a --status that answered
 # with a plausible path it built itself would pass the weaker check and still be the bug.
-st_sock=$(shell/t-play --status -j | jq -r --arg i "$id1" '.players[]|select(.id==$i)|.sock // ""')
+st_sock=$(shell/ting-play --status -j | jq -r --arg i "$id1" '.players[]|select(.id==$i)|.sock // ""')
 report "--status hands back the live socket" "$sock1" "$st_sock"
-st_log=$(shell/t-play --status -j | jq -r --arg i "$id1" '.players[]|select(.id==$i)|.log // ""')
+st_log=$(shell/ting-play --status -j | jq -r --arg i "$id1" '.players[]|select(.id==$i)|.log // ""')
 report "…and a log path that is really there" 1 \
     "$([ -n "$st_log" ] && [ -f "$st_log" ] && echo 1 || echo 0)"
-report "--set-volume --id"    0 "$(shell/t-play --set-volume 40 --id "$id1" -j >/dev/null 2>&1; echo $?)"
+report "--set-volume --id"    0 "$(shell/ting-play --set-volume 40 --id "$id1" -j >/dev/null 2>&1; echo $?)"
 # Only the targeted player moved: a mutation that leaks across players is the bug --id exists for.
 report "only the target moved" "40" \
-    "$(shell/t-play --status -j | jq -r --arg i "$id1" '.players[]|select(.id==$i)|.volume')"
+    "$(shell/ting-play --status -j | jq -r --arg i "$id1" '.players[]|select(.id==$i)|.volume')"
 
 echo "── the live read: a real socket, a real peer, null is not false ───"
 # The four live fields cost a round trip to mpv itself. Nothing in this repo may stand in for
@@ -241,10 +241,10 @@ fi
 # reported paused:null would make every consumer's readiness probe read a fabrication, and a
 # playing player that reported it as anything but false would make --pause unobservable.
 report "live paused is false, not null" 0 \
-    "$(shell/t-play --status -j | jq -e --arg i "$id1" \
+    "$(shell/ting-play --status -j | jq -e --arg i "$id1" \
         '.players[]|select(.id==$i)|.paused==false' >/dev/null 2>&1; echo $?)"
 report "live duration is a number" 0 \
-    "$(shell/t-play --status -j | jq -e --arg i "$id1" \
+    "$(shell/ting-play --status -j | jq -e --arg i "$id1" \
         '.players[]|select(.id==$i)|.duration|type=="number"' >/dev/null 2>&1; echo $?)"
 # The backfill's third field. `title` and `format` were already patched in from the resolve
 # envelope; `selected` joins them, and it is the one of the three that no OFFLINE check can
@@ -252,7 +252,7 @@ report "live duration is a number" 0 \
 # handle ever replaces it. A player record still reporting null here is a backfill that
 # dropped the key, which is exactly what the launch-time default looks like.
 report "the record carries selected" 0 \
-    "$(shell/t-play --status -j | jq -e --arg i "$id1" \
+    "$(shell/ting-play --status -j | jq -e --arg i "$id1" \
         '.players[]|select(.id==$i)|.selected|type=="string"' >/dev/null 2>&1; echo $?)"
 # `media` — what is ACTUALLY DECODING, and the only place in the suite it can be proved: the
 # facts come off the mpv socket, so an implementation without a real peer has nothing to
@@ -280,18 +280,18 @@ else
     bad "player 1 never reported a decoding codec — the media read is unproved"
 fi
 report "audio_codec is a codec name, not the engine's format string" 0 \
-    "$(shell/t-play --status -j | jq -e --arg i "$id1" \
+    "$(shell/ting-play --status -j | jq -e --arg i "$id1" \
         '.players[]|select(.id==$i)|.media.audio_codec|test("^[a-z0-9_.+-]+$")' >/dev/null 2>&1; echo $?)"
 report "sample_rate is a number the engine never sent" 0 \
-    "$(shell/t-play --status -j | jq -e --arg i "$id1" \
+    "$(shell/ting-play --status -j | jq -e --arg i "$id1" \
         '.players[]|select(.id==$i)|.media.sample_rate|type=="number" and .>0' >/dev/null 2>&1; echo $?)"
 report "an audio play reports video_codec/width null, not 0" 0 \
-    "$(shell/t-play --status -j | jq -e --arg i "$id1" \
+    "$(shell/ting-play --status -j | jq -e --arg i "$id1" \
         '.players[]|select(.id==$i)|.media|.video_codec==null and .width==null' >/dev/null 2>&1; echo $?)"
 # The whole object is always present with all nine members, absent value or not: a caller
 # that has to tell a missing KEY from a null VALUE is a caller we made work for nothing.
 report "media carries all nine keys" 0 \
-    "$(shell/t-play --status -j | jq -e --arg i "$id1" \
+    "$(shell/ting-play --status -j | jq -e --arg i "$id1" \
         '.players[]|select(.id==$i)|.media|keys_unsorted|sort ==
          ["audio_bitrate","audio_codec","channels","fps","height","sample_rate","video_bitrate","video_codec","width"]' \
         >/dev/null 2>&1; echo $?)"
@@ -306,20 +306,20 @@ echo "── the playback verbs: the envelope reports what mpv answered ──�
 # fast this machine decodes is the timing assertion CLAUDE.md forbids. Paused, the playhead
 # holds still and every claim below is about behaviour.
 report "--pause reads back paused"  "true" \
-    "$(shell/t-play --pause --id "$id1" -j | jq -r '.paused')"
+    "$(shell/ting-play --pause --id "$id1" -j | jq -r '.paused')"
 report "…and --status agrees"         "true" \
-    "$(shell/t-play --status -j | jq -r --arg i "$id1" '.players[]|select(.id==$i)|.paused')"
+    "$(shell/ting-play --status -j | jq -r --arg i "$id1" '.players[]|select(.id==$i)|.paused')"
 # The order is load-bearing: seek FORWARD first, then home. Doing it the other way round
 # leaves a --seek-to that secretly seeks RELATIVE looking correct — a relative 0 from a
 # playhead near the start also lands near the start. Proved by breaking it exactly that way
 # and watching this pass; it only goes red once the absolute seek has somewhere to come back
 # from. Each claim is anchored to the position BEFORE it, so a verb that does nothing at all
 # cannot ride on where the decoder happened to be.
-before=$(shell/t-play --status -j | jq -r --arg i "$id1" '.players[]|select(.id==$i)|.position')
+before=$(shell/ting-play --status -j | jq -r --arg i "$id1" '.players[]|select(.id==$i)|.position')
 # A RELATIVE seek lands on a keyframe, so the claim is "forward by about that much", never an
 # exact 30 — asserting the exact number would be asserting mpv's keyframe interval. What is
 # proved here is that the sign was honoured and that the number is READ, not computed.
-p1=$(shell/t-play --seek +30 --id "$id1" -j | jq -r '.position')
+p1=$(shell/ting-play --seek +30 --id "$id1" -j | jq -r '.position')
 # Each operand is judged SEPARATELY. Concatenating them ("$before$p1") let an empty baseline
 # through whenever p1 was a number — and an empty `before` is 0 to bash 3.2 arithmetic, so
 # `p1 >= before + 20` became `p1 >= 20` and this passed with no baseline at all.
@@ -333,16 +333,16 @@ case "$before" in
 esac
 # An ABSOLUTE seek is exact (mpv hr-seeks it), so coming back from ~30s means the start
 # itself, not a keyframe in its neighbourhood.
-p0=$(shell/t-play --seek-to 0 --id "$id1" -j | jq -r '.position')
+p0=$(shell/ting-play --seek-to 0 --id "$id1" -j | jq -r '.position')
 case "$p0" in
     "" | null) bad "--seek-to 0 reported no position — the read-back is unproved" ;;
     *) if [ "$p0" -le 2 ]; then ok "--seek-to 0 came back to the start (${p1}s → ${p0}s)"
        else bad "--seek-to 0 landed at ${p0}s, which is not the start"; fi ;;
 esac
 report "--resume reads back running" "false" \
-    "$(shell/t-play --resume --id "$id1" -j | jq -r '.paused')"
+    "$(shell/ting-play --resume --id "$id1" -j | jq -r '.paused')"
 report "…and --status agrees"         "false" \
-    "$(shell/t-play --status -j | jq -r --arg i "$id1" '.players[]|select(.id==$i)|.paused')"
+    "$(shell/ting-play --status -j | jq -r --arg i "$id1" '.players[]|select(.id==$i)|.paused')"
 # THE SAME ROUND TRIP WITH NOTHING BUT THE STOCK nc. contract.sh proves the client is
 # accepted; only a real mpv socket proves BSD `nc -U -w1` actually carries a command and brings
 # the answer back. PATH holds jq and the system dirs, so no ncat can stand in for it. Skipped
@@ -355,9 +355,9 @@ _nch=""
 if [[ "$_nch" =~ [[:space:]]-U[[:space:]] ]] &&
     ! env "PATH=/usr/bin:/bin" command -v ncat >/dev/null 2>&1; then
     report "stock nc: --pause reads back paused" "true" \
-        "$(env "PATH=$NC_ONLY:/usr/bin:/bin" shell/t-play --pause --id "$id1" -j | jq -r '.paused')"
+        "$(env "PATH=$NC_ONLY:/usr/bin:/bin" shell/ting-play --pause --id "$id1" -j | jq -r '.paused')"
     report "stock nc: --resume reads back running" "false" \
-        "$(env "PATH=$NC_ONLY:/usr/bin:/bin" shell/t-play --resume --id "$id1" -j | jq -r '.paused')"
+        "$(env "PATH=$NC_ONLY:/usr/bin:/bin" shell/ting-play --resume --id "$id1" -j | jq -r '.paused')"
 else
     echo "  skip  (no BSD nc with -U in /usr/bin, or an ncat beside it — the stock-client round trip cannot be tested here)"
 fi
@@ -374,7 +374,7 @@ fi
 # falls back to the record, which --set-volume patched to 40 above.
 rm -f "$sock1"
 report "socketless player: nulls, volume off the record" 0 \
-    "$(shell/t-play --status -j | jq -e --arg i "$id1" \
+    "$(shell/ting-play --status -j | jq -e --arg i "$id1" \
         '.players[]|select(.id==$i)|.paused==null and .position==null and .duration==null and .volume==40' \
         >/dev/null 2>&1; echo $?)"
 
@@ -392,21 +392,21 @@ echo "── three more players, launched back to back ────────�
 # play — which makes "take row one" both the cheapest handle and the correct one. `lofi` is the
 # query because it measured 98% playable; the row itself is asserted, so a query that stops
 # returning one is a red with a name on it rather than a mystery below.
-NE_ROW=$(shell/t-play --search --engine ne -j -n 5 -- lofi 2>/dev/null | jq -r '.results[0].url // empty')
-o3=$(shell/t-play -d -j --volume 0 --engine bili -- "$BV" 2>/dev/null)
+NE_ROW=$(shell/ting-play --search --engine ne -j -n 5 -- lofi 2>/dev/null | jq -r '.results[0].url // empty')
+o3=$(shell/ting-play -d -j --volume 0 --engine bili -- "$BV" 2>/dev/null)
 o6=""
-[ -n "$NE_ROW" ] && o6=$(shell/t-play -d -j --volume 0 --engine ne -- "$NE_ROW" 2>/dev/null)
+[ -n "$NE_ROW" ] && o6=$(shell/ting-play -d -j --volume 0 --engine ne -- "$NE_ROW" 2>/dev/null)
 # ONE player for three launch options, because none of them can mask another: the tier and -f
 # choose WHICH stream, --start chooses where in it mpv opens, and --loop only lands in the
 # record until the track ends — which a six-hour stream opened at 600s does not do during this
 # run. A player that comes up at the offset has proved the tier and -f did not break the stream
 # as well; that is why the separate quality player could go.
-o4=$(shell/t-play -d -j --volume 0 --quality low -f audio --start 600 --loop one -- "$U1" 2>/dev/null)
+o4=$(shell/ting-play -d -j --volume 0 --quality low -f audio --start 600 --loop one -- "$U1" 2>/dev/null)
 
 echo "── a second engine: the envelope's http_headers reach mpv ─────────"
 # The only check in the suite whose SITE makes a dropped header block observable. contract.sh
 # asserts http_headers is PRESENT in the resolve envelope; nothing else there asserts that
-# t-play forwards it into mpv. This site is what makes the difference visible: its CDN answers
+# ting-play forwards it into mpv. This site is what makes the difference visible: its CDN answers
 # 403 to a bare stream URL and 206 to the same URL carrying the envelope's Referer
 # (docs/ARCHITECTURE.md「调用栈」, measured). So a player that dropped the header block would still
 # play YouTube, and every other check in this file would stay green, while bytes never flowed
@@ -422,7 +422,7 @@ sock3=$(printf '%s' "$o3" | jq -r '.sock // empty')
 # a discriminating input — launched under --engine, against a suite default of yt — so a field
 # filled from the default, or missing, answers `yt` here.
 report "the record names the engine that resolved it" "bili" \
-    "$(shell/t-play --status -j | jq -r --arg i "$id3" '.players[] | select(.id == $i) | .engine // "null"')"
+    "$(shell/ting-play --status -j | jq -r --arg i "$id3" '.players[] | select(.id == $i) | .engine // "null"')"
 if wait_for_sock "$sock3"; then
     # `position` is read live off the socket, not from the record, and time-to-first-byte is
     # network-bound — so it is the same bounded poll as player 1's (wait_live).
@@ -437,7 +437,7 @@ fi
 
 echo "── a third engine: a search row plays, end to end ─────────────────"
 # THE WHOLE PIPELINE ON ONE ENGINE, with nothing pinned: a real `ne-search` answered above, its
-# first row's url went straight to `t-play -d --engine ne`, and the playhead moves. Three
+# first row's url went straight to `ting-play -d --engine ne`, and the playhead moves. Three
 # envelopes have to agree for that to happen — search's row, resolve's stream_urls/http_headers,
 # and the player's record — and this is the only place all three are the same engine's and all
 # three are real.
@@ -449,7 +449,7 @@ else
     id6=$(printf '%s' "$o6" | jq -r '.id // empty')
     sock6=$(printf '%s' "$o6" | jq -r '.sock // empty')
     report "the record names the engine that resolved it" "ne" \
-        "$(shell/t-play --status -j | jq -r --arg i "$id6" '.players[] | select(.id == $i) | .engine // "null"')"
+        "$(shell/ting-play --status -j | jq -r --arg i "$id6" '.players[] | select(.id == $i) | .engine // "null"')"
     if wait_for_sock "$sock6"; then
         if pos=$(wait_live "$id6" position); then
             ok "ne audio flowed (position ${pos}s) — search row to playhead, one engine"
@@ -491,7 +491,7 @@ sock4=$(printf '%s' "$o4" | jq -r '.sock // empty')
 # unproved without this line is that a launch can carry it at all. The parent writes the
 # record, so this needs no socket.
 report "a launch records its loop mode" "one" \
-    "$(shell/t-play --status -j | jq -r --arg i "$id4" '.players[]|select(.id==$i)|.loop // empty')"
+    "$(shell/ting-play --status -j | jq -r --arg i "$id4" '.players[]|select(.id==$i)|.loop // empty')"
 if wait_for_sock "$sock4"; then
     if pos=$(wait_live "$id4" position); then
         ok "quality audio flowed (position ${pos}s) — the tier reached the engine"
@@ -508,10 +508,10 @@ else
 fi
 
 echo "── stop is targeted, then idempotent, and leaks nothing ───────────"
-report "--stop --id"       0 "$(shell/t-play --stop --id "$id1" -j >/dev/null 2>&1; echo $?)"
-report "--stop --all"      0 "$(shell/t-play --stop --all -j >/dev/null 2>&1; echo $?)"
-report "--stop --all again" 0 "$(shell/t-play --stop --all -j >/dev/null 2>&1; echo $?)"
-report "no players left"   0 "$(shell/t-play --status -j | jq -e '.players==[]' >/dev/null 2>&1; echo $?)"
+report "--stop --id"       0 "$(shell/ting-play --stop --id "$id1" -j >/dev/null 2>&1; echo $?)"
+report "--stop --all"      0 "$(shell/ting-play --stop --all -j >/dev/null 2>&1; echo $?)"
+report "--stop --all again" 0 "$(shell/ting-play --stop --all -j >/dev/null 2>&1; echo $?)"
+report "no players left"   0 "$(shell/ting-play --status -j | jq -e '.players==[]' >/dev/null 2>&1; echo $?)"
 
 no_orphans "no orphan mpv"
 
@@ -523,19 +523,19 @@ echo "── a queue is a player consuming a playlist ────────�
 # the very thing most likely to break between two tracks — and be green for it.
 #
 # One player, so no --id is needed anywhere below (exactly-one is the zero-friction case).
-shell/t-play --stop --all -j >/dev/null 2>&1
+shell/ting-play --stop --all -j >/dev/null 2>&1
 # The list is STORED first and read back out, so what launches the player is
 # ARCH-cli-contract.md「调用面」's second pipeline run verbatim:
-#     t-playlist --show chill -j | t-play -d --queue -
+#     ting-playlist --show chill -j | ting-play -d --queue -
 # It used to be a `jq -nc` array inlined here, which proved the array arm and left the arm the
 # doc actually advertises unexecuted — and that arm is the one carrying the claim: a stored
 # record IS a call, so the two commands need no jq mapping between them. contract.sh proves
 # the same envelope reaches the gate offline (4, no player); this is the half where it really
 # starts one. TING_STATE_DIR is this file's own (top of file), so the list is disposable.
 jq -nc --arg a "$U1" --arg b "$U2" '[{engine:"yt",url:$a},{engine:"yt",url:$b}]' |
-    shell/t-playlist --add chill -j >/dev/null 2>&1
-report "the list stored 2" 2 "$(shell/t-playlist --show chill -j 2>/dev/null | jq -r '.count // 0')"
-qout=$(shell/t-playlist --show chill -j 2>/dev/null | shell/t-play -d --queue - -j --volume 0 2>/dev/null)
+    shell/ting-playlist --add chill -j >/dev/null 2>&1
+report "the list stored 2" 2 "$(shell/ting-playlist --show chill -j 2>/dev/null | jq -r '.count // 0')"
+qout=$(shell/ting-playlist --show chill -j 2>/dev/null | shell/ting-play -d --queue - -j --volume 0 2>/dev/null)
 report "--queue - launches" 0 "$(printf '%s' "$qout" | jq -e '.status=="started" and .id' >/dev/null 2>&1; echo $?)"
 # The queue is visible from the moment the player exists, not once the first track decodes:
 # a caller that asks what is queued must not have to wait for mpv. `upcoming` is asserted
@@ -545,7 +545,7 @@ report "--queue - launches" 0 "$(printf '%s' "$qout" | jq -e '.status=="started"
 # the whole reason the list exists — so it is asserted as PRESENT rather than as a number
 # (these items were queued from urls alone, and an absent duration is null, not zero).
 report "--status carries the queue" 0 \
-    "$(shell/t-play --status -j | jq -e '.players[0].queue
+    "$(shell/ting-play --status -j | jq -e '.players[0].queue
         | .pos==0 and .len==2 and (.next.url|type=="string")
           and (.upcoming|length)==1 and .upcoming[0].url==.next.url
           and (.upcoming[0]|has("duration"))' >/dev/null 2>&1; echo $?)"
@@ -554,37 +554,37 @@ wait_for_sock "$qsock" || bad "the queued player's socket never appeared — the
 
 # --enqueue lands on a RUNNING player, and the envelope reports the queue it wrote.
 report "--enqueue appends" 0 \
-    "$(jq -nc --arg a "$U1" '[{engine:"yt",url:$a}]' | shell/t-play --enqueue - -j 2>/dev/null \
+    "$(jq -nc --arg a "$U1" '[{engine:"yt",url:$a}]' | shell/ting-play --enqueue - -j 2>/dev/null \
         | jq -e '.status=="ok" and .added==1 and .queue.len==3' >/dev/null 2>&1; echo $?)"
-# Concurrency is DRIVEN, not argued (the rule t-playlist's eight concurrent --add checks
+# Concurrency is DRIVEN, not argued (the rule ting-playlist's eight concurrent --add checks
 # already follow): six writers, six items, no lost update. With lock_queue_state stubbed to
 # fail this loop leaves fewer — watched, so the check is known to be able to fail.
 for i in 1 2 3 4 5 6; do
-    jq -nc --arg a "$U2" '[{engine:"yt",url:$a}]' | shell/t-play --enqueue - -j >/dev/null 2>&1 &
+    jq -nc --arg a "$U2" '[{engine:"yt",url:$a}]' | shell/ting-play --enqueue - -j >/dev/null 2>&1 &
 done
 wait
 report "6 concurrent --enqueue all land (3+6)" 9 \
-    "$(shell/t-play --status -j | jq -r '.players[0].queue.len')"
+    "$(shell/ting-play --status -j | jq -r '.players[0].queue.len')"
 # Nine queued items is the discriminating input for the CAP: a projection that dumped the
 # whole tail would answer 8 here and grow with every --enqueue, which is the thing --status
 # --all must not do. `len` above already proved the total is still told honestly.
 report "upcoming is capped, len is not" 5 \
-    "$(shell/t-play --status -j | jq -r '.players[0].queue.upcoming | length')"
+    "$(shell/ting-play --status -j | jq -r '.players[0].queue.upcoming | length')"
 
 # --next: the POSITION moves in the parent, so the envelope reports a queue it read. Then the
 # player follows — a bounded poll, because what is being proved is that it DID follow, not
 # how fast it resolved (a duration assertion against a live site is the timing check
 # CLAUDE.md forbids).
 report "--next advances the position" 1 \
-    "$(shell/t-play --next -j 2>/dev/null | jq -r '.queue.pos')"
+    "$(shell/ting-play --next -j 2>/dev/null | jq -r '.queue.pos')"
 i=0
 while [ $i -lt 240 ]; do
-    u=$(shell/t-play --status -j | jq -r '.players[0].url // empty')
+    u=$(shell/ting-play --status -j | jq -r '.players[0].url // empty')
     [ "$u" = "$U2" ] && break
     sleep 0.25; i=$((i + 1))
 done
 report "the record follows the track" "$U2" \
-    "$(shell/t-play --status -j | jq -r '.players[0].url // empty')"
+    "$(shell/ting-play --status -j | jq -r '.players[0].url // empty')"
 
 # The one a queue exists for: a track ENDING on its own starts the next. Seek to just before
 # the end rather than waiting out a six-hour stream, then poll for the position to move —
@@ -597,14 +597,14 @@ report "the record follows the track" "$U2" \
 # the one claim a queue exists for went unproved while the score dropped by only 1.
 qid=$(printf '%s' "$qout" | jq -r '.id // empty')
 if dur=$(wait_live "$qid" duration); then
-    shell/t-play --seek-to $((dur - 4)) -j >/dev/null 2>&1
+    shell/ting-play --seek-to $((dur - 4)) -j >/dev/null 2>&1
     i=0
     while [ $i -lt 360 ]; do
-        [ "$(shell/t-play --status -j | jq -r '.players[0].queue.pos // empty')" = "2" ] && break
+        [ "$(shell/ting-play --status -j | jq -r '.players[0].queue.pos // empty')" = "2" ] && break
         sleep 0.25; i=$((i + 1))
     done
     report "a track ending advances the queue" "2" \
-        "$(shell/t-play --status -j | jq -r '.players[0].queue.pos // empty')"
+        "$(shell/ting-play --status -j | jq -r '.players[0].queue.pos // empty')"
 else
     bad "the queued player never reported a duration in 40s — cannot drive it to a track end"
 fi
@@ -620,12 +620,12 @@ fi
 # that proves anything — between two tracks there is no socket, so the mode would reach mpv
 # only at the next launch and this block would be timing a resolve instead of a loop.
 if dur=$(wait_live "$qid" duration); then
-    qpos=$(shell/t-play --status -j | jq -r '.players[0].queue.pos // empty')
+    qpos=$(shell/ting-play --status -j | jq -r '.players[0].queue.pos // empty')
     report "--set-loop reports the mode it set" "one" \
-        "$(shell/t-play --set-loop one -j 2>/dev/null | jq -r '.loop // empty')"
+        "$(shell/ting-play --set-loop one -j 2>/dev/null | jq -r '.loop // empty')"
     report "…and --status agrees" "one" \
-        "$(shell/t-play --status -j | jq -r '.players[0].loop // empty')"
-    shell/t-play --seek-to $((dur - 4)) -j >/dev/null 2>&1
+        "$(shell/ting-play --status -j | jq -r '.players[0].loop // empty')"
+    shell/ting-play --seek-to $((dur - 4)) -j >/dev/null 2>&1
     # Polled, never timed: how long mpv takes to loop a file is not this suite's subject.
     # The playhead coming back to somewhere near the START of the same track is the whole
     # observable, and `dur - 10` is a floor no seek in this block ever lands above.
@@ -634,30 +634,30 @@ if dur=$(wait_live "$qid" duration); then
     # the same red the second reports immediately.
     i=0
     while [ $i -lt 160 ]; do
-        p=$(shell/t-play --status -j | jq -r '.players[0].position // empty')
-        [ "$(shell/t-play --status -j | jq -r '.players[0].queue.pos // empty')" != "$qpos" ] && break
+        p=$(shell/ting-play --status -j | jq -r '.players[0].position // empty')
+        [ "$(shell/ting-play --status -j | jq -r '.players[0].queue.pos // empty')" != "$qpos" ] && break
         case "$p" in "" | null) ;; *) [ "$p" -lt $((dur - 10)) ] && break ;; esac
         sleep 0.25; i=$((i + 1))
     done
     report "a repeating track wraps to its own start" 1 \
-        "$(p=$(shell/t-play --status -j | jq -r '.players[0].position // 999999')
+        "$(p=$(shell/ting-play --status -j | jq -r '.players[0].position // 999999')
            [ "$p" -lt $((dur - 10)) ] && echo 1 || echo 0)"
     report "…and the queue did not advance" "$qpos" \
-        "$(shell/t-play --status -j | jq -r '.players[0].queue.pos // empty')"
+        "$(shell/ting-play --status -j | jq -r '.players[0].queue.pos // empty')"
     # THE OTHER HALF OF THE PAIR, and the reason the wrap above is not just a queue being
     # slow: turn repeat off and drive the SAME track to the SAME end. Now it must hand on.
     # It also proves the child re-reads the record between tracks — the value it was launched
     # with is `off`, so a child holding that would pass the wrap check above by accident and
     # this one either way; only the pair separates them.
-    shell/t-play --set-loop off -j >/dev/null 2>&1
-    shell/t-play --seek-to $((dur - 4)) -j >/dev/null 2>&1
+    shell/ting-play --set-loop off -j >/dev/null 2>&1
+    shell/ting-play --seek-to $((dur - 4)) -j >/dev/null 2>&1
     i=0
     while [ $i -lt 360 ]; do
-        [ "$(shell/t-play --status -j | jq -r '.players[0].queue.pos // empty')" != "$qpos" ] && break
+        [ "$(shell/ting-play --status -j | jq -r '.players[0].queue.pos // empty')" != "$qpos" ] && break
         sleep 0.25; i=$((i + 1))
     done
     report "repeat off: the same end advances the queue" "$((qpos + 1))" \
-        "$(shell/t-play --status -j | jq -r '.players[0].queue.pos // empty')"
+        "$(shell/ting-play --status -j | jq -r '.players[0].queue.pos // empty')"
 else
     bad "the repeating player never reported a duration in 40s — the repeat claims are unproved"
 fi
@@ -670,13 +670,13 @@ fi
 # processes that never saw the first one. --stop does not return until that escalation has
 # ended and the record is removed (do_stop), so the empty record is asserted immediately:
 # polling for it would be a wait that could never fail.
-shell/t-play --next -j >/dev/null 2>&1
+shell/ting-play --next -j >/dev/null 2>&1
 # NOT a wait, and so not a poll: this sleep is SETUP. It puts the --stop below in the middle
 # of the between-tracks resolve, which is the race being driven; without it the stop lands
 # before the child has spawned anything and the check passes without touching the claim.
 sleep 0.5
-report "--stop ends the queue" 0 "$(shell/t-play --stop --all -j >/dev/null 2>&1; echo $?)"
-report "no players after a queue" 0 "$(shell/t-play --status -j | jq -e '.players==[]' >/dev/null 2>&1; echo $?)"
+report "--stop ends the queue" 0 "$(shell/ting-play --stop --all -j >/dev/null 2>&1; echo $?)"
+report "no players after a queue" 0 "$(shell/ting-play --status -j | jq -e '.players==[]' >/dev/null 2>&1; echo $?)"
 no_orphans "no orphan mpv after a queue"
 
 # ── editing a queue that is being consumed ─────────────────────────────────────────────
@@ -688,10 +688,10 @@ no_orphans "no orphan mpv after a queue"
 # stale index is gone from everywhere. Both guards are driven against a REAL running player,
 # because both are decided under the lock against the position of the moment, and a position
 # only moves when something is really playing.
-shell/t-play --stop --all -j >/dev/null 2>&1
+shell/ting-play --stop --all -j >/dev/null 2>&1
 eout=$(jq -nc --arg a "$U1" --arg b "$U2" \
     '[{engine:"yt",url:$a},{engine:"yt",url:$b},{engine:"yt",url:$a},{engine:"yt",url:$b}]' |
-    shell/t-play -d --queue - -j --volume 0 2>/dev/null)
+    shell/ting-play -d --queue - -j --volume 0 2>/dev/null)
 report "the edit player launched" 0 \
     "$(printf '%s' "$eout" | jq -e '.status=="started" and .id' >/dev/null 2>&1; echo $?)"
 wait_for_sock "$(printf '%s' "$eout" | jq -r '.sock // empty')" ||
@@ -702,24 +702,24 @@ wait_for_sock "$(printf '%s' "$eout" | jq -r '.sock // empty')" ||
 # this pair proves is not the length but the AGREEMENT — the same pos and len --status
 # reports, plus the per-item index the write verbs take.
 report "--queue-show reports every item" 0 \
-    "$(shell/t-play --queue-show -j | jq -e '.status=="ok" and .len==4 and .pos==0
+    "$(shell/ting-play --queue-show -j | jq -e '.status=="ok" and .len==4 and .pos==0
         and (.items|length)==4 and (.items|map(.index))==[0,1,2,3]
         and (.items[0]|has("engine") and has("url"))' >/dev/null 2>&1; echo $?)"
 report "…and it agrees with --status" 0 \
-    "$(a=$(shell/t-play --queue-show -j | jq -c '{pos,len}')
-       b=$(shell/t-play --status -j | jq -c '{pos:.players[0].queue.pos,len:.players[0].queue.len}')
+    "$(a=$(shell/ting-play --queue-show -j | jq -c '{pos,len}')
+       b=$(shell/ting-play --status -j | jq -c '{pos:.players[0].queue.pos,len:.players[0].queue.len}')
        [ "$a" = "$b" ] && echo 0 || echo 1)"
 
 # THE PLAYING TRACK IS NOT A QUEUE EDIT. Index 0 is what pos names, and the pin is CORRECT
 # here — so a range check that ran after the identity check, or not at all, would let this
 # through and take the song out from under mpv.
-eu0=$(shell/t-play --queue-show -j | jq -r '.items[0].url')
+eu0=$(shell/ting-play --queue-show -j | jq -r '.items[0].url')
 report "removing the playing track is 4" 4 \
-    "$(shell/t-play --queue-rm 0 --expect-url "$eu0" -j >/dev/null 2>&1; echo $?)"
+    "$(shell/ting-play --queue-rm 0 --expect-url "$eu0" -j >/dev/null 2>&1; echo $?)"
 report "…and it says queue_range" "queue_range" \
-    "$(shell/t-play --queue-rm 0 --expect-url "$eu0" -j 2>/dev/null | jq -r '.reason // empty')"
+    "$(shell/ting-play --queue-rm 0 --expect-url "$eu0" -j 2>/dev/null | jq -r '.reason // empty')"
 report "…past the end is queue_range too" "queue_range" \
-    "$(shell/t-play --queue-rm 9 --expect-url "$eu0" -j 2>/dev/null | jq -r '.reason // empty')"
+    "$(shell/ting-play --queue-rm 9 --expect-url "$eu0" -j 2>/dev/null | jq -r '.reason // empty')"
 
 # THE CENTRAL CLAIM OF THE DESIGN, and an exit code alone does not prove it: a refused write
 # must write NOTHING. The length either side of the refusal is the assertion — a queue_stale
@@ -727,14 +727,14 @@ report "…past the end is queue_range too" "queue_range" \
 #
 # The pin is a url that is REAL but belongs to another index; a made-up string would also be
 # caught by a check that merely tested for non-empty.
-ebefore=$(shell/t-play --queue-show -j | jq -r '.len')
-eu1=$(shell/t-play --queue-show -j | jq -r '.items[1].url')
+ebefore=$(shell/ting-play --queue-show -j | jq -r '.len')
+eu1=$(shell/ting-play --queue-show -j | jq -r '.items[1].url')
 report "a stale pin is 4" 4 \
-    "$(shell/t-play --queue-rm 2 --expect-url "$eu1" -j >/dev/null 2>&1; echo $?)"
+    "$(shell/ting-play --queue-rm 2 --expect-url "$eu1" -j >/dev/null 2>&1; echo $?)"
 report "…and it says queue_stale" "queue_stale" \
-    "$(shell/t-play --queue-rm 2 --expect-url "$eu1" -j 2>/dev/null | jq -r '.reason // empty')"
+    "$(shell/ting-play --queue-rm 2 --expect-url "$eu1" -j 2>/dev/null | jq -r '.reason // empty')"
 report "…and the queue is UNCHANGED" "$ebefore" \
-    "$(shell/t-play --queue-show -j | jq -r '.len')"
+    "$(shell/ting-play --queue-show -j | jq -r '.len')"
 
 # The move, both directions, read back off the file rather than believed from the envelope.
 # 3 -> 1 and 1 -> 3 is a round trip, so the second half asserts the queue came HOME: a --to
@@ -742,33 +742,33 @@ report "…and the queue is UNCHANGED" "$ebefore" \
 # The WHOLE order either side, never one index: the queue is A,B,A,B, so "the track that was
 # at 3 is now at 1" is true before the move as well and would pass against a verb that did
 # nothing at all. [A,B,A,B] -> move 3 to 1 -> [A,B,B,A] is the discriminating shape.
-eorder=$(shell/t-play --queue-show -j | jq -c '[.items[].url]')
-eu3=$(shell/t-play --queue-show -j | jq -r '.items[3].url')
-ewant=$(shell/t-play --queue-show -j | jq -c '[.items[0].url,.items[1].url,.items[3].url,.items[2].url]')
+eorder=$(shell/ting-play --queue-show -j | jq -c '[.items[].url]')
+eu3=$(shell/ting-play --queue-show -j | jq -r '.items[3].url')
+ewant=$(shell/ting-play --queue-show -j | jq -c '[.items[0].url,.items[1].url,.items[3].url,.items[2].url]')
 report "--queue-mv moves it up" 0 \
-    "$(shell/t-play --queue-mv 3 --to 1 --expect-url "$eu3" -j >/dev/null 2>&1; echo $?)"
+    "$(shell/ting-play --queue-mv 3 --to 1 --expect-url "$eu3" -j >/dev/null 2>&1; echo $?)"
 report "…and the whole order moved with it" "$ewant" \
-    "$(shell/t-play --queue-show -j | jq -c '[.items[].url]')"
+    "$(shell/ting-play --queue-show -j | jq -c '[.items[].url]')"
 report "…and the length did not change" "$ebefore" \
-    "$(shell/t-play --queue-show -j | jq -r '.len')"
+    "$(shell/ting-play --queue-show -j | jq -r '.len')"
 # Undoing it is the other direction, and the order coming HOME is what says a --to landed on
 # exactly the slot asked for: one slot out in either direction does not survive a round trip.
 report "--queue-mv moves it back down" 0 \
-    "$(shell/t-play --queue-mv 1 --to 3 --expect-url "$eu3" -j >/dev/null 2>&1; echo $?)"
+    "$(shell/ting-play --queue-mv 1 --to 3 --expect-url "$eu3" -j >/dev/null 2>&1; echo $?)"
 report "…and the order came home" "$eorder" \
-    "$(shell/t-play --queue-show -j | jq -c '[.items[].url]')"
+    "$(shell/ting-play --queue-show -j | jq -c '[.items[].url]')"
 # The destination is held to the SAME bounds as the index, for the same reason: slot 0 is the
 # track being heard. A --to checked only for being a number would accept this.
 report "--to cannot aim at the playing slot" "queue_range" \
-    "$(shell/t-play --queue-mv 3 --to 0 --expect-url "$eu3" -j 2>/dev/null | jq -r '.reason // empty')"
+    "$(shell/ting-play --queue-mv 3 --to 0 --expect-url "$eu3" -j 2>/dev/null | jq -r '.reason // empty')"
 
 # The removal that is supposed to work, proved by what is LEFT rather than by an exit code:
 # the item goes, the ones after it close up, and every other url stays where it was. The
 # envelope is captured from the ONE call that does it — re-running the verb to read it would
 # remove a second track.
-eu2=$(shell/t-play --queue-show -j | jq -r '.items[2].url')
-ekeep=$(shell/t-play --queue-show -j | jq -c '[.items[0].url,.items[1].url,.items[3].url]')
-erm=$(shell/t-play --queue-rm 2 --expect-url "$eu2" -j 2>/dev/null)
+eu2=$(shell/ting-play --queue-show -j | jq -r '.items[2].url')
+ekeep=$(shell/ting-play --queue-show -j | jq -c '[.items[0].url,.items[1].url,.items[3].url]')
+erm=$(shell/ting-play --queue-rm 2 --expect-url "$eu2" -j 2>/dev/null)
 report "--queue-rm removes it" 0 \
     "$(printf '%s' "$erm" | jq -e '.status=="ok" and .removed.index==2' >/dev/null 2>&1; echo $?)"
 report "…and names the url it removed" "$eu2" \
@@ -779,90 +779,90 @@ report "…and names the url it removed" "$eu2" \
 report "…and carries the whole queue object" 0 \
     "$(printf '%s' "$erm" | jq -e '.queue|has("pos") and has("len") and has("next") and has("upcoming")' >/dev/null 2>&1; echo $?)"
 report "…and the rest closed up in order" "$ekeep" \
-    "$(shell/t-play --queue-show -j | jq -c '[.items[].url]')"
+    "$(shell/ting-play --queue-show -j | jq -c '[.items[].url]')"
 
 # --queue-jump is the one verb that touches the RUNNING player: it moves the track to pos+1
 # and advances pos onto it in a single locked write, then signals the child. Both halves are
 # asserted — the file, and then the player following it — because the write alone would be a
 # queue claiming to have moved on while mpv plays the old track.
-ejump=$(shell/t-play --queue-show -j | jq -r '.items[2].url')
+ejump=$(shell/ting-play --queue-show -j | jq -r '.items[2].url')
 report "--queue-jump is ok" 0 \
-    "$(shell/t-play --queue-jump 2 --expect-url "$ejump" -j >/dev/null 2>&1; echo $?)"
+    "$(shell/ting-play --queue-jump 2 --expect-url "$ejump" -j >/dev/null 2>&1; echo $?)"
 report "…pos moved to 1" "1" \
-    "$(shell/t-play --queue-show -j | jq -r '.pos')"
+    "$(shell/ting-play --queue-show -j | jq -r '.pos')"
 report "…and that track is the one at pos" "$ejump" \
-    "$(shell/t-play --queue-show -j | jq -r '.items[.pos].url')"
+    "$(shell/ting-play --queue-show -j | jq -r '.items[.pos].url')"
 i=0
 while [ $i -lt 240 ]; do
-    [ "$(shell/t-play --status -j | jq -r '.players[0].url // empty')" = "$ejump" ] && break
+    [ "$(shell/ting-play --status -j | jq -r '.players[0].url // empty')" = "$ejump" ] && break
     sleep 0.25; i=$((i + 1))
 done
 report "…and the PLAYER followed the jump" "$ejump" \
-    "$(shell/t-play --status -j | jq -r '.players[0].url // empty')"
+    "$(shell/ting-play --status -j | jq -r '.players[0].url // empty')"
 
 # UNDO, on the same real player: a write that names its owner (this shell, alive for the whole
 # file) leaves a copy, and --undo puts the queue back byte for byte. Every "came back" below is
 # the WHOLE order read off --queue-show, for the reason the move checks above give: one index
 # can look right against a verb that did nothing.
-uorder=$(shell/t-play --queue-show -j | jq -c '[.items[].url]')
+uorder=$(shell/ting-play --queue-show -j | jq -c '[.items[].url]')
 uenq=$(jq -nc --arg a "$U1" --arg b "$U2" '[{engine:"yt",url:$a},{engine:"yt",url:$b}]' |
-    shell/t-play --enqueue - --owner $$ -j 2>/dev/null)
+    shell/ting-play --enqueue - --owner $$ -j 2>/dev/null)
 report "--enqueue --owner carries undo.deadline" 0 \
     "$(printf '%s' "$uenq" | jq -e '.status=="ok" and .added==2 and (.undo.deadline|type)=="number"' >/dev/null 2>&1; echo $?)"
 report "--undo takes the enqueue back" 0 \
-    "$(shell/t-play --undo --owner $$ -j 2>/dev/null | jq -e '.status=="ok" and .undone=="enqueue" and (.queue|has("pos"))' >/dev/null 2>&1; echo $?)"
+    "$(shell/ting-play --undo --owner $$ -j 2>/dev/null | jq -e '.status=="ok" and .undone=="enqueue" and (.queue|has("pos"))' >/dev/null 2>&1; echo $?)"
 report "…and the order came home" "$uorder" \
-    "$(shell/t-play --queue-show -j | jq -c '[.items[].url]')"
+    "$(shell/ting-play --queue-show -j | jq -c '[.items[].url]')"
 # A tail to edit, written WITHOUT an owner — and so with the envelope it always had.
 report "--enqueue without --owner: no undo field" 0 \
     "$(jq -nc --arg a "$U1" --arg b "$U2" '[{engine:"yt",url:$a},{engine:"yt",url:$b}]' |
-       shell/t-play --enqueue - -j 2>/dev/null | jq -e 'has("undo")|not' >/dev/null 2>&1; echo $?)"
-uorder=$(shell/t-play --queue-show -j | jq -c '[.items[].url]')
-ulast=$(shell/t-play --queue-show -j | jq -r '.len - 1')
-uurl=$(shell/t-play --queue-show -j | jq -r '.items[-1].url')
-shell/t-play --queue-rm "$ulast" --expect-url "$uurl" --owner $$ -j >/dev/null 2>&1
+       shell/ting-play --enqueue - -j 2>/dev/null | jq -e 'has("undo")|not' >/dev/null 2>&1; echo $?)"
+uorder=$(shell/ting-play --queue-show -j | jq -c '[.items[].url]')
+ulast=$(shell/ting-play --queue-show -j | jq -r '.len - 1')
+uurl=$(shell/ting-play --queue-show -j | jq -r '.items[-1].url')
+shell/ting-play --queue-rm "$ulast" --expect-url "$uurl" --owner $$ -j >/dev/null 2>&1
 report "--queue-rm, then --undo: the track is back in its slot" "$uorder" \
-    "$(shell/t-play --undo --owner $$ -j >/dev/null 2>&1; shell/t-play --queue-show -j | jq -c '[.items[].url]')"
-shell/t-play --queue-clear --owner $$ -j >/dev/null 2>&1
+    "$(shell/ting-play --undo --owner $$ -j >/dev/null 2>&1; shell/ting-play --queue-show -j | jq -c '[.items[].url]')"
+shell/ting-play --queue-clear --owner $$ -j >/dev/null 2>&1
 report "--queue-clear, then --undo: the whole tail is back" "$uorder" \
-    "$(shell/t-play --undo --owner $$ -j >/dev/null 2>&1; shell/t-play --queue-show -j | jq -c '[.items[].url]')"
+    "$(shell/ting-play --undo --owner $$ -j >/dev/null 2>&1; shell/ting-play --queue-show -j | jq -c '[.items[].url]')"
 
 # --queue-clear drops the tail and nothing else. The track being heard surviving IS the claim:
 # clearing a queue is not stopping a player, and --stop is the verb for that.
-eplaying=$(shell/t-play --status -j | jq -r '.players[0].url // empty')
+eplaying=$(shell/ting-play --status -j | jq -r '.players[0].url // empty')
 report "--queue-clear is ok" 0 \
-    "$(shell/t-play --queue-clear -j >/dev/null 2>&1; echo $?)"
+    "$(shell/ting-play --queue-clear -j >/dev/null 2>&1; echo $?)"
 report "…len is pos + 1" 0 \
-    "$(shell/t-play --queue-show -j | jq -e '.len == (.pos + 1)' >/dev/null 2>&1; echo $?)"
+    "$(shell/ting-play --queue-show -j | jq -e '.len == (.pos + 1)' >/dev/null 2>&1; echo $?)"
 report "…and the playing track is untouched" "$eplaying" \
-    "$(shell/t-play --status -j | jq -r '.players[0].url // empty')"
+    "$(shell/ting-play --status -j | jq -r '.players[0].url // empty')"
 # Idempotent, and honest about it: nothing left to clear is a successful call that cleared
 # nothing, never a failure.
 report "…clearing again clears 0" "0" \
-    "$(shell/t-play --queue-clear -j 2>/dev/null | jq -r '.cleared')"
+    "$(shell/ting-play --queue-clear -j 2>/dev/null | jq -r '.cleared')"
 # A TRACK BOUNDARY BETWEEN THE WRITE AND THE UNDO. The player rewrites pos when it moves on,
 # so the queue is no longer what the write left and the undo must refuse — putting back the
 # bytes from before would rewind pos and replay a track. --next is the boundary, driven.
 jq -nc --arg a "$U1" --arg b "$U2" '[{engine:"yt",url:$a},{engine:"yt",url:$b}]' |
-    shell/t-play --enqueue - -j >/dev/null 2>&1
-ulast=$(shell/t-play --queue-show -j | jq -r '.len - 1')
-uurl=$(shell/t-play --queue-show -j | jq -r '.items[-1].url')
-shell/t-play --queue-rm "$ulast" --expect-url "$uurl" --owner $$ -j >/dev/null 2>&1
-shell/t-play --next -j >/dev/null 2>&1
-uafter=$(shell/t-play --queue-show -j | jq -c '{pos, urls: [.items[].url]}')
+    shell/ting-play --enqueue - -j >/dev/null 2>&1
+ulast=$(shell/ting-play --queue-show -j | jq -r '.len - 1')
+uurl=$(shell/ting-play --queue-show -j | jq -r '.items[-1].url')
+shell/ting-play --queue-rm "$ulast" --expect-url "$uurl" --owner $$ -j >/dev/null 2>&1
+shell/ting-play --next -j >/dev/null 2>&1
+uafter=$(shell/ting-play --queue-show -j | jq -c '{pos, urls: [.items[].url]}')
 report "an undo across a track boundary is undo_stale" "undo_stale" \
-    "$(shell/t-play --undo --owner $$ -j 2>/dev/null | jq -r '.reason // empty')"
+    "$(shell/ting-play --undo --owner $$ -j 2>/dev/null | jq -r '.reason // empty')"
 report "…and the queue is left as the player has it" "$uafter" \
-    "$(shell/t-play --queue-show -j | jq -c '{pos, urls: [.items[].url]}')"
+    "$(shell/ting-play --queue-show -j | jq -c '{pos, urls: [.items[].url]}')"
 # The copy dies with its player. undo_none and not undo_stale is the discriminating answer: a
 # copy that outlived the queue would still be found, and refused for the missing file.
-jq -nc --arg a "$U1" '[{engine:"yt",url:$a}]' | shell/t-play --enqueue - -j >/dev/null 2>&1
-ulast=$(shell/t-play --queue-show -j | jq -r '.len - 1')
-uurl=$(shell/t-play --queue-show -j | jq -r '.items[-1].url')
-shell/t-play --queue-rm "$ulast" --expect-url "$uurl" --owner $$ -j >/dev/null 2>&1
-shell/t-play --stop --all -j >/dev/null 2>&1
+jq -nc --arg a "$U1" '[{engine:"yt",url:$a}]' | shell/ting-play --enqueue - -j >/dev/null 2>&1
+ulast=$(shell/ting-play --queue-show -j | jq -r '.len - 1')
+uurl=$(shell/ting-play --queue-show -j | jq -r '.items[-1].url')
+shell/ting-play --queue-rm "$ulast" --expect-url "$uurl" --owner $$ -j >/dev/null 2>&1
+shell/ting-play --stop --all -j >/dev/null 2>&1
 report "--stop takes the player's undo copy with it" "undo_none" \
-    "$(shell/t-play --undo --owner $$ -j 2>/dev/null | jq -r '.reason // empty')"
+    "$(shell/ting-play --undo --owner $$ -j 2>/dev/null | jq -r '.reason // empty')"
 no_orphans "no orphan mpv after the queue edits"
 # The failure tombstone check lives at the end of this file, driven by a real failing player.
 
@@ -881,17 +881,17 @@ SHORT=${YT_TEST_SHORT:-https://www.youtube.com/watch?v=jNQXAC9IVRw}
 # nothing to do with what is being asserted.
 h_url() { printf '%s' "$1" | jq -r --arg u "$SHORT" '[.items[]|select(.url==$u)]|length'; }
 
-shell/t-play -d -j --volume 0 -- "$SHORT" >/dev/null 2>&1
+shell/ting-play -d -j --volume 0 -- "$SHORT" >/dev/null 2>&1
 # Poll the LOG, not the clock: the row appears when the track ends, and how long the track
 # takes to start is network-bound (the rule wait_for_sock follows, applied to the artefact).
 # Poll for THIS track's row: the queue section also ends a track on its own, so a poll for
 # "any row that ended by itself" returns immediately and waits for nothing.
 i=0
 while [ $i -lt 240 ]; do
-    [ "$(h_url "$(shell/t-history --ls -n 50 -j 2>/dev/null)")" != "0" ] && break
+    [ "$(h_url "$(shell/ting-history --ls -n 50 -j 2>/dev/null)")" != "0" ] && break
     sleep 0.25; i=$((i + 1))
 done
-HIST=$(shell/t-history --ls -n 50 -j 2>/dev/null)
+HIST=$(shell/ting-history --ls -n 50 -j 2>/dev/null)
 # THE RECORD POINT, and the one claim that separates a history from a death record: a track
 # that ended ON ITS OWN is in the log, carrying no reason at all. If the row were written
 # only when a player dies, this is the check that would be empty.
@@ -905,7 +905,7 @@ report "…with its own title and length" 0 \
 # recorded too, which is what keeps the log from being a record of what went uninterrupted.
 report "an interrupted track says so" 0 \
     "$(printf '%s' "$HIST" | jq -e '[.items[]|select(.reason=="stopped_by_user")]|length >= 1' >/dev/null 2>&1; echo $?)"
-# A row is a CALL: `engine` plus `url` is `t-play --engine E -- <handle>`, which is why the
+# A row is a CALL: `engine` plus `url` is `ting-play --engine E -- <handle>`, which is why the
 # log stores the pair and not a bare handle. Both are asserted as the GRAMMAR each side of
 # that argv has — an engine name the player will paste into `<engine>-resolve`, a handle with
 # no whitespace in it — and not as "yt" or as "starts with http": this run drives three engines,
@@ -925,20 +925,20 @@ report "…from all three engines, one shape" 0 \
 # The short track is replayed here because exactly one row for it exists by now, and only
 # this player could write a second.
 h_before=$(h_url "$HIST")
-o7=$(TING_HISTORY=0 shell/t-play -d -j --volume 0 -- "$SHORT" 2>/dev/null)
+o7=$(TING_HISTORY=0 shell/ting-play -d -j --volume 0 -- "$SHORT" 2>/dev/null)
 id7=$(printf '%s' "$o7" | jq -r '.id // empty')
 sock7=$(printf '%s' "$o7" | jq -r '.sock // empty')
 # mpv has to really PLAY, or "the switch wrote nothing" is true of a track that never started
 # and the check is vacuous — so the stop waits for the playhead to leave zero, the same live
 # reading every other player here is proved by.
 if wait_for_sock "$sock7" && wait_live "$id7" position >/dev/null; then
-    shell/t-play --stop --all -j >/dev/null 2>&1
+    shell/ting-play --stop --all -j >/dev/null 2>&1
     # An ABSENCE cannot be polled for — you can only wait long enough — so it is read once the
     # PRECONDITION holds: the row is written by the player's own exit path, and --stop returns
     # only after that whole process group is gone (do_stop, stop_group). No process that could
     # write a row is left, so the answer below is final.
     report "TING_HISTORY=0 writes nothing" "$h_before" \
-        "$(h_url "$(shell/t-history --ls -n 50 -j 2>/dev/null)")"
+        "$(h_url "$(shell/ting-history --ls -n 50 -j 2>/dev/null)")"
 else
     bad "the TING_HISTORY=0 player never started playing — the off switch is untested"
 fi
@@ -950,10 +950,10 @@ echo "── --watch: one player as a stream, across its queue, to its end ─�
 # The queue is SHORT twice, so crossing a track (--next) and a track playing out on its own
 # are both reached inside one player.
 wq=$(printf '[{"engine":"yt","url":"%s"},{"engine":"yt","url":"%s"}]' "$SHORT" "$SHORT" |
-    shell/t-play -d -j --volume 0 --queue - 2>/dev/null)
+    shell/ting-play -d -j --volume 0 --queue - 2>/dev/null)
 wid=$(printf '%s' "$wq" | jq -r '.id // empty')
 WOUT="$TING_TEST_TMP/watch.out"
-shell/t-play --watch --id "$wid" -j >"$WOUT" 2>/dev/null &
+shell/ting-play --watch --id "$wid" -j >"$WOUT" 2>/dev/null &
 wpid=$!
 # wait_watch <jq over the slurped lines>. A line still being written makes the slurp fail,
 # which is one more turn of the poll, not a red.
@@ -971,10 +971,10 @@ w_ok "first line is a snapshot of THIS player" \
 # `ready` is a FIELD on every line, and an event only when it turns: a watch that connects
 # after the sound started carries ready:true on its snapshot and never sends the event.
 w_ok "…and says when the sound started" 'any(.[]; .ready==true)'
-shell/t-play --set-volume 20 --id "$wid" -j >/dev/null 2>&1
+shell/ting-play --set-volume 20 --id "$wid" -j >/dev/null 2>&1
 w_ok "another caller's --set-volume arrives as an event" \
     'any(.[]; .event=="volume" and .volume==20)'
-shell/t-play --pause --id "$wid" -j >/dev/null 2>&1
+shell/ting-play --pause --id "$wid" -j >/dev/null 2>&1
 w_ok "--pause arrives, carrying paused:true" 'any(.[]; .event=="pause" and .paused==true)'
 
 # A reader that leaves is noticed on the next WRITE, and a paused player writes nothing — so
@@ -983,7 +983,7 @@ w_ok "--pause arrives, carrying paused:true" 'any(.[]; .event=="pause" and .paus
 # The next event (a volume change) must then take the verb AND its nc down.
 RFIFO="$TING_TEST_TMP/watch-reader"
 mkfifo "$RFIFO"
-shell/t-play --watch --id "$wid" -j >"$RFIFO" 2>/dev/null &
+shell/ting-play --watch --id "$wid" -j >"$RFIFO" 2>/dev/null &
 rpid=$!
 IFS= read -r _first <"$RFIFO"
 # ITS nc, by parent, taken while it is still attached: the first watcher holds an nc on the
@@ -991,20 +991,20 @@ IFS= read -r _first <"$RFIFO"
 rnc=$(pgrep -P "$rpid" -f "nc(at)? -U" 2>/dev/null | head -1)
 report "a second watcher gets its own snapshot" snapshot \
     "$(printf '%s' "$_first" | jq -r '.event' 2>/dev/null)"
-shell/t-play --set-volume 10 --id "$wid" -j >/dev/null 2>&1
+shell/ting-play --set-volume 10 --id "$wid" -j >/dev/null 2>&1
 for i in $(seq 1 40); do kill -0 "$rpid" 2>/dev/null || break; sleep 0.25; done
 report "a watcher whose reader left exits on the next event" 1 \
     "$(kill -0 "$rpid" 2>/dev/null && echo 0 || echo 1)"
 report "…and takes its nc with it" 1 \
     "$([ -n "$rnc" ] && ! kill -0 "$rnc" 2>/dev/null && echo 1 || echo 0)"
 
-shell/t-play --resume --id "$wid" -j >/dev/null 2>&1
+shell/ting-play --resume --id "$wid" -j >/dev/null 2>&1
 w_ok "--resume arrives, carrying paused:false" 'any(.[]; .event=="resume" and .paused==false)'
 # The cadence claim: a heartbeat per whole second of playhead, so positions never repeat —
 # mpv pushes ~19 time-pos changes a second, and forwarding them would repeat each one ~19 times.
 w_ok "heartbeats come once per whole second, not per frame" \
     '[.[]|select(.event=="heartbeat")|.position] as $h | ($h|length) >= 3 and ($h|length) == ($h|unique|length)'
-shell/t-play --next --id "$wid" -j >/dev/null 2>&1
+shell/ting-play --next --id "$wid" -j >/dev/null 2>&1
 # The track that ENDED is what `transitioning` describes (the queue file has not moved yet
 # when mpv says end-file); the next one is announced by the snapshot of the next connection.
 w_ok "--next: transitioning names the track that ended, as interrupted" \
@@ -1029,11 +1029,11 @@ report "no nc outlives the stream" 0 "$(pgrep -f "nc(at)? -U $STATE_DIR" 2>/dev/
 # by itself; under ncat it does not (ARCH-player.md「状态流」), and without the guard this
 # verb sat on the dead connection forever. The bound is the guard's one-second tick plus the
 # reap, with room to spare; "never" is what it separates from.
-kq=$(shell/t-play -d -j --volume 0 --engine yt -- "$SHORT" 2>/dev/null)
+kq=$(shell/ting-play -d -j --volume 0 --engine yt -- "$SHORT" 2>/dev/null)
 kid=$(printf '%s' "$kq" | jq -r '.id // empty')
 kpgid=$(printf '%s' "$kq" | jq -r '.pid // empty')
 WOUT="$TING_TEST_TMP/watch-kill.out"
-shell/t-play --watch --id "$kid" -j >"$WOUT" 2>/dev/null &
+shell/ting-play --watch --id "$kid" -j >"$WOUT" 2>/dev/null &
 kwpid=$!
 if wait_watch 'any(.[]; .ready==true)'; then
     kmpv=$(pgrep -g "$kpgid" -x mpv 2>/dev/null | head -1)
@@ -1048,21 +1048,21 @@ else
 fi
 kill "$kwpid" 2>/dev/null
 wait "$kwpid" 2>/dev/null
-shell/t-play --stop --id "$kid" -j >/dev/null 2>&1
+shell/ting-play --stop --id "$kid" -j >/dev/null 2>&1
 report "no nc outlives the killed player's stream" 0 "$(pgrep -f "nc(at)? -U $STATE_DIR" 2>/dev/null | wc -l | tr -d ' ')"
 
 echo "── the death record: real player failure and reaping ───────────────"
 # An unresolvable handle fails in the ENGINE, before any mpv exists: the detached child's
 # resolve returns the engine's non-zero code (play_url_directly), detached_epitaph records the
-# exit event, and t-play --status reaps it into .failed[]. No synthetic json, no fake log
+# exit event, and ting-play --status reaps it into .failed[]. No synthetic json, no fake log
 # stubs: a real engine, a real failure, the real reaper.
-f_out=$(shell/t-play -d -j --engine yt -- "https://www.youtube.com/watch?v=00000000000" 2>/dev/null)
+f_out=$(shell/ting-play -d -j --engine yt -- "https://www.youtube.com/watch?v=00000000000" 2>/dev/null)
 f_id=$(printf '%s' "$f_out" | jq -r '.id // empty')
 report "failing player launched" 0 "$([ -n "$f_id" ] && echo 0 || echo 1)"
 # Watched from launch: the engine's refusal takes seconds of network, so the watch is attached
 # long before the player dies — and it dies before mpv ever answers, so this is also the path
 # where `end` has no live state to fall back on. The tombstone is what it reports.
-shell/t-play --watch --id "$f_id" -j >"$TING_TEST_TMP/fwatch.out" 2>/dev/null &
+shell/ting-play --watch --id "$f_id" -j >"$TING_TEST_TMP/fwatch.out" 2>/dev/null &
 fwpid=$!
 for i in $(seq 1 240); do kill -0 "$fwpid" 2>/dev/null || break; sleep 0.25; done
 wait "$fwpid"
@@ -1072,16 +1072,16 @@ report "…its end line carries the tombstone" 0 \
 wait_failed() {
     local id=$1 i
     for i in $(seq 1 40); do
-        [ "$(shell/t-play --status -j 2>/dev/null | jq -r --arg i "$id" '[.failed[]|select(.id==$i)]|length')" = "1" ] && return 0
+        [ "$(shell/ting-play --status -j 2>/dev/null | jq -r --arg i "$id" '[.failed[]|select(.id==$i)]|length')" = "1" ] && return 0
         sleep 0.25
     done
     return 1
 }
 report "reaper puts dead player in failed[]" 0 "$(wait_failed "$f_id" && echo 0 || echo 1)"
 report "death records non-zero exit code" 0 \
-    "$(shell/t-play --status -j | jq -e --arg i "$f_id" '.failed[]|select(.id==$i)|.exit_code > 0' >/dev/null 2>&1; echo $?)"
+    "$(shell/ting-play --status -j | jq -e --arg i "$f_id" '.failed[]|select(.id==$i)|.exit_code > 0' >/dev/null 2>&1; echo $?)"
 report "death record identifies engine" "yt" \
-    "$(shell/t-play --status -j | jq -r --arg i "$f_id" '.failed[]|select(.id==$i)|.engine')"
+    "$(shell/ting-play --status -j | jq -r --arg i "$f_id" '.failed[]|select(.id==$i)|.engine')"
 
 echo
 printf '%s: %d ok, %d failed\n' "$(basename "$0")" "$pass" "$fail"

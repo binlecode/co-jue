@@ -1,14 +1,14 @@
-# ARCH-engine —— 什么是一个引擎：一个站点一个 `t-engine-<site>`
+# ARCH-engine —— 什么是一个引擎：一个站点一个 `ting-engine-<site>`
 
 **这份属于 `ARCH-*` 系列**，入口和全文档路由在 [`ARCHITECTURE.md`](ARCHITECTURE.md)。
 
 ## 模块功能和结构
 
-**管什么**：**所有与音源站点相关的专门知识** —— 三个引擎文件（`t-engine-yt`、`t-engine-bili`、`t-engine-ne`），
+**管什么**：**所有与音源站点相关的专门知识** —— 三个引擎文件（`ting-engine-yt`、`ting-engine-bili`、`ting-engine-ne`），
 一个站点一个文件。每个文件实现该站的公开动词 —— 搜索（`--search`：查询 → 结果信封）、元数据（`--info`）、
 容器与分 P（`--items`）、字幕或歌词（`--transcript`）、登录探测（`--auth`）—— 外加两个内部动词：
 `--stream`（句柄 → 直链 + HTTP 头，只给播放器）与 `--capabilities`（本引擎接受哪些公开 flag，只给注册表）。
-公开动词由 `t-play` 原样转发进来，调用方从不直接面对引擎文件。
+公开动词由 `ting-play` 原样转发进来，调用方从不直接面对引擎文件。
 🔴 **站点知识唯一容身处**：套件内除引擎文件之外的任何文件如果出现特定音源站点的字段或逻辑，即判定为分层违规。
 
 **不管什么**（边界表，走错门会得到相反的建议）：
@@ -27,18 +27,18 @@
 ```
    agent / ting
         |
-        |  t-play --search | --info | --items | --transcript | --auth  [--engine E] ...
+        |  ting-play --search | --info | --items | --transcript | --auth  [--engine E] ...
         v
    +------------------------------------------------------------------+
-   | t-play   picks E (flag > URL host > TING_DEFAULT_ENGINE),        |
-   |          refuses --raw, exec's t-engine-E with the rest of argv  |
-   |          plays: calls  t-engine-E --stream -j -f MODE -- HANDLE  |
-   |          --engines: calls  t-engine-E --capabilities -j          |
+   | ting-play   picks E (flag > URL host > TING_DEFAULT_ENGINE),     |
+   |       refuses --raw, exec's ting-engine-E with the rest of argv  |
+   |       plays: calls  ting-engine-E --stream -j -f MODE -- HANDLE  |
+   |          --engines: calls  ting-engine-E --capabilities -j       |
    +--------------------------------+---------------------------------+
                                     |  internal protocol, not the contract
                                     v
    +------------------------------------------------------------------+
-   | t-engine-yt   | t-engine-bili   | t-engine-ne   | out-of-tree ...  |
+   | ting-engine-yt | ting-engine-bili | ting-engine-ne | out-of-tree   |
    |   flag gate -> handle grammar -> host allowlist -> one verb      |
    |   public:   --search --info --items --transcript --auth          |
    |   internal: --stream  --capabilities   self-check: --raw         |
@@ -47,7 +47,7 @@
           yt-dlp / curl / openssl (each engine's own primitives)
 ```
 
-图里的动词是**并集**：`t-engine-bili` 没有 `--transcript`，一个站有哪些动词由它自己的 flag 门说了算
+图里的动词是**并集**：`ting-engine-bili` 没有 `--transcript`，一个站有哪些动词由它自己的 flag 门说了算
 （下文「接口与 API」）。
 
 **这套套件里每一个与站点相关的事实，要么住在一个引擎文件里，要么就是一次分层违规** ——
@@ -66,15 +66,15 @@ id 形状与报错码是**一个**站点的事实；按「搜索 / 解析」把�
 
 ## 接口与 API
 
-一个引擎 = 一个 `t-engine-<name>` 文件，一次调用一个动词。仓外引擎也是这样一个文件：`t-play` 按
+一个引擎 = 一个 `ting-engine-<name>` 文件，一次调用一个动词。仓外引擎也是这样一个文件：`ting-play` 按
 本目录 → `TING_ENGINE_DIR` → `PATH` 的顺序找它，名字就是 `--engine` 的值（清单：ARCH-cli-contract.md
-「加一个引擎 —— 清单」）。**公开面只有 `t-play`**：它认出是哪个
+「加一个引擎 —— 清单」）。**公开面只有 `ting-play`**：它认出是哪个
 引擎动词、是哪个引擎，把其余 argv 原样 `exec` 给引擎文件，信封与退出码一字不差地透传
 （ARCH-cli-contract.md「命令规格」）。所以引擎文件的 argv 是**套件内部两份文件之间的协议**，
-不受公开契约保护；公开的是经 `t-play` 能问到的那几个动词与它们的修饰符，形状的 why 与 semver 边界在
+不受公开契约保护；公开的是经 `ting-play` 能问到的那几个动词与它们的修饰符，形状的 why 与 semver 边界在
 `ARCH-cli-contract.md`。
 
-**flag 门只有一道，在引擎里。** `t-play` 不持有任何引擎的 flag 清单，只自己拒一个 `--raw`（下文）；
+**flag 门只有一道，在引擎里。** `ting-play` 不持有任何引擎的 flag 清单，只自己拒一个 `--raw`（下文）；
 `--sub-lang` 给一个没有字幕轨的引擎、`--search` 旁边的 `-d`、一次给两个动词 —— 都是引擎自己的拒绝，退 1。
 **一个修饰符只属于一个动词**，给错动词就拒（`-f applies only to --stream`），而不是收下之后什么也不做；
 动词住在同一个文件里，才让这道门只需要写一次。
@@ -83,15 +83,15 @@ id 形状与报错码是**一个**站点的事实；按「搜索 / 解析」把�
 
 | 动词 | 读者 | 为什么在这一层 |
 |---|---|---|
-| `--search` `--info` `--items` `--transcript` `--auth` | 调用方，经 `t-play` | 站点无关的词描述调用方要的东西；实现是站点知识 |
+| `--search` `--info` `--items` `--transcript` `--auth` | 调用方，经 `ting-play` | 站点无关的词描述调用方要的东西；实现是站点知识 |
 | `--stream` | 只有播放器 | 句柄 → 直链 + 请求头是底层管道：它随每一次站点风控而变，不该上契约 |
-| `--capabilities` | 只有注册表（`t-play --engines`） | 能力是引擎的属性，由注册表一次答完，不是每个调用方各问一遍 |
+| `--capabilities` | 只有注册表（`ting-play --engines`） | 能力是引擎的属性，由注册表一次答完，不是每个调用方各问一遍 |
 
-`--raw`（站点原始记录，不投影）是**引擎自检**，不是输出格式：站点字段无法版本化，所以 `t-play`
+`--raw`（站点原始记录，不投影）是**引擎自检**，不是输出格式：站点字段无法版本化，所以 `ting-play`
 拒转发它，它也不进任何 flag 清单。公开面上要"更多"时，用站点无关的长名说清楚要什么 ——
 `--transcript -j --segments` 是字幕的完整形态（ARCH-cli-contract.md「数据契约」）。
 
-**能力靠"有没有那个动词"声明。** `--transcript` 在 `t-engine-yt` 与 `t-engine-ne` 有而 `t-engine-bili`
+**能力靠"有没有那个动词"声明。** `--transcript` 在 `ting-engine-yt` 与 `ting-engine-ne` 有而 `ting-engine-bili`
 没有（同一个动词底下是两种东西：一条字幕轨，一份歌词 ——「字幕」）；一个永远答"没有"的动词会让调用方
 分不清"这个站没有"与"今天不走运/被限流了"。修饰符也一样：`--sub-lang` 只有 yt 列出，因为一首歌一条
 歌词，没有可挑的东西。
@@ -102,25 +102,25 @@ id 形状与报错码是**一个**站点的事实；按「搜索 / 解析」把�
 下面是公开面上的形状（句柄与查询词是示意的），后两行是只给套件自己用的内部动词：
 
 ```sh
-t-play --search -j -n 5 -- "lofi hip hop"                   # 查询 → 结果信封（缺省引擎）
-t-play --search --engine bili -j -n 5 -- "周杰伦"           # 同一个信封，底下是 curl 不是 yt-dlp
-t-play --search --engine bili -j --max-duration 600 -- 周杰伦  # 界整个落进站点的一个时长桶，由站点筛
-t-play --info -j -- <11 位 id | URL>                        # 只要元数据，什么都不解析；URL 自己选引擎
-t-play --transcript --sub-lang zh-Hans -j -- URL            # yt 的字幕轨，按语言链挑
-t-play --transcript -j --segments -- URL                    # 同上，带时间轴
-t-play --items --engine bili -j -- BV1…                     # 一个视频的分 P，一次 HTTP，不经 yt-dlp
-t-play --items -j -- "…/playlist?list=PL…"                  # 容器 → 条目清单
-t-play --items -j -- "…/@handle"                            # 频道投稿；满批时带 next_cursor
-t-play --items -j --cursor o:500 -- "…/@handle"             # 续批，与上一批不重叠
-t-play --items --engine bili -j -- am10624                  # 音频歌单，纯 HTTP
-t-play --items --engine bili -j -- ml148005847              # 视频收藏夹，失效稿件与番剧被判据丢掉
-t-play --items -j -- "…/<uid>/lists/<sid>?type=season"      # 创作者合集
-t-play --items -j -- <album?id=N 的 URL>                    # 网易云专辑一次请求，歌单两次以上
-TING_NE_INCLUDE_VIP=1 t-play --search --engine ne -j -n 20 -- 周杰伦  # 连非 full 的行一起返回
-t-play --transcript --engine ne -j -- <歌曲 id>             # 同一个动词，底下是歌词
-t-play --auth --engine yt -j                                # cookie 决策：无句柄、无请求、无 yt-dlp
-t-engine-yt --stream -j -f video --quality high -- URL      # 内部 · (mode, tier) → format-sort 在这里翻译
-t-engine-bili --capabilities -j                             # 内部 · 这个引擎接受哪些公开 flag：什么依赖都不要
+ting-play --search -j -n 5 -- "lofi hip hop"                # 查询 → 结果信封（缺省引擎）
+ting-play --search --engine bili -j -n 5 -- "周杰伦"        # 同一个信封，底下是 curl 不是 yt-dlp
+ting-play --search --engine bili -j --max-duration 600 -- 周杰伦  # 界整个落进站点的一个时长桶，由站点筛
+ting-play --info -j -- <11 位 id | URL>                        # 只要元数据，什么都不解析；URL 自己选引擎
+ting-play --transcript --sub-lang zh-Hans -j -- URL         # yt 的字幕轨，按语言链挑
+ting-play --transcript -j --segments -- URL                 # 同上，带时间轴
+ting-play --items --engine bili -j -- BV1…                  # 一个视频的分 P，一次 HTTP，不经 yt-dlp
+ting-play --items -j -- "…/playlist?list=PL…"               # 容器 → 条目清单
+ting-play --items -j -- "…/@handle"                         # 频道投稿；满批时带 next_cursor
+ting-play --items -j --cursor o:500 -- "…/@handle"          # 续批，与上一批不重叠
+ting-play --items --engine bili -j -- am10624               # 音频歌单，纯 HTTP
+ting-play --items --engine bili -j -- ml148005847           # 视频收藏夹，失效稿件与番剧被判据丢掉
+ting-play --items -j -- "…/<uid>/lists/<sid>?type=season"   # 创作者合集
+ting-play --items -j -- <album?id=N 的 URL>                 # 网易云专辑一次请求，歌单两次以上
+TING_NE_INCLUDE_VIP=1 ting-play --search --engine ne -j -n 20 -- 周杰伦  # 连非 full 的行一起返回
+ting-play --transcript --engine ne -j -- <歌曲 id>          # 同一个动词，底下是歌词
+ting-play --auth --engine yt -j                             # cookie 决策：无句柄、无请求、无 yt-dlp
+ting-engine-yt --stream -j -f video --quality high -- URL   # 内部 · (mode, tier) → format-sort 在这里翻译
+ting-engine-bili --capabilities -j                          # 内部 · 这个引擎接受哪些公开 flag：什么依赖都不要
 ```
 
 守着那几条只读动词的是 `every read-only verb reaches the host gate`：给一个没有引擎认领的句柄，
@@ -135,8 +135,8 @@ t-engine-bili --capabilities -j                             # 内部 · 这个�
 |---|---|
 | 两个动词 | 两个动词就是没说要哪个 |
 | 一个修饰符配了别的动词（`--search -f`、`--info --cursor`、`--auth --quality`……） | 修饰符只属于一个动词；收下却什么也不做是静默失败 |
-| `-d` / `--detach` 配任何引擎动词 | 引擎不播放；`t-play` 转发之前不看它，由引擎按未知 flag 拒 |
-| `--raw` 经 `t-play` | 站点原始记录不上公开面 |
+| `-d` / `--detach` 配任何引擎动词 | 引擎不播放；`ting-play` 转发之前不看它，由引擎按未知 flag 拒 |
+| `--raw` 经 `ting-play` | 站点原始记录不上公开面 |
 | `--raw` 配 `--auth` / `--capabilities` / `--transcript` | 前两个不取站点记录；字幕的完整形态是 `-j --segments` |
 | `--segments` 不配 `-j` | 它往 `-j` 信封里加时间轴，散文里没有地方放 |
 | `--items` + 零个或两个句柄 | 一次一个容器 |
@@ -153,17 +153,17 @@ t-engine-bili --capabilities -j                             # 内部 · 这个�
 | bili 流解析或 `--info` + am/ml 裸号或容器 URL | 容器不是单曲，拒收并指路 `--items` |
 | ne 非 song 路径的本站 URL | 这个站每一种资源都是 `?id=N`，只读 query 会把 `/artist?id=6452` 解成**歌曲** 6452 |
 
-**探一个引擎有哪些动词，问注册表，别读 `-h`，也别嗅 stderr。** `t-play --engines -j` 对每个引擎各
+**探一个引擎有哪些动词，问注册表，别读 `-h`，也别嗅 stderr。** `ting-play --engines -j` 对每个引擎各
 fork 一次 `--capabilities -j`，答的是它接受的全部公开动词与修饰符：
 
 ```
-$ t-engine-bili --capabilities -j
+$ ting-engine-bili --capabilities -j
 {"status":"ok","engine":"bili","flags":["--search","-n","--min-duration","--max-duration","--sort","--info","--items","--cursor","--auth"]}
 ```
 
 **清单只写一次。** 每个引擎文件里一个数组，unknown-flag 那句拒绝印给人看，`--capabilities` 答给注册表，
 两边读的是同一个数组，所以不会各说各的。`--stream`、`--capabilities`、`--raw` 刻意不在里面：播放器的管道、
-注册表的问题与一次自检，都不是 `t-play` 的调用方能问的东西。
+注册表的问题与一次自检，都不是 `ting-play` 的调用方能问的东西。
 
 **它在一切依赖门之前作答，连 jq 都不要**：注册表靠它决定问什么，所以在一台什么都还没装的机器上
 也得答得出来。flag 都是固定的 ASCII 词，信封直接印，不用 jq 拼。
@@ -174,18 +174,18 @@ $ t-engine-bili --capabilities -j
 
 套件证它说的是真话，证据取自解析器的**行为**，不取自那份清单（两边同一个数组，拿来比只能证明数组等于自己）。
 列出的 flag 单独给出时，不能落进 unknown-flag 分支；别的引擎列出而本引擎没列的 flag，必须在
-host 门之前被拒；两个内部动词能用但不被列出。允许用一句更友好的具名拒绝来拒（`t-engine-bili --transcript`
+host 门之前被拒；两个内部动词能用但不被列出。允许用一句更友好的具名拒绝来拒（`ting-engine-bili --transcript`
 就是这样），所以检查看的是"被拒"，不看"unknown flag"这几个字。
 
 ---
 
 ## 搜索子系统 —— 引擎的一个动词
 
-`--search` 是每个引擎都有的动词。下面的规矩是**每个引擎都要实现**的：`t-engine-yt` 用 yt-dlp，
-`t-engine-bili` 与 `t-engine-ne` 用手工拼的 HTTP 请求（「Bilibili 的传输」「网易云的传输」）—— 传输不同，信封相同。
+`--search` 是每个引擎都有的动词。下面的规矩是**每个引擎都要实现**的：`ting-engine-yt` 用 yt-dlp，
+`ting-engine-bili` 与 `ting-engine-ne` 用手工拼的 HTTP 请求（「Bilibili 的传输」「网易云的传输」）—— 传输不同，信封相同。
 
 **`engine` 在信封里，是因为一个拿着结果的调用方必须能把它路由回懂它的那个引擎** ——
-`t-play --engine <那个值>`（ARCH-cli-contract.md「数据契约」）。它正是 host 白名单（「解析」）
+`ting-play --engine <那个值>`（ARCH-cli-contract.md「数据契约」）。它正是 host 白名单（「解析」）
 存在要保其诚实的那个字段。
 
 **整形只发生一次，在一个 jq 程序里。** 上下界 select、`duration_fmt`/`kind`/`access` 的合并、
@@ -362,11 +362,11 @@ null，而那个键仍然在**（ARCH-cli-contract.md「数据契约」）。
 **不校验它的随机性** —— 所以这个引擎把它钉死成 `presetKey`，`encSecKey` 随之从"每请求一次
 模幂"塌缩成一个 256 字符的十六进制常量。这就是运行时一次 RSA 都不跑的全部原因，也是
 `openssl` 的用量能压到"两次 `enc -aes-128-cbc`"的原因。那个常量怎么算出来的（112 个零字节 +
-反转过的 key，无 padding，站方公开的公钥），逐行记在 `t-engine-ne` 的注释里 —— 因为**配错它
+反转过的 key，无 padding，站方公开的公钥），逐行记在 `ting-engine-ne` 的注释里 —— 因为**配错它
 的唯一症状是端点答一个通用错误码**，看上去和网络故障一模一样。
 
 **`openssl` 因此是一个引擎局部依赖，而这是一次显式的例外。** `CLAUDE.md` 写的是"永不新增运行时
-依赖"；这里划的范围是：只有 `t-engine-ne --search` 调它（`--stream` 与 `--info` 走 yt-dlp，容器与歌词是
+依赖"；这里划的范围是：只有 `ting-engine-ne --search` 调它（`--stream` 与 `--info` 走 yt-dlp，容器与歌词是
 明文 GET）。依赖按**动词**懒检查：探测不到就走既有的 `require_cmd` 门死在这一个动词上，这个引擎的其余
 动词与另外两个引擎照常工作 —— 一个站一个文件并不意味着依赖要整文件地门。被否掉的替代方案是"提升为套件
 必需依赖"：那会让不用这个站的人也背上它。**依赖随引擎文件进出，正是"加一个源就是加一个文件"
@@ -430,7 +430,7 @@ B 站这一侧曾以为
 也就不花这一次请求。
 
 **默认还会把非 `full` 的行滤掉**（`TING_NE_INCLUDE_VIP=0`），理由是同一条判据：**一条记录就是一次
-可执行调用**，存进 `t-playlist` 的行必须能跑，而不是一个可能被拒的引用。这是**配置键而不是
+可执行调用**，存进 `ting-playlist` 的行必须能跑，而不是一个可能被拒的引用。这是**配置键而不是
 flag** —— 有没有大会员是 set-once 属性，不是每次请求的选择。代价是结果数变少：免费账号下
 这个库的可听比例实测 57%，且分布双峰（搜歌手名 6-36%，搜器乐/长尾 62-98%），所以 `-n 20` 搜
 一个歌手名可能只答六行。补偿的办法是**多取**，不是降低承诺：每次请求要两倍于还差的行数，
@@ -439,7 +439,7 @@ flag** —— 有没有大会员是 set-once 属性，不是每次请求的选�
 agent 面的答案，再加一个 TUI 标记是重复而不是补充。
 
 **`ketang` 行不进信封。** `search_type=video` 会混进课堂记录，它们**没有 `bvid`**，而**空串在 jq 里
-为真** —— 所以按 `select(.id != null)` 判会把它们放过去，发出 `id:""` / `url:null`，一条 `t-play` 不可能
+为真** —— 所以按 `select(.id != null)` 判会把它们放过去，发出 `id:""` / `url:null`，一条 `ting-play` 不可能
 消费的行（实测"钢琴" 20 行里 3 条）。判据是 **`select(.url != null)`：一行结果是一次调用，否则不是一行**。
 这条判据同时覆盖将来任何"handle 建不出来"的形状；代价是 `-n 20` 可能答 17 行 —— 与两个时长界同理，
 `-n` 说的是取多少，从来不是保证发多少。
@@ -449,7 +449,7 @@ agent 面的答案，再加一个 TUI 标记是重复而不是补充。
 `search_type=video`，网易云发 `type:1`），两个站其实都有容器（网易云的专辑 / 歌单 / 艺人
 是另外的 type，B 站有合集与 UP 主页），只是引擎从不去问；而 `ytsearch` **没有 scope 选择器**，
 它的结果集里就混着频道与播放列表。实测 2026-09-03：搜"周杰伦"第 15 条是周杰倫的**频道**，
-`duration` 为 `null`，而信封上写着 `kind:"track"` —— `t-play --engine yt -- <那条 url>` 不会
+`duration` 为 `null`，而信封上写着 `kind:"track"` —— `ting-play --engine yt -- <那条 url>` 不会
 恰好播一个，信封在替这一行许一个它守不住的诺。
 
 **信号是免费的，这才是它成为一道门而不是一条 roadmap 条目的原因**：yt-dlp 给每条 flat 条目
@@ -465,7 +465,7 @@ agent 面的答案，再加一个 TUI 标记是重复而不是补充。
 个例，为它给每一次搜索加一次请求，代价与收益不成比例）。
 **而容器不是被丢弃，是无人认领**：它要的是自己的动词与信封，见本文「容器（`--items`）」。
 
-## 先探后播 —— 登录、PO token 与客户端选择（**只在 `t-engine-yt --stream` 里**）
+## 先探后播 —— 登录、PO token 与客户端选择（**只在 `ting-engine-yt --stream` 里**）
 
 整个这一章都是 YouTube 引擎的知识。它是解析信封为什么要带 `retried` 的原因，也让"先探**后**播"
 是字面意义上的真：探测发生在 mpv 启动**之前的一个进程**里、在引擎里，播放器只是把裁决转述
@@ -489,7 +489,7 @@ ranged 请求**（`curl -I -r 0-`）：206/200 ⇒ 有权；403 ⇒ 缺 PO token
 请求上 403。
 
 ```
-   stream_run()                              # shell/t-engine-yt —— 真正的形状在这里
+   stream_run()                              # shell/ting-engine-yt —— 真正的形状在这里
       有 cookie 时：
          raw_c = dump_once(带 cookie)
          probe_raw(raw_c) 通过 --------------> emit_stream(raw_c, retried=0)   # 例如登录门后的视频
@@ -502,7 +502,7 @@ ranged 请求**（`curl -I -r 0-`）：206/200 ⇒ 有权；403 ⇒ 缺 PO token
          无从权衡，所以也不探 —— dump_once(匿名) -> emit_stream(raw_a, 0) 或 stream_fail
 ```
 
-裁决以 `retried` 出现在**解析**信封里，`t-play` 把它**转述**进播放信封，而不是自己去观察。
+裁决以 `retried` 出现在**解析**信封里，`ting-play` 把它**转述**进播放信封，而不是自己去观察。
 代价：每次播放多一次解析 + 一个 1 字节 GET（cookie-403 的视频是两次）。`curl` 是软依赖 ——
 没有它就跳过探测、退回"播-失败-重播"（错误糊屏也只在那条路上出现）。
 `TING_COOKIE_BROWSER=none` 强制只走匿名（不读钥匙串、不探测）；配了浏览器但本机没有 profile 时
@@ -552,7 +552,7 @@ cookie、profile 经浏览器确认是登录状态，而 B 站给出的音视频
 ## 解析 —— 句柄到直链（`--stream`）
 
 `--stream` 把一个**句柄**变成播放它所需的一切：直链、HTTP 头、格式与元数据。它是**内部动词**：
-唯一的调用方是 `t-play`，`t-play` 不转发它。理由是它随每一次站点风控而变 —— 格式码、CDN、PO token、
+唯一的调用方是 `ting-play`，`ting-play` 不转发它。理由是它随每一次站点风控而变 —— 格式码、CDN、PO token、
 请求头 —— 放上公开契约，每修一次风控都可能碰到契约。它从不播放：没有 mpv、没有生命周期、没有 `players/`。
 
 **`--quality TIER` 是档位，不是一串格式。** 播放器或调用方**从不**自己把档位翻译成 yt-dlp 的
@@ -594,7 +594,7 @@ B 站的 `video/BV...`，仅在 B 站多 P 视频且 `p > 1` 时保留合法分 
 生态、掉回原始的 `yt-dlp --dump-json` —— 与 JSON 搜索面当初消除的是同一种"逃生口"失败。这是
 LLM 优先而不是人体工学（对照被否掉的 `--url-only`，那个是**剥掉**接地信号）：`--info` 是**增加**
 agent 推理所依据的接地。`-j` 的投影守的是与搜索同一条字段纪律（原始记录里那 ~40 个
-formats/thumbnails/fragments 字段对一个 headless 调用方是纯 token 压舱物）。原始记录不上公开面：引擎文件上的 `--raw` 是自检，`t-play` 不转发。
+formats/thumbnails/fragments 字段对一个 headless 调用方是纯 token 压舱物）。原始记录不上公开面：引擎文件上的 `--raw` 是自检，`ting-play` 不转发。
 
 B 站的 `--info` 用 `.channel // .uploader` 来填 `channel`，因为那个 extractor 按记录只填
 其中之一 —— **信封的形状不得取决于是哪一个**。这是对一个引擎的通则：**归一化到契约，绝不把
@@ -606,7 +606,7 @@ extractor 的方差原样发布出去。**网易云同理，它的 extractor 把
 YouTube 的 `--transcript` 取一条字幕轨，并把它清洗成可以直接丢进 prompt 的文本。信封、
 `-j` 与 `--segments` 的分工，以及"只许一次 yt-dlp 调用"的约束：ARCH-cli-contract.md「数据契约」，
 `no_subtitles_available` 这个 reason 也规定在那里。Bilibili 不供字幕，所以这个 flag 在
-`t-engine-bili` 上不被接受、flag 清单里也不列 —— 「接口」那条能力规矩的一个实例；拒绝用的是一句具名的
+`ting-engine-bili` 上不被接受、flag 清单里也不列 —— 「接口」那条能力规矩的一个实例；拒绝用的是一句具名的
 「这个站没有字幕轨」，因为向它要字幕的调用方持有一个合理的期待（别的引擎有）。
 
 **网易云也有这个动词，而它底下是另一样东西：歌词。** 这是这个动词跨引擎最值得看的一处 ——
@@ -633,7 +633,7 @@ YouTube 的 `--transcript` 取一条字幕轨，并把它清洗成可以直接�
 给 B 站的 `--items` 一个视频（BV / av id 或视频 URL），答的是它的各 P（`?p=N`）—— **一次 HTTP 请求，
 没有 yt-dlp**（首选端点被拒时才有第二次，见下）。它不是一个单独的动词，因为它不是一件单独的事：
 多 P 视频就是一个装着分 P 的容器，各 P 与容器条目同形，所以信封就是容器信封（`total` = 分 P 数，
-`has_more`/`next_cursor` 照常按游标切片），`items[]` 原样管进 `t-playlist --add` 与 `t-play --queue`。
+`has_more`/`next_cursor` 照常按游标切片），`items[]` 原样管进 `ting-playlist --add` 与 `ting-play --queue`。
 两个动词说同一件事，就是让调用方去记哪个站用哪个名字。单 P 视频不是错误：它列出 count 1，说这就是那一个 P。
 信封不带总时长：它不是条目的属性，要的调用方在拿到全部分 P 之后自己加总。
 
@@ -679,7 +679,7 @@ yt-dlp 自己也列得出分 P，却不用它：`--flat-playlist` 给分 P 不�
 
 `--items` 把一个**容器**展开成条目清单：YouTube 的播放列表、专辑与频道投稿、
 B 站的多 P 视频（上一节）、音频歌单（`am`）、视频收藏夹（`ml`）与创作者合集、网易云的专辑与歌单。`items[]` 的元素**就是条目记录**，键名也就叫 `items` —— 所以
-`--items -j | t-playlist --add NAME` 和 `| t-play -d --queue -` 原样管进去，存储端与播放器
+`--items -j | ting-playlist --add NAME` 和 `| ting-play -d --queue -` 原样管进去，存储端与播放器
 **一行没改**，中间不需要任何垫片；键名就是从这条缝上取的。
 
 **为什么这是引擎的一个动词。** 三条路都摆过：
@@ -687,7 +687,7 @@ B 站的多 P 视频（上一节）、音频歌单（`am`）、视频收藏夹�
 | 备选 | 裁决 |
 |---|---|
 | 搜索端加分类参数（`--albums`） | 否。搜索是 query → 粗排摘要；展开容器是 handle → 深度提取，那是解析的职责 |
-| 存储端自己认 URL（`t-playlist --import`） | 否。`t-playlist` 是纯持久化，一点站点知识都不持有（ARCH-player.md「持久状态层」）   |
+| 存储端自己认 URL（`ting-playlist --import`） | 否。`ting-playlist` 是纯持久化，一点站点知识都不持有（ARCH-player.md「持久状态层」）   |
 | 引擎加动词（`--items`，采纳） | 站点知识归引擎（ARCHITECTURE.md「站点知识的边界」），而输出经 UNIX 管道直通存储与队列，两者零改动 |
 
 **URL 不变队列，动词才变。** 一条单曲 URL 上夹带的 `list=` 在流解析里被忽略（YouTube 引擎的
@@ -720,7 +720,7 @@ B 站的多 P 视频（上一节）、音频歌单（`am`）、视频收藏夹�
 480 而不是 500），这样每一个发出去的游标都落在页边界上，续取不重读也不重叠；调用方拿着一个旧的、不
 在页边界上的游标回来，引擎照样答对（从它所在的那页取，丢掉它前面的行）。
 
-**翻页是调用方的循环，不是套件里的长连接。** `t-play --queue -` 与 `t-playlist --add` 仍然是一次
+**翻页是调用方的循环，不是套件里的长连接。** `ting-play --queue -` 与 `ting-playlist --add` 仍然是一次
 性快照消费：管子对面没有人持有游标。这也是 `--items` 的输出至今不需要存储端改一行的原因。
 
 **六种容器，六种取数、六种上游上限、四种"不存在"** —— 这张表是这个动词全部的站点知识
@@ -750,7 +750,7 @@ cookie。这与本文「为什么这一个动词有两个端点」记的那次�
 **id 列表的顺序**重排：被导入的正是歌单自己的顺序，而 `song/detail` 对顺序不作承诺。
 
 **网易云的条目按 `fee` 过滤，与搜索行同一张表、同一个配置键**（`TING_NE_INCLUDE_VIP`，「`kind` 与
-`access`」）：默认只留 `full`。理由是契约那句"存进 `t-playlist` 的行必须能跑" —— 不滤的话，一张
+`access`」）：默认只留 `full`。理由是契约那句"存进 `ting-playlist` 的行必须能跑" —— 不滤的话，一张
 VIP 专辑导进歌单就是一排 30 秒试听，等于把搜索端已经挡掉的东西从另一扇门放进来。实测 2026-09-10：
 专辑 32311 九首全是 `fee: 1`，所以默认列出 **0** 条并在 `count` 里说清楚，这比九条听三十秒就停的
 行诚实。条目记录**不加 `access` 键**：留下来的行全是 `full`，键上没有信息。
@@ -840,13 +840,13 @@ mpv 的一个 flag，所以那半在播放器里**（ARCH-player.md「起播偏�
 
 | 引擎 | 值从哪来 | 在哪个函数 | 在哪一步 | 解析代码 |
 |---|---|---|---|---|
-| `t-engine-yt` | `dump_once` 那份记录的 `.start_time` | 已有的信封 jq（`start_secs`） | 网络请求**之后** | **零行** |
-| `t-engine-bili` | 原始句柄 query 里的 `t=` | `normalize_target` | 任何网络请求**之前** | 全部 |
-| `t-engine-ne` | 同上 | 同上 | 同上 | 同上 |
+| `ting-engine-yt` | `dump_once` 那份记录的 `.start_time` | 已有的信封 jq（`start_secs`） | 网络请求**之后** | **零行** |
+| `ting-engine-bili` | 原始句柄 query 里的 `t=` | `normalize_target` | 任何网络请求**之前** | 全部 |
+| `ting-engine-ne` | 同上 | 同上 | 同上 | 同上 |
 
 **第三个引擎落在 B 站那一侧，而它的理由更干脆：这个站根本不写起播偏移，一条网易云链接里就没有
 `t=`。** 那为什么还要解？因为 `?t=` 是**套件自己**的"从这里开始"的拼法，不是某个站的：
-`t-play --start` 经由句柄往返，手工搭的队列会写它，而 `tests/contract.sh` 把"读得出 `t=601`、
+`ting-play --start` 经由句柄往返，手工搭的队列会写它，而 `tests/contract.sh` 把"读得出 `t=601`、
 且分得清 `t=0` 与没有 `t=`"这条不变式**对每一个被发现的引擎**都断言一遍。一个引擎因为"我们站
 没有这种链接"就不实现它，会在第一次 `--start` 上把整条链断掉。
 
@@ -868,7 +868,7 @@ CLAUDE.md）。
 **`url` 里不带偏移，而 B 站这边是动手剥出来的。** `webpage_url` 在 YouTube 那边本来就规范化掉
 了 `t`；B 站那边**保留整个 query，因为 `?p=N` 就在里面** —— 那是"哪一分 P"的唯一凭据。所以
 B 站引擎在信封的 jq 里剥掉 `t=`，**只剥它**（`strip_t`，三段锚定 `gsub`：非首参、首参且
-后面还有、首参且到结尾或到锚点）。剥不干净或剥过头都有具体代价：`t-playlist --add` 存的正是这
+后面还有、首参且到结尾或到锚点）。剥不干净或剥过头都有具体代价：`ting-playlist --add` 存的正是这
 个 `url`，带着偏移就意味着一首收藏曲子从此每次从 10:01 开始，而连 `?p=` 一起剥掉就把一条记录悄
 悄指向了第 1 P。分 P 清单不受影响 —— 它的 base 是从 `.data.bvid`（回落时是句柄里摘出来的裸 id）拼出来
 的，从不经过 `TARGET_URL`。

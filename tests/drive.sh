@@ -61,7 +61,7 @@ command -v tmux >/dev/null 2>&1 || { echo "drive.sh: tmux is required (ting need
 
 # ---- a state dir of this run's own --------------------------------------------------
 # Why, once, for all three files under tests/: contract.sh's header. What is specific
-# to a DRIVER: the pane holds a real `ting` driving a real `t-play` and a real mpv, so only
+# to a DRIVER: the pane holds a real `ting` driving a real `ting-play` and a real mpv, so only
 # whose state it lands on changes — and their playlists and history still render, because
 # TING_STATE_DIR is deliberately NOT redirected (a frame captured here should show the store a
 # human sees). What is suppressed is the HISTORY half of that store's write side, via
@@ -100,7 +100,7 @@ cleanup() {
     # reached the user's players and reaping without cause was the worse bug — which meant `-i`,
     # the one mode where a HUMAN presses Enter, never reaped at all. The state dir above is what
     # retires that trade: there is nothing here but this run's own players.
-    shell/t-play --stop --all -j >/dev/null 2>&1
+    shell/ting-play --stop --all -j >/dev/null 2>&1
     # Report rather than assume: --stop is idempotent, but an mpv that escaped its record would
     # not be reaped by it, and that is exactly the failure worth seeing. Scoped to this run's
     # socket dir, as playback.sh scopes its own: a bare `mpv .*--input-ipc-server` counts the
