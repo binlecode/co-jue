@@ -31,7 +31,7 @@ ting-history --ls -n 20 -j             # machine: what was played, when, for how
 together with a design document that is longer than most of the code it describes. Since `v0.8.0`
 it is also tagged and installable from a tap (`brew install binlecode/ting/ting`) — what ships
 is these scripts plus a TUI built from source; the engines and the player stay in shell, so a Go
-rewrite of those stays ruled out (see [`docs/ROADMAP.md`](docs/ROADMAP.md) for why).
+rewrite of those stays ruled out (see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)「分析：驱动决定的六条发现」 for why).
 
 The document may be the more useful artifact. `docs/ARCHITECTURE.md` records things that are usually
 learned and then forgotten: East-Asian-width handling in a terminal renderer, correlating mpv IPC
@@ -414,11 +414,10 @@ surface.
   transport, the login / PO-token probe, handle grammar, `--info` / `--transcript`.
 - [`docs/ARCH-player.md`](docs/ARCH-player.md) — the player, the queue and the two durable
   stores: the detached lifecycle, runtime IPC, `ting-playlist` and `ting-history`.
-- [`docs/ARCH-tui.md`](docs/ARCH-tui.md) — the human face: one view with six row sources, in-place rendering,
+- [`docs/ARCH-tui.md`](docs/ARCH-tui.md) — the human face: one view with seven row sources, in-place rendering,
   the width layer, the reflow and the three play states.
-- [`docs/ROADMAP.md`](docs/ROADMAP.md) — the recorded NOs with their reopen conditions, the
-  reopen triggers for settled decisions, and what is not built yet. No changelog, no survey
-  data, and no landed decisions — those live in the architecture doc's decisions chapter; positioning is its opening chapter.
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) — the roadmap of open proposals, priorities and bottlenecks. No changelog,
+  no survey data, and no landed decisions — settled decisions live in the architecture document.
 - [`docs/RESEARCH-tui-player.md`](docs/RESEARCH-tui-player.md) — the survey those decisions rest
   on, kept separate so the decision records hold decisions rather than data. Two halves, and it opens
   by saying which is which: **one half is measured** — what comparable
