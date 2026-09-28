@@ -134,7 +134,7 @@
    连"stock netcat 不肯关连接"那个坑都踩过并写进了文档）；`spotify-player` 是
    **daemon + CLI 动词 + 给 jq 的 JSON**，且**早于本项目**；`termusic` 拆 server/client 走 gRPC；
    `spotatui`（~1300★）与 `spotuify` 已经在出 **MCP 面**；`mpv-mcp-server` 干脆从另一侧直接做了
-   mpv + yt-dlp 的 agent 面。**这条结论在 §7 有 2026 年的续篇**：agent 面已经不是加分项，
+   mpv + yt-dlp 的 agent 面。**这条结论在 §8 有 2026 年的续篇**：agent 面已经不是加分项，
    而且"可被 agent 驱动"与"播放脱离 UI 存活"被证明是同一个架构需求的两面。
 
 ### 2.4 站得住的收窄版命题
@@ -148,7 +148,7 @@
 所以这不是"抢到了一个空位"，是**我要的那件事没有现成的**：让 agent 和我用同一套命令放同一首歌。
 **别拿 star 数跟这些项目比 —— 不在同一件事上。**
 
-§7 从另一个方向印证了这句话：2026 年出 agent 面的项目里，**只有 spotuify 一个把播放生命周期
+§8 从另一个方向印证了这句话：2026 年出 agent 面的项目里，**只有 spotuify 一个把播放生命周期
 也交了出去**，而它靠的是守护进程形态（§4.3）；其余（`Meting-Agent`、bilibili-mcp 一族）**只做查**。
 
 顺带记一笔（真做 MCP 时要用，即 `ROADMAP.md` Go 重写 NO 的重开条件）：字幕这一格在 MCP 生态里
@@ -384,16 +384,16 @@ go-musicfox 5.0 加了 **DLNA/UPnP 播放引擎**，跟 `beep`/`mpd`/`mpv` 并�
 
 ## 6. 横切问题（不属于任何一种架构，但每种都要回答）
 
-### 5.1 gapless 无缝
+### 6.1 gapless 无缝
 
 - **mpv 路线**：`--gapless-audio` 的机制是 **按第一个文件的参数打开音频设备，然后一直不关**；
   跨文件无缝还需要 `--prefetch-playlist=yes`，它对**本地文件系统和网络流都有效**。
 - **进程内路线**：termusic 为 symphonia / mpv / gstreamer **三个后端都实现了 gapless**，
   `Ctrl+g` 切换，**默认开启**。
-- **代价**：无缝的前提是"下一首在当前这首结束前就已经就绪"。这与 §5.3 的 URL 时效直接冲突 ——
+- **代价**：无缝的前提是"下一首在当前这首结束前就已经就绪"。这与 §6.3 的 URL 时效直接冲突 ——
   预取得太早，URL 可能在真正播到时已经过期。
 
-### 5.2 网络流的缓冲：管道直喂的隐藏代价
+### 6.2 网络流的缓冲：管道直喂的隐藏代价
 
 dennislan 的 Music Player TUI 是这条路最纯粹的样本：
 **`yt-dlp stdout → Arc<Mutex> 共享缓冲 → rodio 解码 → 音频设备`**，
@@ -404,7 +404,7 @@ dennislan 的 Music Player TUI 是这条路最纯粹的样本：
 在一条只能前进的管道上，这两件事的实现代价远高于把 URL 交给 mpv 让它自己发 Range 请求。
 **判据**：如果产品要"拖动进度条"，管道直喂就是错的路；如果只要"顺序听完"，它是最省依赖的路。
 
-### 5.3 URL 时效：一次提取的隐含期限（2026-09-03 实测升格）
+### 6.3 URL 时效：一次提取的隐含期限（2026-09-03 实测升格）
 
 这是"一次提取"（轴 E）这条路唯一的真实代价，也是最容易被忽略的。
 2026-09-03 轮次对三大主流音源的直链参数和有效生命期做了逐项解析与实测：
@@ -429,7 +429,7 @@ dennislan 的 Music Player TUI 是这条路最纯粹的样本：
 3. **播放器必须能在遇到 403/过期时通知或触发重新解析**，或者遵循本套件的原则 ——
    让队列消费在即将播放的前一刻才调用 `<engine>-resolve`。
 
-### 5.4 系统媒体集成：三个平台三套 API
+### 6.4 系统媒体集成：三个平台三套 API
 
 想接系统媒体键 / 锁屏卡片 / 蓝牙耳机按钮，就得分别对接：
 
@@ -448,7 +448,7 @@ SPlayer 在 Linux 用 `mpris-server` crate、macOS 走 Objective-C 运行时、W
 UI 与播放分离的架构里，MPRIS 该由谁来发布，是个真问题 —— rmpc 的答案是让 `rmpcd`
 （而不是 TUI）来持有 D-Bus 接口。
 
-### 5.5 一个反复出现的模式：把"源"做成协议或脚本，而不是模块
+### 6.5 一个反复出现的模式：把"源"做成协议或脚本，而不是模块
 
 三个不同世代的样本，同一个答案：
 
@@ -467,7 +467,7 @@ UI 与播放分离的架构里，MPRIS 该由谁来发布，是个真问题 —�
 现演进为 `ting-engine-<site>` 单文件闭环 + `ting-play` 统一代理动词转发，既消除跨文件重复，
 又保住了单文件原地热修与零外部插件沙箱的边界）。
 
-### 5.6 歌词呈现的终端范式（全屏滚动 vs 分栏窗格 vs 单行内联窥探）
+### 6.6 歌词呈现的终端范式（全屏滚动 vs 分栏窗格 vs 单行内联窥探）
 
 看遍主流终端播放器对歌词（Lyrics）的处理，业界基本呈现出三种主流范式与一种极端特例，但它们在终端物理预算上均存在不可调和的矛盾：
 
@@ -482,7 +482,7 @@ UI 与播放分离的架构里，MPRIS 该由谁来发布，是个真问题 —�
 终端屏幕高度是实打实量出来的。在工作背景音乐的场景下，让用户为了偶尔瞟一眼歌词而切走整个工作列表（全屏模式），或为了歌词常驻而将歌曲列表挤成一截残肢（分栏模式），都是得不偿失的。
 **单行内联窥探（Lyric Peeking）是唯一在守住“单视图原地重绘”、“免模态切换”与“行预算恒定”三条底线的前提下，为终端用户提供歌词心流的解法**。而它的实现前提 —— 亚秒级进度游标与平滑微动效，恰恰是 Go TUI（`ARCH-tui.md`）能够低成本提供的资产。
 
-### 5.7 付费权限与可用性状态的排版呈现（`access` / VIP / 试听）
+### 6.7 付费权限与可用性状态的排版呈现（`access` / VIP / 试听）
 
 在线音频平台普遍存在细粒度的版权与付费状态区分（如网易云的 `fee` 衍生出的 `full` 全曲 / `preview` 30 秒试听 / `paywalled` VIP 付费专辑）。终端播放器在排版上面临两难选择：
 
@@ -499,7 +499,7 @@ UI 与播放分离的架构里，MPRIS 该由谁来发布，是个真问题 —�
 
 ---
 
-## 6. 音源层：拿到一个可播 URL 的四条路（国内侧）
+## 7. 音源层：拿到一个可播 URL 的四条路（国内侧）
 
 播放架构解决"怎么播"，这一节是"播什么"。国内平台没有 §2.4 那样的开放设备协议，
 所以只剩四条路，且**每条都在 2026 年出现了分化或退化**：
@@ -508,14 +508,14 @@ UI 与播放分离的架构里，MPRIS 该由谁来发布，是个真问题 —�
 |---|---|---|
 | **官方 API 逆向** | 直接实现 eapi/weapi 等加密调用 | Binaryify 的 `NeteaseCloudMusicApi` **GitHub 仓已停更**（2024-02 止）。接力维护的主力是 `NeteaseCloudMusicApiEnhanced/api-enhanced`（1719★，2026-08 活跃），跟进全景声音质修复；另一支走向**语言原生嵌入**，如 `CNMPlayer` 的 `ncm-api-rs`（Rust 原生实现 weapi/eapi/linuxapi）；本套件实测证明：搜索只需用系统 `openssl` 跑 weapi 即可打通，且 `fee` 字段直接对应 `access`（全曲/30秒/付费专辑） |
 | **多源回退** | 一首歌不可用就去别家找替身（UnblockNeteaseMusic 模型：酷狗/酷我/波点/咪咕/JOOX/YouTube/Bilibili） | **严重退化**：`UnblockNeteaseMusic/server`（7824★）代码事实停更（近月全为 Dependabot 自动提交）；官方网易云 3.1.38 更新直接致解灰失效（[issue #1753](https://github.com/UnblockNeteaseMusic/server/issues/1753)）；酷我返回假 VIP 音频（[issue #1299](https://github.com/UnblockNeteaseMusic/server/issues/1299)）；QQ、咪咕对海外 IP 封锁；维护各平台替身成本不可持续 |
-| **yt-dlp 统一提取** | 站点知识外包给上游 | B 站侧面临指纹 Cookie 缺失致 412 与 WAF 风控（§5.3）；网易云海外 IP 会被严格地域限制（yt-dlp 尝试用虚构国内 IP 的 `X-Forwarded-For` 穿透）；但针对单曲解析，yt-dlp 的 eapi 仍能稳定拿到可播的 30 秒试听（weapi 则直接返回空） |
+| **yt-dlp 统一提取** | 站点知识外包给上游 | B 站侧面临指纹 Cookie 缺失致 412 与 WAF 风控（§6.3）；网易云海外 IP 会被严格地域限制（yt-dlp 尝试用虚构国内 IP 的 `X-Forwarded-For` 穿透）；但针对单曲解析，yt-dlp 的 eapi 仍能稳定拿到可播的 30 秒试听（weapi 则直接返回空） |
 | **远端聚合网关** | 自己不碰站点，调一个统一 API | `Meting-Agent`（音乐虾，105★）聚合网易云/QQ/酷狗/酷我，统一接口 search / song / album / artist / playlist / **url** / lyric / pic，**同时出 MCP 和 Skill 两种形态**（[GitHub](https://github.com/ELDment/Meting-Agent)） |
 
 **新出现的源与聚合库**（值得记，因为它们已进入聚合器的清单）：
 - **汽水音乐**（字节）：`guohuiyuan/go-music-dl`（4138★，2026-08-30 发布 v1.1.0）通过底层 `music-lib` 实现了汽水音乐的搜索与音频解密（SEO 路径可跳过解密）；
 - **小宇宙**（播客，cliamp 支持）、5sing、千千音乐、JOOX。
 
-### 6.1 下一个媒体源候选与准入筛查（2026-09-12 实测更新）
+### 7.1 下一个媒体源候选与准入筛查（2026-09-12 实测更新）
 
 在既有三引擎（`yt` / `bili` / `ne`）体系之外，套件对扩充第四音源设定了五条不可逾越的**第一性原理准入判据**：
 1. **双半边闭环契约**：必须同时具备搜索前半边（`ting-play --search`）与解析后半边（`ting-engine-<site> --stream`），缺少免鉴权公开搜索直接触发否决（对齐「喜马拉雅 NO」）；
@@ -553,7 +553,7 @@ UI 与播放分离的架构里，MPRIS 该由谁来发布，是个真问题 —�
 
 ---
 
-## 7. agent 面：2026 年它不再是加分项
+## 8. agent 面：2026 年它不再是加分项
 
 四个独立样本展示了不同层次的探索：
 
@@ -588,7 +588,7 @@ spotuify 用守护进程 + unix socket 解决它；本仓用 detached 进程 + �
 
 ---
 
-## 8. 样本清单
+## 9. 样本清单
 
 按 §3 的五轴排开。**"最近活动"一栏已于 2026-09-03 实测更新。**
 
@@ -610,9 +610,9 @@ spotuify 用守护进程 + unix socket 解决它；本仓用 detached 进程 + �
 
 ---
 
-## 9. 问号的解决与新留档
+## 10. 问号的解决与新留档
 
-### 9.1 2026-09-03 已实测关闭的问号
+### 10.1 2026-09-03 已实测关闭的问号
 
 诚实核验每一项，不再留模糊状态：
 
@@ -650,7 +650,7 @@ spotuify 用守护进程 + unix socket 解决它；本仓用 detached 进程 + �
    - 实测在列表行前缀添加 `[VIP]`（5 个半角字符）：在 62 列终端上，曲名最大可读长度减少 2.5 个汉字；且在网易云默认搜索过滤 `access == "full"` 时，列表 100% 呈现相同徽章，信息熵为 0，退化为无意义视觉噪点；
    - 实测证明将权限徽章移入焦点行 metadata 行，既能消除列表行噪点与宽度侵占，又能在光标聚焦决策时提供明确预判。
 
-### 9.2 本轮新提出的长效问号
+### 10.2 本轮新提出的长效问号
 
 1. **国内平台地域封锁的持久性应对**：网易云等平台对海外 IP 执行强地域版权屏蔽，yt-dlp
    目前通过伪造国内 IP 设置 `X-Real-IP` 头（`--xff`）尝试绕过；站方 WAF 未来若强化对该 Header 的剔除与 IP 真实性校验，
@@ -663,7 +663,7 @@ spotuify 用守护进程 + unix socket 解决它；本仓用 detached 进程 + �
 4. **SoundCloud 600 req/10min 限流的真实生产边界**：
    大型 Set（如 500+ 首曲目的混音歌单）在非 flat 模式下逐曲抽取元数据是否会立刻撞上该限流；实施门禁需要真实的压测数据。
 
-### 9.3 2026-09-12 第四音源候选复核
+### 10.3 2026-09-12 第四音源候选复核
 
 1. **SoundCloud 的搜索、单曲解析与播放（已证可用）**：
    - 搜索：`yt-dlp --dump-json --flat-playlist "scsearch5:lofi"` 实测可在 1.1s 内返回平铺元数据（带 id/title/duration/thumbnails/webpage_url）；
@@ -687,7 +687,7 @@ spotuify 用守护进程 + unix socket 解决它；本仓用 detached 进程 + �
 
 ---
 
-## 10. 出处
+## 11. 出处
 
 **播放架构 / 播放器**
 - mpv JSON IPC 手册：https://github.com/mpv-player/mpv/blob/master/DOCS/man/ipc.rst
@@ -709,8 +709,14 @@ spotuify 用守护进程 + unix socket 解决它；本仓用 detached 进程 + �
 - Music Player TUI（dennislan）：https://dennislan.github.io/music-player/
 - FeelUOwn fuo 协议：https://feeluown.readthedocs.io/en/latest/protocol.html
 - MPRIS 规范 v2.2：https://specifications.freedesktop.org/mpris/latest/
+
+**终端 UI / Look & Feel 与交互生态**
 - Charm Bubbletea 运行时：https://github.com/charmbracelet/bubbletea
 - Harmonica 弹簧物理微动效：https://github.com/charmbracelet/harmonica
+- Lipgloss 声明式盒模型样式库：https://github.com/charmbracelet/lipgloss
+- Bubbles 现代 TUI 组件套件：https://github.com/charmbracelet/bubbles
+- Ratatui（Rust Immediate-Mode TUI）：https://github.com/ratatui/ratatui
+- Uniseg 字符簇度量衡：https://github.com/rivo/uniseg
 
 **音源**
 - go-music-dl：https://github.com/guohuiyuan/go-music-dl
@@ -737,13 +743,13 @@ spotuify 用守护进程 + unix socket 解决它；本仓用 detached 进程 + �
 
 ---
 
-## 11. 怎么重跑这份调研
+## 12. 怎么重跑这份调研
 
-1. **播放架构**：读各项目的 README + CHANGELOG + `docs/`，按 §3 的五轴填 §8 的表。
+1. **播放架构**：读各项目的 README + CHANGELOG + `docs/`，按 §3 的五轴填 §9 的表。
    **不要读综述文章** —— 本轮所有二手综述都比一手 README 落后至少一个大版本。
 2. **音源**：直接看目标仓库最近 90 天的 issue，尤其是标题里带 412 / 403 / 会员 / 无法播放的。
    **issue 比 README 诚实** —— README 说支持哪些源，issue 说哪些还真的能用。
-3. **URL 时效**：解一个 URL，记下时间，隔 1/3/6/12 小时各 `curl -I` 一次。这是 §9.1 和 §9.2
+3. **URL 时效**：解一个 URL，记下时间，隔 1/3/6/12 小时各 `curl -I` 一次。这是 §10.1 和 §10.2
    唯一的补法，成本是一天的挂机。
 4. **agent 面**：在 MCP 目录站（glama / lobehub / mcpservers.org）按平台名检索，
    看工具数与工具名 —— **工具名比 star 数更能说明它到底做了什么**。

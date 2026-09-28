@@ -58,7 +58,7 @@
   - **待决核心**：一个包含 10 首曲目的队列跳过了 1 首故障曲目，整体退出时应报 0 视为业务完成，还是记录部分失败？
 
 - **【低 ROI · 待决】MCP 官方包装层（stdio server）。**
-  - **收益**：中低。最新实测（[`docs/RESEARCH-tui-player.md`](RESEARCH-tui-player.md) §7）证实外部 MCP 工具均无法托管播放生命周期；而本仓裸 CLI 契约天然可被 Coding Agent（Claude Code / Codex）无损驱动。
+  - **收益**：中低。最新实测（[`docs/RESEARCH-tui-player.md`](RESEARCH-tui-player.md) §8）证实外部 MCP 工具均无法托管播放生命周期；而本仓裸 CLI 契约天然可被 Coding Agent（Claude Code / Codex）无损驱动。
   - **成本**：高。需引入长连接 JSON-RPC 通信与额外运行时封装，是开启 Go 重写 NO 的唯一业务前置。
   - **待决问题**：是否需要官方封装一层 MCP stdio server，还是保持由 Agent 直接调用通用 CLI 动词？
 
