@@ -4,8 +4,8 @@
 > **Priority**: 第二梯队 · 中高 ROI  
 > **Target Branch**: main  
 > **Roadmap 关联**: [`docs/ROADMAP.md`](ROADMAP.md)「待办与待决事项」——第四媒体源选型  
-> **Governing Docs**: [`docs/ARCHITECTURE.md`](ARCHITECTURE.md)「站点知识的边界」、[`docs/ARCH-cli-contract.md`](ARCH-cli-contract.md)「加一个引擎 —— 清单」、[`docs/ARCH-engine.md`](ARCH-engine.md)「模块功能和结构」  
-> **Verification**: `bash -n shell/*`、`tests/contract.sh --offline`、`tests/contract.sh`、`tests/playback.sh`  
+> **Governing Docs**: [`docs/ARCHITECTURE.md`](ARCHITECTURE.md)「站点知识的边界」、[`docs/ARCH-cli-contract.md`](ARCH-cli-contract.md)「加一个引擎 —— 清单」、[`docs/ARCH-engine.md`](ARCH-engine.md)「音源准入判据与已否决路线」  
+> **Verification**: `bash -n shell/*`、`go vet ./... && go test -short ./...`、`tests/contract.sh --offline`、`tests/contract.sh`、`tests/playback.sh`  
 > **Scope Boundary**: 在不改变既有 argv、JSON 信封、reason 枚举和退出码分类的前提下，判断 SoundCloud (`sc`) 能否作为第四个内置引擎，并给出通过门禁后的实施顺序。开放播客 (`pod`) 只保留为后续候选；本计划不预先批准第五媒体源，也不设计断点续播的新公共契约。
 
 ---
@@ -140,7 +140,7 @@
 - 同步 `ARCHITECTURE.md`、`ARCH-cli-contract.md`、`ARCH-engine.md`、必要的 `ARCH-player.md`、README 与 `config` 中的命令数量、内置源、原语拓扑和实测边界。
 - 实现主体完成后将本计划的稳定 why/how 蒸馏进对应 `ARCH-*.md`，随后 `git rm` 本文件并从 ROADMAP 移除已完成议题。
 - 新增公开命令与配置键属于 SemVer 加法；按仓库规范在功能提交之后，用独立 commit 完成版本升级，不与功能提交混杂。
-- 最终门禁依次为 `/bin/bash -n shell/*`、`tests/contract.sh --offline`、`tests/contract.sh`、`tests/playback.sh`；涉及 TUI 可见行为时再运行 `tests/drive.sh -x 62 -y 20`。
+- 最终门禁依次为 `/bin/bash -n shell/*`、`go vet ./... && go test -short ./...`、`tests/contract.sh --offline`、`tests/contract.sh`、`tests/playback.sh`；涉及 TUI 可见行为时再运行 `tests/drive.sh -x 62 -y 20`。
 
 ---
 

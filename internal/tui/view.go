@@ -39,6 +39,9 @@ type frame struct {
 	filterHint             bool
 	caretH                 int
 	details                []string
+	lyricRow               int  // -1 when none, else index in details
+	lyricInter             bool // whether interlude
+	lyricTrans             bool // whether transitioning
 	coverGate              bool // this frame draws a cover column (its rows charged either way)
 	psize, start, end      int
 }
@@ -262,7 +265,7 @@ func (m *Model) headLead() string {
 // layout spends the terminal's height the way the shell TUI's renderer does: chrome at the
 // two ends, the rows take what is left, and when there is not enough the gaps go first.
 func (m *Model) layout() frame {
-	f := frame{ambig: m.ambigW()}
+	f := frame{ambig: m.ambigW(), lyricRow: -1}
 	f.cols = m.width
 	if f.cols < layoutMin {
 		f.cols = layoutMin
@@ -340,7 +343,7 @@ func (m *Model) layout() frame {
 			lines-f.chromeH-foot()-layoutCursorRow-coverRows >= coverMinRows {
 			f.coverGate, dw = true, f.rightEdge-coverCols-1
 		}
-		d := m.detailLines(dw, m.cursor)
+		d, lyricIdx, isInter, isTrans := m.detailLines(dw, m.cursor)
 		if f.coverGate {
 			for len(d) < coverRows {
 				d = append(d, "")
@@ -348,8 +351,12 @@ func (m *Model) layout() frame {
 		}
 		if lines-f.chromeH-foot()-layoutCursorRow-len(d) >= layoutDetailKeep {
 			f.details = d
+			f.lyricRow = lyricIdx
+			f.lyricInter = isInter
+			f.lyricTrans = isTrans
 		} else {
 			f.coverGate = false
+			f.lyricRow = -1
 		}
 	}
 	avail := lines - f.chromeH - foot() - len(f.details) - layoutCursorRow
@@ -437,8 +444,9 @@ func (m *Model) playingRow(r row) bool {
 }
 
 // detailLines is the focused row's details block, plain text: the meta line, what the player
-// is decoding when this row is the one playing, and up to two lines of description.
-func (m *Model) detailLines(cols, i int) []string {
+// is decoding when this row is the one playing, and up to two lines of description (or
+// the active synchronized lyric line when peeking on the playing row).
+func (m *Model) detailLines(cols, i int) ([]string, int, bool, bool) {
 	r := m.rows[i]
 	var dur, views string
 	if r.isLive() {
@@ -475,11 +483,20 @@ func (m *Model) detailLines(cols, i int) []string {
 			out = append(out, m.w.trunc(ml, cols-2, m.g.Ell))
 		}
 	}
-	if r.Desc != "" {
+	lyricIdx := -1
+	isInter, isTrans := false, false
+	if m.playingRow(r) {
+		if l, inter, trans, ok := m.lyricLine(cols); ok {
+			lyricIdx = len(out)
+			isInter, isTrans = inter, trans
+			out = append(out, l)
+		}
+	}
+	if lyricIdx < 0 && r.Desc != "" {
 		d := m.w.trunc(r.Desc, (cols-2)*2-2, m.g.Ell)
 		out = append(out, m.w.wrap(d, cols-2, 2)...)
 	}
-	return out
+	return out, lyricIdx, isInter, isTrans
 }
 
 // ── render ──────────────────────────────────────────────────────────────────────────────
@@ -587,7 +604,18 @@ func (m *Model) View() string {
 		img = ""
 	}
 	for i, d := range f.details {
-		l := img + "  " + p.Dim + d + p.Reset
+		var l string
+		if i == f.lyricRow {
+			style := p.Accent
+			if f.lyricInter {
+				style = p.Dim
+			} else if f.lyricTrans && p.on && !p.mono {
+				style = p.Bold + p.Accent
+			}
+			l = img + "  " + style + d + p.Reset
+		} else {
+			l = img + "  " + p.Dim + d + p.Reset
+		}
 		img = ""
 		if f.coverGate && i == coverRows/2 && m.coverLoading() {
 			t := g.Spin[m.spin%len(g.Spin)] + " loading pic..."
@@ -784,13 +812,13 @@ func (m *Model) progressBar(width int) string {
 	if width < 10 {
 		width = 10
 	}
-	pct, dur := 0, 0.0
+	frac, dur := 0.0, 0.0
 	pos, ok := m.position()
 	if ok && m.last.Duration != nil && *m.last.Duration > 0 {
 		dur = *m.last.Duration
-		pct = min(int(pos*100/dur), 100)
+		frac = min(max(pos/dur, 0), 1)
 	}
-	filled := pct * width / 100
+	filled, part := barCells(frac, width, len(m.g.Part)+1)
 	// The focused chapter's span, when it is a chapter of what is playing: a blank cell at
 	// each end, so the bar says where that chapter sits in the whole.
 	a, b := -1, -1
@@ -803,20 +831,30 @@ func (m *Model) progressBar(width int) string {
 	}
 	var played, rest strings.Builder
 	for c := 0; c < width; c++ {
-		g := m.g.Rest
 		switch {
 		case c == a || c == b:
-			g = " "
+			if c < filled {
+				played.WriteString(" ")
+			} else {
+				rest.WriteString(" ")
+			}
 		case c < filled:
-			g = m.g.Fill
-		}
-		if c < filled {
-			played.WriteString(g)
-		} else {
-			rest.WriteString(g)
+			played.WriteString(m.g.Fill)
+		case c == filled && part > 0:
+			played.WriteString(m.g.Part[part-1])
+		default:
+			rest.WriteString(m.g.Rest)
 		}
 	}
 	return m.p.Accent + played.String() + m.p.Reset + m.p.Dim + m.p.Accent + rest.String() + m.p.Reset
+}
+
+// barCells is how much of a width-cell bar frac covers: whole cells, then the steps (of
+// `steps` per cell) into the next one. With one step per cell there is no partial cell,
+// which is the ASCII bar; a full bar has no partial cell either, so it never runs past width.
+func barCells(frac float64, width, steps int) (int, int) {
+	n := int(min(max(frac, 0), 1) * float64(width*steps))
+	return n / steps, n % steps
 }
 
 // chapterSpan is the focused chapter's start and end, when the list is that item's chapters

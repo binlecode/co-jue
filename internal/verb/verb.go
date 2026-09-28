@@ -387,6 +387,37 @@ func (s *Suite) Auth(ctx context.Context, engine string) (*Auth, error) {
 	return &a, nil
 }
 
+// Segment is one timed line of a transcript.
+type Segment struct {
+	Start    float64 `json:"start"`
+	Text     string  `json:"text"`
+	Duration float64 `json:"duration"`
+}
+
+// Transcript is the envelope of ting-play --transcript -j --segments.
+type Transcript struct {
+	Status       string    `json:"status"`
+	Engine       string    `json:"engine"`
+	ID           string    `json:"id"`
+	URL          string    `json:"url"`
+	Lang         *string   `json:"lang"`
+	IsAuto       bool      `json:"is_auto"`
+	Chars        int       `json:"chars"`
+	SegmentCount int       `json:"segment_count"`
+	Text         string    `json:"text"`
+	Segments     []Segment `json:"segments"`
+}
+
+// Transcript asks an engine for timed transcript segments, through ting-play.
+func (s *Suite) Transcript(ctx context.Context, engine, handle string) (*Transcript, error) {
+	argv := []string{s.TPlay, "--transcript", "--engine", engine, "-j", "--segments", "--", handle}
+	var tr Transcript
+	if err := run(ctx, argv, &tr); err != nil {
+		return nil, err
+	}
+	return &tr, nil
+}
+
 // Stop stops one player.
 func (s *Suite) Stop(ctx context.Context, id string) error {
 	return run(ctx, []string{s.TPlay, "--stop", "-j", "--id", id}, nil)

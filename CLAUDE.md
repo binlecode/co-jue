@@ -39,11 +39,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - 🔴 **全文档唯一正本路由在 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)**，这是架构伞文档。
 - 🔴 **每份 `ARCH-*.md` 文首必带「模块功能和结构」与边界表** —— 判断「某功能或改动归哪一份管」先看边界表。
-- 🔴 **未决议题、待做特性与记录在案的 NO 只认 [`docs/ROADMAP.md`](docs/ROADMAP.md)**。
+- 🔴 **演进路线、优先级梯度与待办/待决议题只认 [`docs/ROADMAP.md`](docs/ROADMAP.md)**。已落地设计决定与已否决路线的理由收敛在架构正本。
 
 | 文种 | 命名规范 | 职责与生命周期 |
 |---|---|---|
-| 路线图 | `ROADMAP.md` | 悬着的议题总表（记录在案的 NO、重开触发器、待做事项）；只记决定与条件，不记流水账；议题完结即删 |
+| 路线图 | `ROADMAP.md` | 演进路线图与待办/待决议题总表（优先级梯度、ROI、卡点与候选）；议题落地即删 |
 | 计划书 | `PLAN-<topic>.md` | 单项重大特性的设计与实施草案；**主体做完蒸馏入 `ARCH-*.md` 后当场 `git rm` 删除** |
 | 架构正本 | `ARCHITECTURE.md` + `ARCH-<scope>.md` | 系统总览与各模块已建成架构的正本（why 与 how，不记可读源码的 what）；文首必带边界表 |
 | 外部调研 | `RESEARCH-<topic>.md` | 外部竞品与业界方案的调研及实测数据（不入 SDLC 链，供决策参考，测量过时后清理） |

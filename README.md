@@ -420,8 +420,8 @@ surface.
   data, and no landed decisions — those live in the architecture doc's decisions chapter; positioning is its opening chapter.
 - [`docs/RESEARCH-tui-player.md`](docs/RESEARCH-tui-player.md) — the survey those decisions rest
   on, kept separate so the decision records hold decisions rather than data. Two halves, and it opens
-  by saying which is which: **one half is measured** — the name screening, what comparable
-  projects do by GitHub API, what publishing this shell version costs, and how ready it is;
+  by saying which is which: **one half is measured** — what comparable
+  projects do by GitHub API and active commits;
   **the other started as read, not run** — how other terminal players are built along five
   orthogonal design axes, the five playback architectures they pick from, and the four routes
   to a playable URL on the Chinese side. The 2026-09-03 pass measured the parts that carry

@@ -160,6 +160,13 @@ type Model struct {
 
 	cover coverState
 
+	// In-memory lyric cache across the session, keyed by track URL.
+	lyricsCache     map[string]*lyricTrack
+	currentLyric    *lyricTrack
+	lyricInFlight   string
+	lyricActiveIdx  int
+	lyricSwitchedAt time.Time
+
 	dirty    map[string]bool // preferences a key changed and the file does not have yet
 	said     map[string]bool // pinned keys already told about
 	flushing bool            // a write-back is scheduled
@@ -194,6 +201,8 @@ func New(ctx context.Context, suite *verb.Suite, opt Options) *Model {
 	}
 	m.query = opt.Query
 	m.chapFollow = -1
+	m.lyricsCache = make(map[string]*lyricTrack)
+	m.lyricActiveIdx = -1
 	m.dirty, m.said = map[string]bool{}, map[string]bool{}
 	m.cover = coverState{on: opt.Cover.On, cw: opt.Cover.CW, ch: opt.Cover.CH,
 		done: map[string]*coverImg{}, failed: map[string]time.Time{}}
@@ -438,7 +447,7 @@ func (m *Model) Init() tea.Cmd {
 		if p.Position != nil {
 			m.startedAt = m.startedAt.Add(-time.Duration(*p.Position) * time.Second)
 		}
-		cmds = append(cmds, m.watchCmd(p.ID))
+		cmds = append(cmds, m.watchCmd(p.ID), m.triggerLyricCmd(p.Engine, p.URL))
 	case n > 1:
 		m.notice(m.s.AdoptAct+":", m.s.AdoptMany)
 	}
@@ -543,7 +552,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading, m.live, m.startedAt = true, msg.live, time.Now()
 		m.playTitle, m.playURL, m.playEngine = msg.title, msg.url, msg.eng
 		m.cpu, m.mem, m.volTarget = nil, nil, nil
-		return m, tea.Batch(m.watchCmd(msg.st.ID), m.ensureTick())
+		return m, tea.Batch(m.watchCmd(msg.st.ID), m.triggerLyricCmd(msg.eng, msg.url), m.ensureTick())
 
 	case watchStartedMsg:
 		if msg.gen != m.watchGen {
@@ -594,6 +603,22 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case urlMsg:
 		m.pending, m.busy = nil, ""
 		m.urlDone(msg)
+		return m, nil
+
+	case lyricDoneMsg:
+		if m.lyricInFlight == msg.url {
+			m.lyricInFlight = ""
+		}
+		st := lyricNone
+		if msg.err == nil && len(msg.segments) > 0 {
+			st = lyricReady
+		}
+		t := &lyricTrack{url: msg.url, status: st, segments: msg.segments}
+		m.lyricsCache[msg.url] = t
+		if (m.currentLyric != nil && m.currentLyric.url == msg.url) || m.playURL == msg.url {
+			m.currentLyric = t
+			m.lyricActiveIdx = -1
+		}
 		return m, nil
 
 	case volDoneMsg:
@@ -767,12 +792,18 @@ func (m *Model) watchEvent(msg watchEventMsg) tea.Cmd {
 	if ev.Queue != nil {
 		m.q = &[2]int{ev.Queue.Pos, ev.Queue.Len}
 	}
+	var lyricCmd tea.Cmd
 	if ev.URL != "" && ev.URL != m.playURL {
 		// A queue moved on: the banner follows the player, not the row that started it.
 		m.playURL, m.startedAt, m.live = ev.URL, time.Now(), false
 		if ev.Title == nil {
 			m.playTitle = ev.URL
 		}
+		eng := m.playEngine
+		if ev.Engine != "" {
+			eng = ev.Engine
+		}
+		lyricCmd = m.triggerLyricCmd(eng, ev.URL)
 	}
 	if ev.Engine != "" {
 		m.playEngine = ev.Engine
@@ -786,7 +817,7 @@ func (m *Model) watchEvent(msg watchEventMsg) tea.Cmd {
 	if ev.Event == "end" && ev.Reason != nil {
 		m.notice(m.s.AdoptAct+":", "player ended: "+*ev.Reason)
 	}
-	return tea.Batch(nextEvent(msg.gen, m.watcher), m.ensureTick())
+	return tea.Batch(nextEvent(msg.gen, m.watcher), lyricCmd, m.ensureTick())
 }
 
 // mark records that a key changed a preference. One the environment pins is never written
@@ -850,6 +881,9 @@ func (m *Model) clearPlayer() {
 	m.playerID, m.owned, m.last = "", false, nil
 	m.loading, m.live, m.playTitle, m.playURL, m.playEngine = false, false, "", "", ""
 	m.cpu, m.mem, m.volTarget, m.volQueued, m.q = nil, nil, nil, false, nil
+	m.currentLyric = nil
+	m.lyricInFlight = ""
+	m.lyricActiveIdx = -1
 }
 
 func (m *Model) playing() bool {

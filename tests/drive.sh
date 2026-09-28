@@ -18,7 +18,7 @@
 #      the isolation block below. Reaping unconditionally is only safe once nothing else
 #      lives there.
 #
-# The keymap it can send lives in README.md (Keys) and the YT_* knobs in
+# The keymap it can send lives in README.md (Keys) and the TING_* knobs in
 # ARCH-cli-contract.md「配置面」 — this file restates neither.
 #
 # Portability: bash 3.2 (macOS system bash). Needs tmux; jq only for the cleanup report.
@@ -32,7 +32,7 @@
 #   tests/drive.sh -k 'Enter' -w 播放中              the same under a zh chrome
 #   TING_LANG=en tests/drive.sh -k Enter -w Playing  pin the chrome for one run
 #   tests/drive.sh -i                               leave it up and ATTACH (interactive)
-#   TING_ASCII=1 tests/drive.sh                     any YT_* var is passed through
+#   TING_ASCII=1 tests/drive.sh                     any TING_* var is passed through
 #
 # -w greps the pane for a string, and the pane speaks whichever chrome language the COPIED
 # config (below) or the locale picks — so a banner marker is per language. The language is not

@@ -219,3 +219,31 @@ func TestWatchCloseLeavesPlayer(t *testing.T) {
 		t.Fatalf("player gone after closing its watch: %+v", players)
 	}
 }
+
+func TestTranscriptRejection(t *testing.T) {
+	s := suite(t)
+	_, err := s.Transcript(context.Background(), "bili", "BV1xx")
+	var ve *Error
+	if !errors.As(err, &ve) || ve.Kind() != Usage {
+		t.Fatalf("got %v, want Usage error", err)
+	}
+}
+
+func TestTranscriptNe(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network")
+	}
+	s := suite(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	tr, err := s.Transcript(ctx, "ne", "1824020871")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tr.Status != "ok" || len(tr.Segments) == 0 {
+		t.Fatalf("unexpected transcript: %+v", tr)
+	}
+	if tr.Segments[0].Text == "" {
+		t.Errorf("empty first segment text: %+v", tr.Segments[0])
+	}
+}

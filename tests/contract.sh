@@ -2578,7 +2578,7 @@ if ((CQ_UP)); then
     while [ $i -lt 400 ]; do
         cq_frame=$(tmux capture-pane -t "$CQ_TS" -p -J 2>/dev/null)
         printf '%s\n' "$cq_frame" | grep -qE '[0-9]+ results|__GONE__' && break
-        sleep 0.05; i=$((i + 1))
+        sleep 0.05; i=$((i + 1))  # clean-tests: allow-r10 (capture-pane sampling loop tick)
     done
     report "results still arrive without the store" 1 \
         "$(printf '%s\n' "$cq_frame" | grep -cE '[0-9]+ results' | awk '{print ($1 > 0) ? 1 : 0}')"
@@ -3382,7 +3382,7 @@ else
             # list, at every width this block resizes to.
             tmux capture-pane -t "$TS" -p 2>/dev/null | grep -q "query='" && { booted=1; break; }
         fi
-        sleep 0.05; i=$((i + 1))
+        sleep 0.05; i=$((i + 1))  # clean-tests: allow-r10 (stty flag sampling loop tick)
     done
     report "TUI boots and paints a list" 1 "$booted"
     report "no password prompt sampled" 0 "$getpass"

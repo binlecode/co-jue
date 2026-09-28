@@ -158,21 +158,24 @@ func firstSet(getenv func(string) string, keys ...string) string {
 type glyphs struct {
 	Note, Live, Sep, Caret, Play, Pause, AV, AH, Enter, Tab, Cursor, Thumb, Track string
 	Ell, Arrow, Dash, GE, LE, TimeL, TimeR, CPU, RAM, Fill, Rest                  string
-	Spin                                                                          []string
+	Lyric, LyricInter                                                             string
+	Spin, Part                                                                    []string
 }
 
 var glyphsUTF = glyphs{
 	Note: "♫ ", Live: "● LIVE", Sep: "·", Caret: "❯", Play: "▶", Pause: "❚❚", AV: "↑↓", AH: "←→",
 	Enter: "⏎", Tab: "⇥", Cursor: "▎", Thumb: "█", Track: "│", Ell: "…", Arrow: "→", Dash: "—",
-	GE: "≥", LE: "≤", TimeL: "【", TimeR: "】", CPU: "▣", RAM: "▤", Fill: "━", Rest: "─",
+	GE: "≥", LE: "≤", TimeL: "【", TimeR: "】", CPU: "▣", RAM: "▤", Fill: "█", Rest: "─",
+	Lyric: "♪ ", LyricInter: "♪  · · ·",
 	Spin: []string{"▘", "▝", "▗", "▖"},
+	Part: []string{"▏", "▎", "▍", "▌", "▋", "▊", "▉"},
 }
 
 var glyphsASCII = glyphs{
 	Note: "", Live: "LIVE", Sep: "|", Caret: ">", Play: ">", Pause: "||", AV: "Up/Dn", AH: "Lt/Rt",
 	Enter: "Enter", Tab: "Tab", Cursor: ">", Thumb: "#", Track: "|", Ell: "...", Arrow: "->",
 	Dash: "-", GE: ">=", LE: "<=", TimeL: "[", TimeR: "]", CPU: "cpu", RAM: "ram", Fill: "=",
-	Rest: "-", Spin: []string{"|", "/", "-", "\\"},
+	Rest: "-", Lyric: "> ", LyricInter: ">  ...", Spin: []string{"|", "/", "-", "\\"},
 }
 
 // brand is the header wordmark, which is a language string too.

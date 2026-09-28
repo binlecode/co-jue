@@ -136,7 +136,7 @@ wait_live() {
             | jq -r --arg i "$id" --arg f "$field" \
                 '.players[]|select(.id==$i)|getpath($f|split("."))//empty' 2>/dev/null)
         case "$v" in "" | null | 0) ;; *) printf '%s' "$v"; return 0 ;; esac
-        sleep 0.25
+        sleep 0.25  # clean-tests: allow-r10 (wait_live polling tick)
     done
     printf '%s' "$v"
     return 1
@@ -155,7 +155,7 @@ no_orphans() {
     for i in $(seq 1 80); do
         n=$(pgrep -f "mpv .*--input-ipc-server=$STATE_DIR" 2>/dev/null | wc -l | tr -d ' ')
         [ "${n:-0}" = "0" ] && break
-        sleep 0.25
+        sleep 0.25  # clean-tests: allow-r10 (no_orphans polling tick)
     done
     report "$1" 0 "${n:-0}"
 }
@@ -581,7 +581,7 @@ i=0
 while [ $i -lt 240 ]; do
     u=$(shell/ting-play --status -j | jq -r '.players[0].url // empty')
     [ "$u" = "$U2" ] && break
-    sleep 0.25; i=$((i + 1))
+    sleep 0.25; i=$((i + 1))  # clean-tests: allow-r10 (queue track transition polling tick)
 done
 report "the record follows the track" "$U2" \
     "$(shell/ting-play --status -j | jq -r '.players[0].url // empty')"
@@ -637,7 +637,7 @@ if dur=$(wait_live "$qid" duration); then
         p=$(shell/ting-play --status -j | jq -r '.players[0].position // empty')
         [ "$(shell/ting-play --status -j | jq -r '.players[0].queue.pos // empty')" != "$qpos" ] && break
         case "$p" in "" | null) ;; *) [ "$p" -lt $((dur - 10)) ] && break ;; esac
-        sleep 0.25; i=$((i + 1))
+        sleep 0.25; i=$((i + 1))  # clean-tests: allow-r10 (repeat-loop polling tick)
     done
     report "a repeating track wraps to its own start" 1 \
         "$(p=$(shell/ting-play --status -j | jq -r '.players[0].position // 999999')
@@ -947,9 +947,9 @@ echo "── --watch: one player as a stream, across its queue, to its end ─�
 # The stream a TUI draws its clock from and an agent follows a queue with. Every claim is a
 # line the verb really wrote about a player that was really doing it, polled for — never a
 # count after a sleep, because the cadence is the playhead's and the start is the network's.
-# The queue is SHORT twice, so crossing a track (--next) and a track playing out on its own
+# The queue is U1 then SHORT, so crossing a track (--next) and a track playing out on its own
 # are both reached inside one player.
-wq=$(printf '[{"engine":"yt","url":"%s"},{"engine":"yt","url":"%s"}]' "$SHORT" "$SHORT" |
+wq=$(printf '[{"engine":"yt","url":"%s"},{"engine":"yt","url":"%s"}]' "$U1" "$SHORT" |
     shell/ting-play -d -j --volume 0 --queue - 2>/dev/null)
 wid=$(printf '%s' "$wq" | jq -r '.id // empty')
 WOUT="$TING_TEST_TMP/watch.out"
@@ -961,7 +961,7 @@ wait_watch() {
     local i
     for i in $(seq 1 240); do
         jq -e -s "$1" "$WOUT" >/dev/null 2>&1 && return 0
-        sleep 0.25
+        sleep 0.25  # clean-tests: allow-r10 (wait_watch slurp polling tick)
     done
     return 1
 }
