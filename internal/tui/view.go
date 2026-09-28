@@ -484,6 +484,12 @@ func (m *Model) detailLines(cols, i int) ([]string, int, int, bool, bool) {
 	if views != "" {
 		meta += sep + views
 	}
+	switch r.Access {
+	case "preview":
+		meta += sep + "30s"
+	case "paywalled":
+		meta += sep + "VIP"
+	}
 	if r.ID != "" {
 		meta += sep + r.ID
 	}

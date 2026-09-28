@@ -18,6 +18,7 @@ Search options (forwarded to ting-play --search):
 
 Menu options:
   --feed TYPE   Launch directly into a feed: home (bypasses search prompt)
+  --account ACC Preferred browser account email or Google authuser index (0, 1, …)
   -f MODE   Playback mode (default: audio): audio | video | fast
             (playback is detached — ascii/viz need a terminal to draw on)
   --volume N  mpv startup volume, 0-100 (default: unset -> mpv's own default);
@@ -142,6 +143,8 @@ Environment:
   TING_IMAGE=auto|on|off  Cover art for the focused row, over the terminal's graphics
                     protocol. auto probes the terminal and is off under tmux; off sends
                     no byte at all.
+  TING_COOKIE_ACCOUNT  Preferred browser account email or Google authuser index (0, 1, …).
+                   Defaults to the primary account (0).
   NO_COLOR=1       Disables color in --color auto mode (an explicit --color wins).
   TING_AMBIG_WIDE=1  Measure East-Asian-Ambiguous glyphs (· — • … arrows ─ ━ ○ ● ▶) as
                    TWO cells. Only needed if your terminal is set to treat ambiguous

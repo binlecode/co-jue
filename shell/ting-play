@@ -228,6 +228,7 @@ so a flag its site has no use for is refused (1), and --engines lists what each 
                                                          captions or lyrics; --segments
                                                          keeps the timed cues in the envelope
   ting-play --auth [--engine E] [-j]                     the engine's cookie decision
+  Engine modifier: --account ACC                         preferred account email or index
   Without --engine a URL picks its own engine (as a play does), anything else uses
   the default. -n counts what is FETCHED; the duration bounds shorten it.
 

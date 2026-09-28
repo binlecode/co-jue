@@ -10,12 +10,12 @@ import (
 
 // row is one line of the list: what the renderer, the details block and the filter read.
 type row struct {
-	ID, Title, URL, Engine, Channel, Live, Desc, Thumb string
-	Duration                                           *float64
-	Views                                              *int64
-	N                                                  int    // queue index, or a part/chapter ordinal; -1 = none
-	Rail                                               string // a chapter's span, drawn instead of the clock
-	Sec                                                int    // a chapter's start; -1 = not a chapter
+	ID, Title, URL, Engine, Channel, Live, Desc, Thumb, Access string
+	Duration                                                   *float64
+	Views                                                      *int64
+	N                                                          int    // queue index, or a part/chapter ordinal; -1 = none
+	Rail                                                       string // a chapter's span, drawn instead of the clock
+	Sec                                                        int    // a chapter's start; -1 = not a chapter
 }
 
 func rowsFromSearch(res *verb.SearchResult) []row {
@@ -27,7 +27,7 @@ func rowsFromSearch(res *verb.SearchResult) []row {
 			ch = "?"
 		}
 		out = append(out, row{ID: r.ID, Title: clean(r.Title), URL: r.URL, Engine: eng,
-			Channel: ch, Live: r.LiveStatus, Desc: clean(r.Description),
+			Channel: ch, Live: r.LiveStatus, Desc: clean(r.Description), Access: r.Access,
 			Thumb: r.Thumbnail, Duration: r.Duration, Views: r.ViewCount, N: -1, Sec: -1})
 	}
 	return out
@@ -147,7 +147,14 @@ func (r row) rail() string {
 	if r.isLive() {
 		return "LIVE"
 	}
-	return shortDur(r.Duration)
+	tail := shortDur(r.Duration)
+	switch r.Access {
+	case "preview":
+		return "30s " + tail
+	case "paywalled":
+		return "VIP " + tail
+	}
+	return tail
 }
 
 // matches is the live filter's test: every whitespace-separated token, case-insensitively,

@@ -162,6 +162,47 @@ if [[ -n "${TING_COOKIE_BROWSER:-}" && "$TING_COOKIE_BROWSER" != "none" ]]; then
     fi
 fi
 
+COOKIE_ACCOUNT="${TING_YT_ACCOUNT:-${TING_COOKIE_ACCOUNT:-}}"
+YT_AUTHUSER=""
+resolve_yt_account() {
+    local acc="${COOKIE_ACCOUNT:-}"
+    [[ -n "$acc" ]] || return 0
+    if [[ "$acc" =~ ^[0-9]+$ ]]; then
+        YT_AUTHUSER="$acc"
+        return 0
+    fi
+    local pref_file=""
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+        pref_file="$HOME/Library/Application Support/Google/Chrome/Default/Preferences"
+    else
+        pref_file="$HOME/.config/google-chrome/Default/Preferences"
+    fi
+    if [[ -r "$pref_file" ]]; then
+        local idx
+        idx=$(jq -r --arg a "$acc" '
+            (.account_info // [])
+            | map(.email // .account_id // "")
+            | index($a) // empty' "$pref_file" 2>/dev/null) || idx=""
+        if [[ -n "$idx" ]]; then
+            YT_AUTHUSER="$idx"
+            return 0
+        fi
+    fi
+}
+
+append_authuser() {
+    local u="$1"
+    if [[ -n "$YT_AUTHUSER" && "$u" != *"authuser="* ]]; then
+        if [[ "$u" == *"?"* ]]; then
+            printf '%s&authuser=%s' "$u" "$YT_AUTHUSER"
+        else
+            printf '%s?authuser=%s' "$u" "$YT_AUTHUSER"
+        fi
+    else
+        printf '%s' "$u"
+    fi
+}
+
 # The anonymous client. player_client=android is the one that fetches when the
 # authenticated client set hands back a googlevideo URL missing its GVS proof-of-origin
 # token — see probe_raw.
@@ -803,12 +844,12 @@ normalize_container() {
     case "$t" in
     feed:subs | feed/subscriptions)
         CONTAINER_ID="subscriptions"
-        CONTAINER_URL="https://www.youtube.com/feed/subscriptions"
+        CONTAINER_URL=$(append_authuser "https://www.youtube.com/feed/subscriptions")
         return 0
         ;;
     feed:history | feed/history)
         CONTAINER_ID="history"
-        CONTAINER_URL="https://www.youtube.com/feed/history"
+        CONTAINER_URL=$(append_authuser "https://www.youtube.com/feed/history")
         return 0
         ;;
     http://* | https://*)
@@ -822,12 +863,12 @@ normalize_container() {
         case "$u_path" in
         feed/subscriptions)
             CONTAINER_ID="subscriptions"
-            CONTAINER_URL="https://www.youtube.com/feed/subscriptions"
+            CONTAINER_URL=$(append_authuser "https://www.youtube.com/feed/subscriptions")
             return 0
             ;;
         feed/history)
             CONTAINER_ID="history"
-            CONTAINER_URL="https://www.youtube.com/feed/history"
+            CONTAINER_URL=$(append_authuser "https://www.youtube.com/feed/history")
             return 0
             ;;
         esac
@@ -841,12 +882,12 @@ normalize_container() {
         case "$u_path" in
         feed/subscriptions)
             CONTAINER_ID="subscriptions"
-            CONTAINER_URL="https://www.youtube.com/feed/subscriptions"
+            CONTAINER_URL=$(append_authuser "https://www.youtube.com/feed/subscriptions")
             return 0
             ;;
         feed/history)
             CONTAINER_ID="history"
-            CONTAINER_URL="https://www.youtube.com/feed/history"
+            CONTAINER_URL=$(append_authuser "https://www.youtube.com/feed/history")
             return 0
             ;;
         esac
@@ -862,7 +903,7 @@ normalize_container() {
         cu=$(channel_videos_url "$t")
         if [[ -n "$cu" ]]; then
             CONTAINER_ID="$t"
-            CONTAINER_URL="$cu"
+            CONTAINER_URL=$(append_authuser "$cu")
             return 0
         fi
     fi
@@ -877,7 +918,7 @@ normalize_container() {
     container_is_list_id "$id" ||
         die "'$id' is not a container — --items reads a playlist (PL…/WL/LL), an album (OLAK5uy_…), a channel's uploads (UU…) or a channel (…/@handle). A single video is what --info and a play take"
     CONTAINER_ID="$id"
-    CONTAINER_URL="https://www.youtube.com/playlist?list=$id"
+    CONTAINER_URL=$(append_authuser "https://www.youtube.com/playlist?list=$id")
 }
 
 # ==============================================================================
@@ -1029,6 +1070,8 @@ feed_run() {
     fi
 
     ensure_scratch
+    local feed_url
+    feed_url=$(append_authuser "https://www.youtube.com/")
     local cmd=(
         yt-dlp
         --flat-playlist
@@ -1038,7 +1081,7 @@ feed_run() {
         --no-warnings
         --ignore-errors
         --quiet
-        "https://www.youtube.com/"
+        "$feed_url"
     )
 
     local result_json rc=0 reason=""
@@ -1110,6 +1153,8 @@ playlists_run() {
 
     ensure_scratch
     local limit=${NUM_RESULTS:-50}
+    local pl_url
+    pl_url=$(append_authuser "https://www.youtube.com/feed/playlists")
     local cmd=(
         yt-dlp
         --flat-playlist
@@ -1119,7 +1164,7 @@ playlists_run() {
         --no-warnings
         --ignore-errors
         --quiet
-        "https://www.youtube.com/feed/playlists"
+        "$pl_url"
     )
 
     local result_json rc=0 reason=""
@@ -1140,12 +1185,15 @@ playlists_run() {
     fi
 
     local playlists_json
-    playlists_json=$(printf '%s' "$result_json" | jq -c '
+    playlists_json=$(printf '%s' "$result_json" | jq -c --arg authuser "${YT_AUTHUSER:-}" '
         [ (.entries // [])[]
           | {
               id: (.id // ""),
               title: (.title // ""),
-              url: (.url // (if .id then "https://www.youtube.com/playlist?list=" + .id else "" end)),
+              url: ((.url // (if .id then "https://www.youtube.com/playlist?list=" + .id else "" end))
+                    | if $authuser != "" and (contains("authuser=") | not) then
+                        (if contains("?") then . + "&authuser=" + $authuser else . + "?authuser=" + $authuser end)
+                      else . end),
               count: (.playlist_count // null)
             }
           | select(.id != "" and .title != "")
@@ -1992,14 +2040,25 @@ auth_run() {
     if [[ "$OUTPUT_MODE" == "json" ]]; then
         jq -nc --arg engine "$ENGINE_NAME" --arg auth "$auth" \
             --arg browser "$TING_COOKIE_BROWSER" --argjson found "$found" --argjson readable "$readable" \
+            --arg account "${COOKIE_ACCOUNT:-}" --arg authuser "${YT_AUTHUSER:-}" \
             '{status: "ok", engine: $engine, auth: $auth,
-              cookie_browser: $browser, profile_found: $found, cookie_readable: $readable}'
+              cookie_browser: $browser,
+              cookie_account: (if $account != "" then $account else null end),
+              authuser: (if $authuser != "" then ($authuser | tonumber) else null end),
+              profile_found: $found, cookie_readable: $readable}'
         return 0
     fi
+    local acct_info=""
+    if [[ -n "${COOKIE_ACCOUNT:-}" ]]; then
+        acct_info=", account: $COOKIE_ACCOUNT"
+        if [[ -n "${YT_AUTHUSER:-}" ]]; then
+            acct_info+=", authuser: $YT_AUTHUSER"
+        fi
+    fi
     if [[ "$auth" == "cookie" && "$readable" == "false" ]]; then
-        printf 'cookie (%s, unreadable: %s)\n' "$TING_COOKIE_BROWSER" "$COOKIE_STATE"
+        printf 'cookie (%s%s, unreadable: %s)\n' "$TING_COOKIE_BROWSER" "$acct_info" "$COOKIE_STATE"
     elif [[ "$auth" == "cookie" ]]; then
-        printf 'cookie (%s)\n' "$TING_COOKIE_BROWSER"
+        printf 'cookie (%s%s)\n' "$TING_COOKIE_BROWSER" "$acct_info"
     else
         printf 'anonymous\n'
     fi
@@ -2049,6 +2108,7 @@ Exactly one verb per call. A modifier belongs to one verb and is refused next to
                   medium | high
   --capabilities  The public verbs and modifiers this engine accepts; what ting-play --engines
                   reports for it. No network, no dependency
+  --account       Preferred account email (e.g. user@gmail.com) or Google authuser index (0, 1, …)
 
   -j / --json  JSON envelope · --segments (--transcript -j) keep the timed cues · --color MODE
   --raw  the site's own record, unprojected — an engine self-check, not forwarded by ting-play
@@ -2067,7 +2127,7 @@ EOF
 # person and --capabilities answers with it for the registry, so the two cannot disagree.
 # --stream, --capabilities and --raw are absent on purpose: the player's pipe, the registry's
 # question and a self-check are not things a caller of ting-play can ask for.
-PUBLIC_FLAGS=(--search -n --min-duration --max-duration --sort --info --items --cursor --transcript --sub-lang --segments --auth --feed --related --playlists)
+PUBLIC_FLAGS=(--search -n --min-duration --max-duration --sort --info --items --cursor --transcript --sub-lang --segments --auth --feed --related --playlists --account)
 
 # Which verb a modifier belongs to. The gate below refuses it next to any other.
 MODIFIERS=()         # "flag verb" pairs, as given
@@ -2116,6 +2176,15 @@ while (($#)); do
     --color)
         need_value "$@"
         COLOR_MODE="$2"
+        shift 2
+        ;;
+    --account=*)
+        COOKIE_ACCOUNT="${1#*=}"
+        shift
+        ;;
+    --account)
+        need_value "$@"
+        COOKIE_ACCOUNT="$2"
         shift 2
         ;;
     --search) set_action search "$1"; shift ;;
@@ -2193,6 +2262,8 @@ while (($#)); do
         ;;
     esac
 done
+
+resolve_yt_account
 
 [[ -n "$ACTION" ]] || die "name a verb: ${PUBLIC_FLAGS[*]} (see '$PROG -h')"
 validate_enum "$COLOR_MODE" auto always never || die "--color must be one of: auto, always, never"

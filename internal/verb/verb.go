@@ -438,6 +438,8 @@ func (s *Suite) SetLoop(ctx context.Context, id, loop string) error {
 type Auth struct {
 	Auth           string `json:"auth"`
 	CookieBrowser  string `json:"cookie_browser"`
+	CookieAccount  string `json:"cookie_account,omitempty"`
+	AuthUser       *int   `json:"authuser,omitempty"`
 	CookieReadable *bool  `json:"cookie_readable"`
 }
 

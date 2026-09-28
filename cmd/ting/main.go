@@ -43,9 +43,9 @@ func installDir() string {
 var usage string
 
 type flags struct {
-	engine, mode, volume, n, sort, minDur, maxDur, pageRows, color, theme, feed string
-	feedSet                                                                     bool
-	query                                                                       []string
+	engine, mode, volume, n, sort, minDur, maxDur, pageRows, color, theme, feed, account string
+	feedSet                                                                              bool
+	query                                                                                []string
 }
 
 func parseArgs(args []string) flags {
@@ -62,6 +62,7 @@ func parseArgs(args []string) flags {
 		"--engine": &f.engine, "-f": &f.mode, "--volume": &f.volume, "-n": &f.n,
 		"--sort": &f.sort, "--min-duration": &f.minDur, "--max-duration": &f.maxDur,
 		"-p": &f.pageRows, "--color": &f.color, "--theme": &f.theme, "--feed": &f.feed,
+		"--account": &f.account,
 	}
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -98,7 +99,7 @@ func parseArgs(args []string) flags {
 			fmt.Printf("ting %s\n", ver)
 			os.Exit(0)
 		case strings.HasPrefix(a, "-") && len(a) > 1:
-			die(1, "unknown flag '%s' (ting flags: -n --min-duration --max-duration --sort -f -p --engine --color --theme --volume --feed); run 'ting -h'", a)
+			die(1, "unknown flag '%s' (ting flags: -n --min-duration --max-duration --sort -f -p --engine --color --theme --volume --feed --account); run 'ting -h'", a)
 		default:
 			f.query = append(f.query, a)
 		}
@@ -175,6 +176,9 @@ func main() {
 	sort := pick(f.sort, cfg, "TING_SORT_FIELD")
 	if !oneOf(sort, "relevance", "view_count", "duration") {
 		die(1, "--sort must be one of: relevance, view_count, duration")
+	}
+	if account := pick(f.account, cfg, "TING_COOKIE_ACCOUNT"); account != "" {
+		_ = os.Setenv("TING_COOKIE_ACCOUNT", account)
 	}
 
 	suite, err := verb.Locate()

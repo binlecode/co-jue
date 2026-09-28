@@ -2155,6 +2155,10 @@ report "-n works on --playlists" 2 "$(TING_COOKIE_BROWSER=none rc shell/ting-pla
 report "bili rejects --playlists" 1 "$(rc shell/ting-play --playlists --engine bili)"
 report "ne rejects --playlists" 1 "$(rc shell/ting-play --playlists --engine ne)"
 report "ting-play routes --playlists" 2 "$(TING_COOKIE_BROWSER=none rc shell/ting-play --playlists -j)"
+report "yt --auth reports account and authuser" 0 \
+    "$(TING_COOKIE_ACCOUNT=1 jq_ok '.auth=="cookie" and .cookie_account=="1" and .authuser==1' shell/ting-engine-yt --auth -j)"
+report "yt --auth with email resolves authuser" 0 \
+    "$(TING_COOKIE_ACCOUNT=bin.le.code@gmail.com jq_ok '.auth=="cookie" and .authuser==1' shell/ting-engine-yt --auth -j)"
 
 echo "── --items on a video: the offline gate ───────────────────────────"
 # The part-list pipeline itself (a part list feeding the store and the queue with no field

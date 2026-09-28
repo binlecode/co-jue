@@ -67,6 +67,8 @@ TING_SEARCH_RESULTS=20              # the -n default for ting-play --search, and
                                     # → and ← move it and write it back here
 TING_COOKIE_BROWSER=chrome          # browser profile every engine reads cookies from;
                                     # "none" = anonymous. bili and ne send none on search
+TING_COOKIE_ACCOUNT=                # preferred browser account email or Google authuser index (0, 1, …)
+                                    # empty = default to primary account (0)
 TING_SORT_FIELD=relevance           # the -s default: relevance | view_count | duration
 TING_PLAY_MODE=audio                # the -f default. -f itself accepts audio | video |
                                     # fast | ascii | viz, but a detached player — so every
