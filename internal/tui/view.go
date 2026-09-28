@@ -478,7 +478,7 @@ func (m *Model) detailLines(cols, i int) ([]string, int, int, bool, bool) {
 		}
 	}
 	if r.Channel != "" {
-		meta = r.Channel + sep
+		meta += r.Channel + sep
 	}
 	meta += dur
 	if views != "" {

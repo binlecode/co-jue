@@ -87,7 +87,7 @@ shell/.ting-go --version                                  # 响应版本（不�
 ## 架构要点
 
 - **站点知识与播放生命周期彻底隔离**：播放器 `ting-play` 绝不直接运行 `yt-dlp`，不知道站点 Cookie 或格式代码；通过拼接文件名调用内部动词 `ting-engine-<engine> --stream -j` 获取最终流媒体 URL 及 HTTP 请求头，以 `--no-ytdl` 注入 `mpv`。
-- **单视图**：`ting` 只有一个渲染器；所有非搜索数据（歌单 `b`、历史 `h`、分 P `c`、章节 `i`、队列 `u`）均作为“临时替换行源”接入该视图，由进入它的那个键退出。
+- **单视图**：`ting` 只有一个渲染器；所有非搜索数据（歌单 `b`/`B`、历史 `h`、分 P `c`、章节 `i`、队列 `u`、关联 `g`）均作为“临时替换行源”接入该视图，由进入它的那个键退出。
 - **全二进制只有 `internal/verb` 执行子进程**：拼 argv、解信封、把退出码映射成类型化错误；横幅只由 `ting-play --watch -j` 驱动。
 - **CJK 宽度**：go-runewidth，East-Asian Ambiguous 按一格、`TING_AMBIG_WIDE=1` 才按两格；标题在量宽前去掉图形符号。
 - **配置继承链与偏好写回**：配置查找按 `Flag > Env > User Config (~/.config/ting/config) > Shipped Config` 顺序继承；套件自己的名字一律 `TING_` 前缀（引擎键 `TING_<ENGINE>_*`），不可设的在载入块里按名字拒收；没有别名，也没有兜底路径；脚本内部的普通变量与函数不受此约束。出厂 `config` 永远只读，`ting` 在最后一次改动一秒后与退出时将 11 个偏好键写回用户个人配置文件。

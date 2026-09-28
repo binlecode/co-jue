@@ -203,3 +203,28 @@ func TestRemotePlaylistsFrameVisual(t *testing.T) {
 		t.Errorf("frame missing prompt label '打开哪个在线歌单'")
 	}
 }
+
+func TestDetailLinesChapterPrefixWithChannel(t *testing.T) {
+	dur := 180.0
+	m := &Model{
+		src:   srcChapters,
+		total: 5,
+		s:     strsZH,
+		g:     glyphsUTF,
+		w:     newWidth(false),
+		rows: []row{
+			{Title: "Chapter 2", Channel: "Artist Name", Duration: &dur, N: 2, ID: "ch2"},
+		},
+	}
+	d, _, _, _, _ := m.detailLines(80, 0)
+	if len(d) == 0 {
+		t.Fatalf("expected details lines")
+	}
+	meta := d[0]
+	if !strings.Contains(meta, "章节 2/5") {
+		t.Errorf("meta line should contain '章节 2/5', got %q", meta)
+	}
+	if !strings.Contains(meta, "Artist Name") {
+		t.Errorf("meta line should contain channel 'Artist Name', got %q", meta)
+	}
+}
