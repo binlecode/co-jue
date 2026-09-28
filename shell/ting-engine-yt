@@ -167,6 +167,20 @@ YT_AUTHUSER=""
 resolve_yt_account() {
     local acc="${COOKIE_ACCOUNT:-}"
     [[ -n "$acc" ]] || return 0
+    case "$acc" in
+    binlecode | binle | bin.le.08@gmail.com | 2)
+        YT_AUTHUSER="2"
+        return 0
+        ;;
+    bin.le.code@gmail.com | 1)
+        YT_AUTHUSER="1"
+        return 0
+        ;;
+    bin.le.droid@gmail.com | 0)
+        YT_AUTHUSER="0"
+        return 0
+        ;;
+    esac
     if [[ "$acc" =~ ^[0-9]+$ ]]; then
         YT_AUTHUSER="$acc"
         return 0
@@ -1152,52 +1166,81 @@ playlists_run() {
     fi
 
     ensure_scratch
-    local limit=${NUM_RESULTS:-50}
     local pl_url
     pl_url=$(append_authuser "https://www.youtube.com/feed/playlists")
-    local cmd=(
-        yt-dlp
-        --flat-playlist
-        --dump-single-json
-        --playlist-items "1:${limit}"
-        --skip-download
-        --no-warnings
-        --ignore-errors
-        --quiet
-        "$pl_url"
-    )
 
-    local result_json rc=0 reason=""
-    result_json=$("${cmd[@]}" "${COOKIE_ARGS[@]}" 2>"$ERR_FILE") || rc=$?
-    if ((rc != 0)) || [[ -z "$result_json" ]]; then
-        reason=$(classify_yt_dlp_error "$(cat "$ERR_FILE" 2>/dev/null)" "$rc")
-        if [[ "$reason" == "cookies" ]]; then
-            cookie_diagnosis "$(cat "$ERR_FILE" 2>/dev/null)" >&2
+    local cookie_jar="$SCRATCH_DIR/cookies.txt"
+    yt-dlp "${COOKIE_ARGS[@]}" --cookies "$cookie_jar" --skip-download "https://www.youtube.com/feed/playlists" >/dev/null 2>&1 || true
+
+    local html="" rc=0
+    html=$(curl -s -S --max-time 10 -b "$cookie_jar" "$pl_url" 2>"$ERR_FILE") || rc=$?
+
+    local data="" playlists_json="[]"
+    if ((rc == 0)) && [[ -n "$html" ]]; then
+        data=$(printf '%s' "$html" | sed -n 's/.*var ytInitialData = \({.*}\);<\/script>.*/\1/p')
+        if [[ -n "$data" ]]; then
+            playlists_json=$(printf '%s' "$data" | jq -c --arg authuser "${YT_AUTHUSER:-}" '
+                [ .contents.twoColumnBrowseResultsRenderer.tabs[0].tabRenderer.content.richGridRenderer.contents[]?
+                  | .richItemRenderer.content.lockupViewModel // empty
+                  | {
+                      id: .contentId,
+                      title: (.metadata.lockupMetadataViewModel.title.content // "" | gsub("\n"; " ") | sub("^ +"; "") | sub(" +$"; "")),
+                      url: ("https://www.youtube.com/playlist?list=" + .contentId
+                            | if $authuser != "" and (contains("authuser=") | not) then
+                                (if contains("?") then . + "&authuser=" + $authuser else . + "?authuser=" + $authuser end)
+                              else . end),
+                      count: null
+                    }
+                  | select(.id != "" and .title != "")
+                ] // []' 2>/dev/null) || playlists_json="[]"
         fi
-        if is_json_out; then
-            jq -nc --arg e "$ENGINE_NAME" --arg reason "$reason" \
-                '{status: "error", engine: $e, count: 0, playlists: [], reason: $reason}'
-        else
-            cat "$ERR_FILE" >&2 2>/dev/null || true
-            echo "Error: playlists failed ($reason)" >&2
-        fi
-        exit $((rc <= 1 ? 2 : rc))
     fi
 
-    local playlists_json
-    playlists_json=$(printf '%s' "$result_json" | jq -c --arg authuser "${YT_AUTHUSER:-}" '
-        [ (.entries // [])[]
-          | {
-              id: (.id // ""),
-              title: (.title // ""),
-              url: ((.url // (if .id then "https://www.youtube.com/playlist?list=" + .id else "" end))
-                    | if $authuser != "" and (contains("authuser=") | not) then
-                        (if contains("?") then . + "&authuser=" + $authuser else . + "?authuser=" + $authuser end)
-                      else . end),
-              count: (.playlist_count // null)
-            }
-          | select(.id != "" and .title != "")
-        ]')
+    # Fallback to yt-dlp if curl extracted 0 items
+    if [[ "$playlists_json" == "[]" || -z "$playlists_json" ]]; then
+        local limit=${NUM_RESULTS:-50}
+        local cmd=(
+            yt-dlp
+            --flat-playlist
+            --dump-single-json
+            --playlist-items "1:${limit}"
+            --skip-download
+            --no-warnings
+            --ignore-errors
+            --quiet
+            "$pl_url"
+        )
+        local result_json=""
+        result_json=$("${cmd[@]}" "${COOKIE_ARGS[@]}" 2>"$ERR_FILE") || rc=$?
+        if ((rc != 0)) || [[ -z "$result_json" ]]; then
+            local reason
+            reason=$(classify_yt_dlp_error "$(cat "$ERR_FILE" 2>/dev/null)" "$rc")
+            if [[ "$reason" == "cookies" ]]; then
+                cookie_diagnosis "$(cat "$ERR_FILE" 2>/dev/null)" >&2
+            fi
+            if is_json_out; then
+                jq -nc --arg e "$ENGINE_NAME" --arg reason "$reason" \
+                    '{status: "error", engine: $e, count: 0, playlists: [], reason: $reason}'
+            else
+                cat "$ERR_FILE" >&2 2>/dev/null || true
+                echo "Error: playlists failed ($reason)" >&2
+            fi
+            exit $((rc <= 1 ? 2 : rc))
+        fi
+        playlists_json=$(printf '%s' "$result_json" | jq -c --arg authuser "${YT_AUTHUSER:-}" '
+            [ (.entries // [])[]
+              | {
+                  id: (.id // ""),
+                  title: (.title // ""),
+                  url: ((.url // (if .id then "https://www.youtube.com/playlist?list=" + .id else "" end))
+                        | if $authuser != "" and (contains("authuser=") | not) then
+                            (if contains("?") then . + "&authuser=" + $authuser else . + "?authuser=" + $authuser end)
+                          else . end),
+                  count: (.playlist_count // null)
+                }
+              | select(.id != "" and .title != "")
+            ]')
+    fi
 
     if is_json_out; then
         jq -nc --arg e "$ENGINE_NAME" --argjson list "$playlists_json" \
