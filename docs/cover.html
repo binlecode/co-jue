@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ting / 听 — an agent-first multi-source media engine with a terminal face</title>
+  <meta name="description" content="ting (听) is an agent-first multi-source media engine with a terminal face. Search, play detached via mpv, and control from a TUI or a single-line JSON contract. Supports YouTube, Bilibili, and NetEase Cloud Music.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎧</text></svg>">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://co-ting.pages.dev">
+  <meta property="og:title" content="ting / 听 — multi-source media engine">
+  <meta property="og:description" content="Agent-first multi-source media engine with a terminal face. Single-line JSON contracts, detached mpv playback, and a fast Go TUI.">
+
+  <style>
+    :root {
+      --bg: #0b0f14;
+      --bg-card: #131922;
+      --bg-elevated: #1a2330;
+      --border: #232f40;
+      --border-focus: #3b82f6;
+      --text: #e2e8f0;
+      --text-muted: #8da2bb;
+      --text-dim: #5c6f84;
+      --accent: #60a5fa;
+      --accent-cyan: #38bdf8;
+      --accent-emerald: #34d399;
+      --accent-amber: #fbbf24;
+      --accent-purple: #c084fc;
+      --code-bg: #070a0e;
+      --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --radius-lg: 16px;
+      --maxw: 1080px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; background: var(--bg); color: var(--text); }
+    body { font-family: var(--font-sans); line-height: 1.6; -webkit-font-smoothing: antialiased; }
+
+    a { color: var(--accent); text-decoration: none; transition: color 0.15s ease; }
+    a:hover { color: var(--accent-cyan); }
+
+    .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+
+    /* Header & Navigation */
+    header {
+      position: sticky; top: 0; z-index: 50;
+      background: rgba(11, 15, 20, 0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+    nav {
+      display: flex; align-items: center; justify-content: space-between;
+      height: 64px;
+    }
+    .brand {
+      display: flex; align-items: center; gap: 12px;
+      font-weight: 700; font-size: 1.15rem; color: var(--text);
+    }
+    .brand .logo-box {
+      background: linear-gradient(135deg, #2563eb, #38bdf8);
+      color: #fff; padding: 4px 8px; border-radius: var(--radius-sm);
+      font-family: var(--font-mono); font-size: 0.9rem;
+    }
+    .nav-links { display: flex; align-items: center; gap: 20px; list-style: none; }
+    .nav-links a { color: var(--text-muted); font-size: 0.9rem; font-weight: 500; }
+    .nav-links a:hover { color: var(--text); }
+
+    /* Badges */
+    .badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 3px 9px; font-size: 0.75rem; font-weight: 600;
+      border-radius: 9999px; font-family: var(--font-mono);
+      background: rgba(96, 165, 250, 0.12);
+      color: var(--accent); border: 1px solid rgba(96, 165, 250, 0.28);
+    }
+    .badge.green {
+      background: rgba(52, 211, 153, 0.12);
+      color: var(--accent-emerald); border-color: rgba(52, 211, 153, 0.28);
+    }
+    .badge.purple {
+      background: rgba(192, 132, 252, 0.12);
+      color: var(--accent-purple); border-color: rgba(192, 132, 252, 0.28);
+    }
+
+    /* Hero */
+    .hero {
+      padding: 72px 0 48px; text-align: center;
+    }
+    .hero-badges {
+      display: flex; justify-content: center; gap: 8px; flex-wrap: wrap;
+      margin-bottom: 24px;
+    }
+    .hero h1 {
+      font-size: clamp(2.4rem, 5vw, 3.8rem); font-weight: 800;
+      letter-spacing: -0.03em; line-height: 1.15;
+      background: linear-gradient(180deg, #ffffff 30%, #94a3b8 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      margin-bottom: 20px;
+    }
+    .hero p.lead {
+      font-size: clamp(1.05rem, 2vw, 1.25rem); color: var(--text-muted);
+      max-width: 760px; margin: 0 auto 36px; line-height: 1.6;
+    }
+
+    /* Quick Install Block */
+    .install-box {
+      display: inline-flex; flex-direction: column; align-items: center;
+      background: var(--code-bg); border: 1px solid var(--border);
+      border-radius: var(--radius-md); padding: 16px 24px;
+      margin-bottom: 48px; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+    }
+    .cmd-line {
+      font-family: var(--font-mono); font-size: 0.95rem; color: var(--accent-cyan);
+      display: flex; align-items: center; gap: 10px;
+    }
+    .cmd-line .prompt { color: var(--text-dim); user-select: none; }
+    .cmd-desc { font-size: 0.8rem; color: var(--text-dim); margin-top: 6px; }
+
+    /* Section Headers */
+    .section-head {
+      text-align: center; margin-bottom: 36px;
+    }
+    .section-head h2 {
+      font-size: 1.85rem; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 8px;
+    }
+    .section-head p { color: var(--text-muted); font-size: 0.95rem; }
+
+    /* Duality Cards (Machine Face vs Human Face) */
+    .duality-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 64px;
+    }
+    @media (max-width: 768px) {
+      .duality-grid { grid-template-columns: 1fr; }
+    }
+    .card {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius-lg); padding: 28px;
+      display: flex; flex-direction: column;
+    }
+    .card-head {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    .card-title { font-size: 1.25rem; font-weight: 700; color: var(--text); }
+    .card-tag { font-family: var(--font-mono); font-size: 0.75rem; text-transform: uppercase; }
+    .card p { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 16px; }
+    .card ul { list-style: none; margin-bottom: 20px; flex-grow: 1; }
+    .card ul li {
+      font-size: 0.88rem; color: var(--text); padding: 6px 0;
+      display: flex; align-items: flex-start; gap: 8px;
+    }
+    .card ul li::before {
+      content: "✔"; color: var(--accent-emerald); font-size: 0.8rem; line-height: 1.5;
+    }
+
+    /* Terminal / Code Display */
+    .terminal-window {
+      background: var(--code-bg); border: 1px solid var(--border);
+      border-radius: var(--radius-md); overflow: hidden; margin-top: 12px;
+    }
+    .term-bar {
+      background: var(--bg-elevated); padding: 8px 12px; display: flex;
+      align-items: center; gap: 6px; border-bottom: 1px solid var(--border);
+    }
+    .term-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+    .term-dot.red { background: #ef4444; }
+    .term-dot.yellow { background: #eab308; }
+    .term-dot.green { background: #22c55e; }
+    .term-title { font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-dim); margin-left: 8px; }
+    .term-body {
+      padding: 16px; font-family: var(--font-mono); font-size: 0.85rem;
+      line-height: 1.5; overflow-x: auto; color: #cbd5e1;
+    }
+    .code-comment { color: var(--text-dim); }
+    .code-key { color: var(--accent); }
+    .code-str { color: var(--accent-emerald); }
+    .code-num { color: var(--accent-amber); }
+
+    /* Engines Grid */
+    .engines-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;
+      margin-bottom: 64px;
+    }
+    @media (max-width: 860px) {
+      .engines-grid { grid-template-columns: 1fr; }
+    }
+    .engine-card {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius-md); padding: 22px;
+    }
+    .engine-head {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 12px;
+    }
+    .engine-name { font-weight: 700; font-size: 1.1rem; }
+    .engine-flag { font-family: var(--font-mono); font-size: 0.8rem; color: var(--accent-cyan); }
+    .engine-desc { font-size: 0.85rem; color: var(--text-muted); line-height: 1.5; margin-bottom: 14px; }
+    .engine-features { font-size: 0.8rem; color: var(--text-dim); border-top: 1px solid var(--border); padding-top: 10px; }
+
+    /* Architecture Block */
+    .arch-box {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius-lg); padding: 32px; margin-bottom: 64px;
+    }
+    .arch-ascii {
+      background: var(--code-bg); border: 1px solid var(--border);
+      border-radius: var(--radius-md); padding: 20px;
+      font-family: var(--font-mono); font-size: 0.82rem; line-height: 1.45;
+      color: #93c5fd; overflow-x: auto; white-space: pre; margin-top: 20px;
+    }
+
+    /* Keybindings Matrix */
+    .keys-grid {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+      margin-bottom: 64px;
+    }
+    @media (max-width: 900px) { .keys-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 500px) { .keys-grid { grid-template-columns: 1fr; } }
+    .key-item {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); padding: 12px 14px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .key-badge {
+      background: var(--bg-elevated); border: 1px solid var(--border);
+      color: var(--accent-cyan); font-family: var(--font-mono); font-size: 0.85rem;
+      padding: 3px 7px; border-radius: 4px; font-weight: 600;
+    }
+    .key-label { font-size: 0.85rem; color: var(--text-muted); }
+
+    /* Footer */
+    footer {
+      border-top: 1px solid var(--border); background: var(--bg-card);
+      padding: 48px 0 36px; text-align: center;
+    }
+    .footer-badges {
+      display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; margin-bottom: 20px;
+    }
+    .footer-links {
+      display: flex; justify-content: center; gap: 24px; list-style: none;
+      margin-bottom: 24px; font-size: 0.9rem;
+    }
+    .copyright { color: var(--text-dim); font-size: 0.8rem; }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <header>
+    <div class="wrap">
+      <nav>
+        <div class="brand">
+          <span class="logo-box">【 听 】</span>
+          <span>ting</span>
+        </div>
+        <ul class="nav-links">
+          <li><a href="#duality">Interfaces</a></li>
+          <li><a href="#engines">Engines</a></li>
+          <li><a href="#architecture">Architecture</a></li>
+          <li><a href="#keys">Keys</a></li>
+          <li><a href="https://github.com/binlecode/ting" target="_blank" rel="noopener">GitHub</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <main class="wrap">
+    <section class="hero">
+      <div class="hero-badges">
+        <span class="badge">v0.23.0</span>
+        <span class="badge green">bash 3.2 + Go</span>
+        <span class="badge purple">3 engines · 0 new deps</span>
+      </div>
+      <h1>ting / 听</h1>
+      <p class="lead">
+        An agent-first multi-source media engine with a terminal face. Search a source, play it through mpv detached from your terminal, and keep controlling it — from a TUI if you are a human, from a single-line JSON contract if you are a program.
+      </p>
+
+      <div class="install-box">
+        <div class="cmd-line">
+          <span class="prompt">$</span>
+          <span>brew install binlecode/ting/ting</span>
+        </div>
+        <div class="cmd-desc">Install via Homebrew tap on macOS & Linux (or brew tap binlecode/ting &amp;&amp; brew install ting)</div>
+      </div>
+    </section>
+
+    <!-- The Dual Interface Section -->
+    <section id="duality">
+      <div class="section-head">
+        <h2>Two 100% First-Class Faces</h2>
+        <p>No MCP wrapper needed: machine programs and humans interact on equal terms.</p>
+      </div>
+
+      <div class="duality-grid">
+        <!-- Machine Card -->
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">Machine Face (Agent-First CLI)</span>
+            <span class="badge">JSON Envelope</span>
+          </div>
+          <p>
+            Designed from day zero for AI agents, shell scripts, and headless automation. Zero modal prompts, deterministic behavior.
+          </p>
+          <ul>
+            <li>Single-line JSON envelope output (<code>-j</code>) on every verb</li>
+            <li>Strict 4-tier exit code taxonomy (<code>0</code> ok / <code>1</code> usage / <code>2+</code> tool fail / <code>4</code> no-op)</li>
+            <li>Detached background playback daemon lifecycle (<code>-d</code>, <code>--status</code>, <code>--stop</code>)</li>
+            <li>Lock-free append-only listening history and durable playlist stores</li>
+          </ul>
+
+          <div class="terminal-window">
+            <div class="term-bar">
+              <span class="term-dot red"></span>
+              <span class="term-dot yellow"></span>
+              <span class="term-dot green"></span>
+              <span class="term-title">ting-play --search -j</span>
+            </div>
+            <div class="term-body">
+              <span class="code-comment"># Single-line JSON envelope for coding agents</span><br>
+              <span class="prompt">$</span> ting-play --search -j -n 2 -- "lofi hip hop"<br>
+              {<span class="code-key">"event"</span>:<span class="code-str">"search"</span>,<span class="code-key">"engine"</span>:<span class="code-str">"yt"</span>,<span class="code-key">"query"</span>:<span class="code-str">"lofi hip hop"</span>,<span class="code-key">"count"</span>:<span class="code-num">2</span>,<span class="code-key">"results"</span>:[{<span class="code-key">"id"</span>:<span class="code-str">"jfKfPfyJRdk"</span>,<span class="code-key">"title"</span>:<span class="code-str">"lofi hip hop radio"</span>,<span class="code-key">"duration"</span>:<span class="code-str">"live"</span>}]}
+            </div>
+          </div>
+        </div>
+
+        <!-- Human Card -->
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">Human Face (Bubbletea TUI)</span>
+            <span class="badge green">Single-View</span>
+          </div>
+          <p>
+            A high-craft Go terminal UI with East-Asian ambiguous width handling, Kitty cover art, and 13 curated themes.
+          </p>
+          <ul>
+            <li>Single-view architecture: 6 row sources seamlessly hot-swap into one list</li>
+            <li>Incremental fuzzy filter (<code>/</code>) and row jump navigation (<code>Nj</code>)</li>
+            <li>Destructive actions execute instantly; <code>z</code> undoes without annoying "are you sure" dialogs</li>
+            <li>In-terminal album cover art over Kitty graphics protocol</li>
+            <li>13 built-in themes (Catppuccin, Tokyo Night, Nord, Rose Pine, Everforest...)</li>
+          </ul>
+
+          <div class="terminal-window">
+            <div class="term-bar">
+              <span class="term-dot red"></span>
+              <span class="term-dot yellow"></span>
+              <span class="term-dot green"></span>
+              <span class="term-title">ting (interactive face)</span>
+            </div>
+            <div class="term-body">
+              【 听 】 query='lofi hip hop' · yt · 25 tracks · 48k · 80%<br>
+              ▶ 01. lofi hip hop radio - beats to relax/study to   [03:45]<br>
+              &nbsp;&nbsp;02. coffee shop radio // 24/7 lofi hip hop beats    [04:12]<br>
+              &nbsp;&nbsp;03. 1 A.M Study Session 📚 - [lofi hip hop]         [23:10]<br>
+              ──────────────────────────────────────────────────────────<br>
+              <span class="code-comment">Enter 播放 · Space 暂停 · / 过滤 · e 切换源 · z 撤销 · ? 帮助</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Engines Section -->
+    <section id="engines">
+      <div class="section-head">
+        <h2>Three Shipped Source Engines</h2>
+        <p>Site-specific knowledge is isolated in engines; the player and TUI never change to admit new sources.</p>
+      </div>
+
+      <div class="engines-grid">
+        <div class="engine-card">
+          <div class="engine-head">
+            <span class="engine-name">YouTube</span>
+            <span class="engine-flag">--engine yt</span>
+          </div>
+          <p class="engine-desc">
+            Direct streams via yt-dlp, quality tier mapping (low / mid / high), start offset normalization, and timestamp extraction.
+          </p>
+          <div class="engine-features">
+            Features: Search, direct stream, live streams, start offsets, transcript extraction.
+          </div>
+        </div>
+
+        <div class="engine-card">
+          <div class="engine-head">
+            <span class="engine-name">Bilibili</span>
+            <span class="engine-flag">--engine bili</span>
+          </div>
+          <p class="engine-desc">
+            High-speed curl HTTP metadata extraction paired with yt-dlp stream negotiation and multi-part container (<code>--items</code>) traversal.
+          </p>
+          <div class="engine-features">
+            Features: Search, multi-part video paging, audio-only extraction, related recommendations.
+          </div>
+        </div>
+
+        <div class="engine-card">
+          <div class="engine-head">
+            <span class="engine-name">NetEase Cloud Music</span>
+            <span class="engine-flag">--engine ne</span>
+          </div>
+          <p class="engine-desc">
+            Encrypted browser <code>weapi</code> protocol via openssl, real <code>access</code> licensing tiers (full / preview / paywalled), and synced lyrics.
+          </p>
+          <div class="engine-features">
+            Features: Encrypted search, synchronized lyrics transcript, access flags, high-bitrate audio.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Architecture & Invariants -->
+    <section id="architecture">
+      <div class="section-head">
+        <h2>Architecture & Hard Invariants</h2>
+        <p>Seven standalone executables, bash 3.2 baseline, strictly locked to 5 external dependencies.</p>
+      </div>
+
+      <div class="arch-box">
+        <p style="color: var(--text-muted); font-size: 0.95rem;">
+          The suite refuses abstraction sprawl: <strong>mpv</strong>, <strong>yt-dlp</strong>, <strong>nc -U</strong>, <strong>curl</strong>, and <strong>jq</strong> are the only external dependencies. No C libraries, no daemon managers, no bloated MCP servers.
+        </p>
+
+        <div class="arch-ascii">
++----------------------------------------------------------------------------------------+
+|                                    CALLERS & FACES                                     |
+|   [ Agent / Program / CLI ]                               [ Human Terminal ]           |
+|   ting-play --search -j                                   ting (Go Single-View TUI)    |
++---------------------------+---------------------------------------+--------------------+
+                            |                                       | (Calls CLI verbs)
+                            v                                       v
++----------------------------------------------------------------------------------------+
+|                               TING-PLAY (The Player & Lifecycle)                       |
+|   - Detached mpv daemon management: id / pid / unix socket / locks / reap              |
+|   - Uniform CLI Envelope (-j) and 4-tier deterministic exit codes                      |
+|   - Queue consumption & Start offset translation                                       |
++---------------------------+---------------------------------------+--------------------+
+                            |                                       |
+              +-------------+-------------+                         | Direct audio stream
+              |                           |                         v
+              v                           v                 +--------------------+
+     [ Engine Dispatch ]          [ Durable Stores ]        | mpv (Detached)     |
+     ting-engine-yt               ting-playlist             | - Runs in bg       |
+     ting-engine-bili             ting-history (jsonl)      | - Unix socket IPC  |
+     ting-engine-ne (weapi)                                 +--------------------+
++----------------------------------------------------------------------------------------+
+        </div>
+      </div>
+    </section>
+
+    <!-- Keybindings Reference -->
+    <section id="keys">
+      <div class="section-head">
+        <h2>Keyboard Navigation</h2>
+        <p>Optimized for terminal ergonomics. Single-stroke actions with instant <code>z</code> undo.</p>
+      </div>
+
+      <div class="keys-grid">
+        <div class="key-item">
+          <span class="key-badge">Enter</span>
+          <span class="key-label">Play focused track</span>
+        </div>
+        <div class="key-item">
+          <span class="key-badge">Space</span>
+          <span class="key-label">Pause / Resume</span>
+        </div>
+        <div class="key-item">
+          <span class="key-badge">j / k</span>
+          <span class="key-label">Navigate up / down</span>
+        </div>
+        <div class="key-item">
+          <span class="key-badge">/</span>
+          <span class="key-label">Fuzzy filter rows</span>
+        </div>
+        <div class="key-item">
+          <span class="key-badge">e</span>
+          <span class="key-label">Cycle source engine</span>
+        </div>
+        <div class="key-item">
+          <span class="key-badge">u</span>
+          <span class="key-label">Inspect player queue</span>
+        </div>
+        <div class="key-item">
+          <span class="key-badge">b</span>
+          <span class="key-label">Open playlists store</span>
+        </div>
+        <div class="key-item">
+          <span class="key-badge">h</span>
+          <span class="key-label">Listening history log</span>
+        </div>
+        <div class="key-item">
+          <span class="key-badge">c / i</span>
+          <span class="key-label">Parts / Chapters</span>
+        </div>
+        <div class="key-item">
+          <span class="key-badge">z</span>
+          <span class="key-label">Instant Undo</span>
+        </div>
+        <div class="key-item">
+          <span class="key-badge">t</span>
+          <span class="key-label">Cycle 13 Themes</span>
+        </div>
+        <div class="key-item">
+          <span class="key-badge">q</span>
+          <span class="key-label">Quit & cleanup</span>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Footer -->
+  <footer>
+    <div class="wrap">
+      <div class="footer-badges">
+        <span class="badge">v0.23.0</span>
+        <span class="badge green">MIT License</span>
+        <span class="badge purple">Open Source</span>
+      </div>
+      <ul class="footer-links">
+        <li><a href="https://github.com/binlecode/ting" target="_blank" rel="noopener">GitHub Repository</a></li>
+        <li><a href="https://github.com/binlecode/ting/blob/main/docs/ARCHITECTURE.md" target="_blank" rel="noopener">Architecture Doc</a></li>
+        <li><a href="https://github.com/binlecode/ting/blob/main/docs/USER_MANUAL.md" target="_blank" rel="noopener">User Manual</a></li>
+      </ul>
+      <p class="copyright">
+        ting (听) · Built with care by Bin Le and contributors. Zero tracking, zero telemetry.
+      </p>
+    </div>
+  </footer>
+
+</body>
+</html>
