@@ -2338,7 +2338,7 @@ else
     # way the TUI section spells its knobs out, so the pane's language is an input.
     tmux kill-session -t "$PS_TS" 2>/dev/null
     tmux new-session -d -s "$PS_TS" -x 80 -y 20 \
-        "TING_STATE_DIR='$PS_STATE' TMPDIR='$TMPDIR' TING_CONFIG='$TING_CONFIG' TING_LANG=en TING_HISTORY=0 '$TING_TUI'; echo __GONE__; sleep 5" 2>/dev/null
+        "TING_STATE_DIR='$PS_STATE' TMPDIR='$TMPDIR' TING_CONFIG='$TING_CONFIG' TING_COOKIE_BROWSER=none TING_LANG=en TING_HISTORY=0 '$TING_TUI'; echo __GONE__; sleep 5" 2>/dev/null
     pasted=0
     i=0
     while [ $i -lt 100 ]; do

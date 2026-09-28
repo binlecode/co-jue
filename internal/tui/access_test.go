@@ -84,16 +84,25 @@ func TestAccessBadgeOnExceptionRowsOnly(t *testing.T) {
 
 	// Details meta reflects exception badges only on restricted rows
 	dFull, _, _, _, _ := m.detailLines(80, 0)
+	if len(dFull) == 0 {
+		t.Fatalf("expected non-empty details for full track")
+	}
 	if strings.Contains(dFull[0], "VIP") || strings.Contains(dFull[0], "30s") {
 		t.Errorf("full track details should not contain VIP/30s badge, got %q", dFull[0])
 	}
 
 	dPreview, _, _, _, _ := m.detailLines(80, 1)
+	if len(dPreview) == 0 {
+		t.Fatalf("expected non-empty details for preview track")
+	}
 	if !strings.Contains(dPreview[0], "30s") {
 		t.Errorf("preview track details should contain '30s', got %q", dPreview[0])
 	}
 
 	dPaywalled, _, _, _, _ := m.detailLines(80, 2)
+	if len(dPaywalled) == 0 {
+		t.Fatalf("expected non-empty details for paywalled track")
+	}
 	if !strings.Contains(dPaywalled[0], "VIP") {
 		t.Errorf("paywalled track details should contain 'VIP', got %q", dPaywalled[0])
 	}
@@ -107,13 +116,13 @@ func TestAccessBadgeOnExceptionRowsOnly(t *testing.T) {
 		if m.w.of(plain) > m.width {
 			t.Errorf("line exceeds terminal width %d: %q (len %d)", m.width, plain, m.w.of(plain))
 		}
-		if strings.Contains(l, "Full Track") {
+		if strings.Contains(l, "Full Track") && fullLine == "" {
 			fullLine = l
 		}
-		if strings.Contains(l, "Preview Track") {
+		if strings.Contains(l, "Preview Track") && previewLine == "" {
 			previewLine = l
 		}
-		if strings.Contains(l, "Paywalled Track") {
+		if strings.Contains(l, "Paywalled Track") && paywalledLine == "" {
 			paywalledLine = l
 		}
 	}
