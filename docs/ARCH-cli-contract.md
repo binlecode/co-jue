@@ -986,6 +986,10 @@ engine:bili / engine:ne），分组与名字说的是同一件事。
 Cookie 处理：`TING_COOKIE_BROWSER` 是按平台做存在性检查的（那个浏览器的 profile 目录在不在）；
 不在的话，抽取就不带 cookie 地跑，而不是坏掉。在浏览器还开着时读它的 cookie 数据库
 可能得到一次被锁住的读，并悄无声息地降级成未认证的抽取 —— 变通办法是关掉浏览器。
+多账号会话：当浏览器（如 Chrome）内同时登录多个账号时，Google 默认走第 1 个主账号（`authuser=0`）。
+套件提供 `TING_COOKIE_ACCOUNT`（或 `--account` 标志），支持传入邮箱地址（如 `user@gmail.com`，
+自动在浏览器偏好中匹配对应序号）或整数索引（`0, 1, 2…`），将请求精确限定至所选账号上下文，
+`ting-play --auth -j` 会在信封中回显当前激活的 `cookie_account` 与 `authuser`。
 **只有引擎读它**，所以播放器没有任何 cookie 代码路径可供泄漏一份出去。
 
 ## 加一个引擎 —— 清单

@@ -1,7 +1,7 @@
 # PLAN — 第四媒体源选型与 SoundCloud 实施门禁
 
 > **Status**: 草案 (Draft) · 选型建议已形成，待容器路径实测闭环后确认  
-> **Priority**: 第二梯队 · 中高 ROI  
+> **Priority**: 第一梯队 · 中高 ROI  
 > **Target Branch**: main  
 > **Roadmap 关联**: [`docs/ROADMAP.md`](ROADMAP.md)「待办与待决事项」——第四媒体源选型  
 > **Governing Docs**: [`docs/ARCHITECTURE.md`](ARCHITECTURE.md)「站点知识的边界」、[`docs/ARCH-cli-contract.md`](ARCH-cli-contract.md)「加一个引擎 —— 清单」、[`docs/ARCH-engine.md`](ARCH-engine.md)「音源准入判据与已否决路线」  
