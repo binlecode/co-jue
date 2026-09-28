@@ -84,7 +84,7 @@ func run(m *Model, cmd tea.Cmd) {
 		for _, c := range msg {
 			run(m, c)
 		}
-	case searchDoneMsg, authMsg, playDoneMsg, verbDoneMsg, noticeMsg, volDoneMsg, urlMsg, infoMsg, partsMsg, relatedMsg, feedMsg:
+	case searchDoneMsg, authMsg, playDoneMsg, verbDoneMsg, noticeMsg, volDoneMsg, urlMsg, infoMsg, partsMsg, relatedMsg, feedMsg, remotePlaylistsMsg:
 		_, next := m.Update(msg)
 		run(m, next)
 	}
@@ -467,5 +467,70 @@ func TestFeedStartupFailsToSearchPrompt(t *testing.T) {
 	run(m, m.Init())
 	if !m.prompting || m.askKind != askSearch {
 		t.Fatalf("feed without cookies should fall back to search prompt, got prompting=%v kind=%v", m.prompting, m.askKind)
+	}
+}
+
+func TestRemotePlaylistsKey(t *testing.T) {
+	// 1. Engine without --playlists (e.g. bili)
+	m1 := model(t, Options{})
+	m1.prompting = false
+	m1.all, m1.rows = []row{{Title: "song", Engine: "bili"}}, []row{{Title: "song", Engine: "bili"}}
+	for i, e := range m1.opt.Engines {
+		if e.Name == "bili" {
+			m1.opt.Engine = i
+			break
+		}
+	}
+	key(m1, "B")
+	if m1.noticeL != m1.s.RemotePLAct+":" || !strings.Contains(m1.noticeT, m1.s.RemotePLNotSupported) {
+		t.Fatalf("B on engine without --playlists should show unsupported notice, got %q: %q", m1.noticeL, m1.noticeT)
+	}
+
+	// 2. Engine with --playlists, but no cookies
+	t.Setenv("TING_COOKIE_BROWSER", "none")
+	m2 := model(t, Options{})
+	m2.prompting = false
+	m2.all, m2.rows = []row{{Title: "song", Engine: "yt"}}, []row{{Title: "song", Engine: "yt"}}
+	for i, e := range m2.opt.Engines {
+		if e.Name == "yt" {
+			m2.opt.Engine = i
+			break
+		}
+	}
+	key(m2, "B")
+	if m2.noticeL != m2.s.RemotePLAct+":" || !strings.Contains(m2.noticeT, m2.s.RemotePLNoCookies) {
+		t.Fatalf("B with no cookies should show no-cookies notice, got %q: %q", m2.noticeL, m2.noticeT)
+	}
+
+	// 3. Engine with --playlists, but account has no playlists (count == 0)
+	m3 := model(t, Options{})
+	m3.prompting = false
+	m3.remotePlaylistsDone(remotePlaylistsMsg{
+		res: &verb.RemotePlaylistsResult{
+			Status: "ok",
+			Engine: "yt",
+			Count:  0,
+		},
+	})
+	if m3.noticeL != m3.s.RemotePLAct+":" || m3.noticeT != m3.s.PLNoneRemote {
+		t.Fatalf("B with 0 playlists should show PLNoneRemote, got %q: %q", m3.noticeL, m3.noticeT)
+	}
+
+	// 4. Engine with --playlists, account has playlists -> opens picker
+	m4 := model(t, Options{})
+	m4.prompting = false
+	cmd := m4.remotePlaylistsDone(remotePlaylistsMsg{
+		res: &verb.RemotePlaylistsResult{
+			Status: "ok",
+			Engine: "yt",
+			Count:  2,
+			Playlists: []verb.RemotePlaylist{
+				{ID: "LL", Title: "Liked videos", URL: "https://www.youtube.com/playlist?list=LL"},
+				{ID: "WL", Title: "Watch later", URL: "https://www.youtube.com/playlist?list=WL"},
+			},
+		},
+	})
+	if cmd == nil || !m4.prompting || m4.askKind != askRemoteOpen || len(m4.pick) != 2 {
+		t.Fatalf("remotePlaylistsDone with 2 playlists should prompt askRemoteOpen, got prompting=%v kind=%v pick=%d", m4.prompting, m4.askKind, len(m4.pick))
 	}
 }

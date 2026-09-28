@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/binlecode/ting/internal/verb"
+	"github.com/charmbracelet/bubbles/textinput"
 )
 
 func TestFullTUIFrameVisual(t *testing.T) {
@@ -144,5 +145,61 @@ func TestFullTUIFrameVisual(t *testing.T) {
 	}
 	if !strings.Contains(frame4, "===") {
 		t.Errorf("frame4 missing ASCII progress bar '='")
+	}
+}
+
+func TestRemotePlaylistsFrameVisual(t *testing.T) {
+	m := &Model{
+		suite: &verb.Suite{},
+		s:     strsZH,
+		opt: Options{
+			Engines: []verb.Engine{
+				{Name: "yt", Flags: []string{"--search", "--playlists"}},
+			},
+			Lang:  "zh",
+			Theme: "minimal",
+			Keys:  "full",
+		},
+		g:         glyphsUTF,
+		p:         paletteFor(true, "minimal", Background{}, true),
+		w:         newWidth(false),
+		width:     80,
+		height:    24,
+		query:     "lofi",
+		src:       srcSearch,
+		prompting: true,
+		askKind:   askRemoteOpen,
+		askLabel:  strsZH.RemotePLPrompt,
+		askHead:   strsZH.RemotePLAct,
+		pick: []verb.Playlist{
+			{Name: "Liked videos", Count: 12},
+			{Name: "Watch later", Count: 5},
+		},
+		remotePick: []verb.RemotePlaylist{
+			{ID: "LL", Title: "Liked videos", URL: "https://www.youtube.com/playlist?list=LL"},
+			{ID: "WL", Title: "Watch later", URL: "https://www.youtube.com/playlist?list=WL"},
+		},
+		rows: []row{
+			{Engine: "yt", Title: "Song 1", Duration: floatPtr(120.0)},
+		},
+	}
+	m.all = m.rows
+	m.input = textinput.New()
+	m.input.Focus()
+
+	frame := m.View()
+	t.Logf("=== TUI Frame Remote Playlists Picker ===\n%s\n", frame)
+
+	if !strings.Contains(frame, "在线歌单") {
+		t.Errorf("frame missing picker title '在线歌单'")
+	}
+	if !strings.Contains(frame, "Liked videos") || !strings.Contains(frame, "Watch later") {
+		t.Errorf("frame missing playlist names in picker")
+	}
+	if !strings.Contains(frame, "12 首") || !strings.Contains(frame, "5 首") {
+		t.Errorf("frame missing playlist counts in picker")
+	}
+	if !strings.Contains(frame, "打开哪个在线歌单") {
+		t.Errorf("frame missing prompt label '打开哪个在线歌单'")
 	}
 }

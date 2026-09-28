@@ -16,12 +16,6 @@
 
 ### 🔴 第一梯队：TUI Design · Look and Feel · 交互美化专项（最高优先级）
 
-- **【中高 ROI · 待做 · 视觉层级】三层灰阶对比规范与按键/底噪弱化（Visual Hierarchy）。**
-  - **收益**：中高。全面提升 13 套内置主题的审美质感与沉浸感，向 Linear/现代极简主义对齐。
-  - **核心设计**：收敛建立三层视觉层级 —— Foreground（焦点标题/发声歌词，Bold+Accent）、Secondary（时长/排序/分 P 数，中灰阶）、Muted/Tertiary（按键提示/滚动条/分割线，暗灰阶）；确保底部快捷键提示不喧宾夺主，保持内容区呼吸感。
-  - **实施草案**：详见 [`docs/PLAN-visual-hierarchy.md`](PLAN-visual-hierarchy.md)。
-  - **成本**：低。整理 `internal/tui/style.go` 与 `view.go` 的色阶映射。
-
 - **【最高优先级 · TUI Design / 视觉排版 · 待决】付费权限徽章（`access`）排版与信息熵裁决。**
   - **收益**：高。优化单行视觉设计与决策信息密度。`ne` 的信封已经免费带着 `fee → access`（`full` / `preview` / `paywalled`），一枚精炼徽章能让用户在按 Enter 之前一眼预判单曲可用性。
   - **成本**：中。行模型（`internal/tui` 的 `row`）今天不带 `access`，加上它是跨引擎的数据模型改动（存储行没有这个字段），不是一处单纯的渲染改动。

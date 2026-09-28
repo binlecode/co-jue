@@ -2140,13 +2140,21 @@ report "--related rejects playlist without video id" 1 "$(rc shell/ting-engine-y
 report "--related rejects no target" 1 "$(rc shell/ting-engine-yt --related)"
 report "-n works on --feed" 2 "$(TING_COOKIE_BROWSER=none rc shell/ting-engine-yt --feed home -n 5 -j)"
 report "-n works on --related" 2 "$(http_proxy=$NOPROXY https_proxy=$NOPROXY rc shell/ting-engine-yt --related -n 5 -- $MEDIA_ID)"
-report "-n rejected on --items" 1 "$(rc shell/ting-engine-yt --items -n 5 -- WL)"
-report "WL needs cookies" 2 "$(TING_COOKIE_BROWSER=none rc shell/ting-engine-yt --items -j -- WL)"
-report "LL needs cookies" 2 "$(TING_COOKIE_BROWSER=none rc shell/ting-engine-yt --items -j -- LL)"
-report "feed:subs needs cookies" 2 "$(TING_COOKIE_BROWSER=none rc shell/ting-engine-yt --items -j -- feed:subs)"
-report "feed:history needs cookies" 2 "$(TING_COOKIE_BROWSER=none rc shell/ting-engine-yt --items -j -- feed:history)"
+report "-n rejected on --items" 1 "$(rc shell/ting-play --items --engine yt -n 5 -- WL)"
+report "WL needs cookies" 2 "$(TING_COOKIE_BROWSER=none rc shell/ting-play --items --engine yt -j -- WL)"
+report "LL needs cookies" 2 "$(TING_COOKIE_BROWSER=none rc shell/ting-play --items --engine yt -j -- LL)"
+report "feed:subs needs cookies" 2 "$(TING_COOKIE_BROWSER=none rc shell/ting-play --items --engine yt -j -- feed:subs)"
+report "feed:history needs cookies" 2 "$(TING_COOKIE_BROWSER=none rc shell/ting-play --items --engine yt -j -- feed:history)"
 report "…and says so in the envelope" 0 \
-    "$(TING_COOKIE_BROWSER=none jq_ok '.status=="error" and .reason=="cookies"' shell/ting-engine-yt --items -j -- WL)"
+    "$(TING_COOKIE_BROWSER=none jq_ok '.status=="error" and .reason=="cookies"' shell/ting-play --items --engine yt -j -- WL)"
+report "--playlists rejects positional args" 1 "$(rc shell/ting-play --playlists --engine yt -- extra)"
+report "--playlists needs cookies" 2 "$(TING_COOKIE_BROWSER=none rc shell/ting-play --playlists --engine yt -j)"
+report "…and says so in the envelope" 0 \
+    "$(TING_COOKIE_BROWSER=none jq_ok '.status=="error" and .reason=="cookies" and .count==0' shell/ting-play --playlists --engine yt -j)"
+report "-n works on --playlists" 2 "$(TING_COOKIE_BROWSER=none rc shell/ting-play --playlists --engine yt -n 5 -j)"
+report "bili rejects --playlists" 1 "$(rc shell/ting-play --playlists --engine bili)"
+report "ne rejects --playlists" 1 "$(rc shell/ting-play --playlists --engine ne)"
+report "ting-play routes --playlists" 2 "$(TING_COOKIE_BROWSER=none rc shell/ting-play --playlists -j)"
 
 echo "── --items on a video: the offline gate ───────────────────────────"
 # The part-list pipeline itself (a part list feeding the store and the queue with no field
@@ -2890,6 +2898,8 @@ report "yt --related yields valid recommendations" 0 \
 if [ "$(shell/ting-play --auth --engine yt -j 2>/dev/null | jq -r '.auth' 2>/dev/null)" = "cookie" ]; then
     report "yt --feed home yields status ok with cookies" 0 \
         "$(jqv '.status=="ok" and .query=="feed:home" and (.count|type)=="number" and .count>0 and ((.results|length)==.count)' "$(out yt-feed-home)")"
+    report "yt --playlists yields status ok with cookies" 0 \
+        "$(jq_ok '.status=="ok" and .engine=="yt" and (.count|type)=="number" and ((.playlists|length)==.count)' shell/ting-play --playlists -j)"
 fi
 
 BILI_ITEMS_OUT=$(out bili-items)

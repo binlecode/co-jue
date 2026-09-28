@@ -269,3 +269,16 @@ func TestRelatedUsageIsTyped(t *testing.T) {
 		t.Fatalf("got %v, want a Usage error", err)
 	}
 }
+
+func TestRemotePlaylistsNoCookiesIsTyped(t *testing.T) {
+	s := suite(t)
+	t.Setenv("TING_COOKIE_BROWSER", "none")
+	_, err := s.RemotePlaylists(context.Background(), "yt", 5)
+	var ve *Error
+	if !errors.As(err, &ve) || ve.Kind() != External {
+		t.Fatalf("got %v, want an External error", err)
+	}
+	if ve.Reason != "cookies" {
+		t.Errorf("reason: %q, want cookies", ve.Reason)
+	}
+}

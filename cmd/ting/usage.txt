@@ -67,6 +67,8 @@ Keys (List View):
   a        add the focused row to a playlist               (needs ting-playlist)
   b        open a stored playlist as the row source; b again
            returns to the search results                    (needs ting-playlist)
+  B        open the user's online playlists under account; B again
+           returns to the search results                    (only when engine has --playlists)
   d        remove the focused row from the playlist on screen; removing the last
            one leaves the list, empty. Stops the player when it was on that row,
            once the undo has closed; playlist rows only     (needs ting-playlist)

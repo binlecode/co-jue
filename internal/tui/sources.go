@@ -229,6 +229,70 @@ func (m *Model) browsePlaylists() tea.Cmd {
 	return m.ask(askOpen, m.s.PLPromptOpen, m.s.PLOpen, ls)
 }
 
+// browseRemotePlaylists is B: a toggle — from a container back to search, otherwise
+// fetch the user's online playlists under account.
+func (m *Model) browseRemotePlaylists() tea.Cmd {
+	if m.src == srcContainer || m.src == srcPlaylist {
+		m.backToSearch()
+		return nil
+	}
+	eng := m.engine()
+	if !eng.Has("--playlists") {
+		m.notice(m.s.RemotePLAct+":", eng.Name+" "+m.g.Dash+" "+m.s.RemotePLNotSupported)
+		return nil
+	}
+	if m.hold() {
+		return nil
+	}
+	return m.engineCall(m.s.RemotePLAct, func(ctx context.Context) tea.Msg {
+		res, err := m.suite.RemotePlaylists(ctx, eng.Name, 50)
+		return remotePlaylistsMsg{res: res, err: err}
+	})
+}
+
+type remotePlaylistsMsg struct {
+	res *verb.RemotePlaylistsResult
+	err error
+}
+
+func (m *Model) remotePlaylistsDone(msg remotePlaylistsMsg) tea.Cmd {
+	eng := m.engine().Name
+	if msg.err != nil {
+		var ve *verb.Error
+		if errors.As(msg.err, &ve) {
+			if ve.Reason == "cookies" {
+				m.notice(m.s.RemotePLAct+":", m.s.RemotePLNoCookies)
+			} else if ve.Stderr != "" {
+				m.notice(m.s.RemotePLAct+":", verb.EngineMsg(eng, ve.Stderr))
+			} else if ve.Reason != "" {
+				m.notice(m.s.RemotePLAct+":", ve.Reason)
+			} else {
+				m.notice(m.s.RemotePLAct+":", storeMsg(msg.err, m.s.Failed))
+			}
+		} else {
+			m.notice(m.s.RemotePLAct+":", storeMsg(msg.err, m.s.Failed))
+		}
+		return nil
+	}
+	if msg.res != nil && msg.res.Note != "" {
+		m.notice(m.s.RemotePLAct+":", msg.res.Note)
+	}
+	if msg.res == nil || len(msg.res.Playlists) == 0 {
+		m.notice(m.s.RemotePLAct+":", m.s.PLNoneRemote)
+		return nil
+	}
+	m.remotePick = msg.res.Playlists
+	pick := make([]verb.Playlist, len(m.remotePick))
+	for i, pl := range m.remotePick {
+		cnt := 0
+		if pl.Count != nil {
+			cnt = *pl.Count
+		}
+		pick[i] = verb.Playlist{Name: pl.Title, Count: cnt}
+	}
+	return m.ask(askRemoteOpen, m.s.RemotePLPrompt, m.s.RemotePLAct, pick)
+}
+
 func (m *Model) playlistOnly() bool {
 	if m.src == srcPlaylist {
 		return true

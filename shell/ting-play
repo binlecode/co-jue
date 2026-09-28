@@ -216,6 +216,7 @@ so a flag its site has no use for is refused (1), and --engines lists what each 
   ting-play --search [--engine E] [-n N] [--min-duration S] [--max-duration S]
                      [--sort relevance|view_count|duration] [-j] -- <query>
   ting-play --feed <type> [--engine E] [-n N] [-j]       personalized/dynamic feed (e.g. home)
+  ting-play --playlists [--engine E] [-n N] [-j]         user's online playlists under account
   ting-play --related [--engine E] [-n N] [-j] -- <id|URL>
                                                          related video recommendations
   ting-play --info [--engine E] [-j] -- <id|URL>         metadata, as a search row +
@@ -749,7 +750,7 @@ forward_engine_verb() {
     for a in "$@"; do
         [[ "$a" == "--" ]] && break
         case "$a" in
-        --search | --info | --items | --transcript | --auth | --feed | --related) verb=$a; break ;;
+        --search | --info | --items | --transcript | --auth | --feed | --related | --playlists) verb=$a; break ;;
         esac
     done
     [[ -n "$verb" ]] || return 0
@@ -781,7 +782,7 @@ forward_engine_verb() {
         shift
     done
     last=${fwd[${#fwd[@]} - 1]}
-    if ((! specified)) && [[ "$verb" != "--search" && "$verb" != "--feed" ]] && is_url_target "$last"; then
+    if ((! specified)) && [[ "$verb" != "--search" && "$verb" != "--feed" && "$verb" != "--playlists" ]] && is_url_target "$last"; then
         sniffed=$(sniff_engine_from_url "$last") || sniffed=""
         [[ -z "$sniffed" ]] || engine=$sniffed
     fi
@@ -3760,7 +3761,7 @@ while (($#)); do
         | --min-duration | --max-duration | --sort | --min-duration=* | --max-duration=* | --sort=*)
         # An engine verb's modifier without its verb. The verbs themselves never get here —
         # forward_engine_verb has exec'd them — so the caller has the right flag and no verb.
-        die "${1%%=*} modifies an engine verb — see --search, --items, --transcript, --feed and --related in 'ting-play -h'"
+        die "${1%%=*} modifies an engine verb — see --search, --items, --transcript, --feed, --playlists and --related in 'ting-play -h'"
         ;;
     --set-volume)
         [[ $# -ge 2 ]] || die "--set-volume requires a value"
@@ -4007,7 +4008,7 @@ while getopts ":f:djhV" opt; do
         # The gate the yt-play wrapper used to hold: a search flag here is a caller who
         # picked the wrong verb, and "invalid option: -n" does not say which verb is right.
         case "$OPTARG" in
-        n) die "-n is an engine modifier — see --search, --feed and --related in 'ting-play -h'" ;;
+        n) die "-n is an engine modifier — see --search, --feed, --related and --playlists in 'ting-play -h'" ;;
         esac
         die "invalid option: -$OPTARG"
         ;;

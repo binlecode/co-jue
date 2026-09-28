@@ -108,6 +108,7 @@ ting-play --search -j -n 5 -- "lofi hip hop"                # 查询 → 结果�
 ting-play --search --engine bili -j -n 5 -- "周杰伦"        # 同一个信封，底下是 curl 不是 yt-dlp
 ting-play --search --engine bili -j --max-duration 600 -- 周杰伦  # 界整个落进站点的一个时长桶，由站点筛
 ting-play --feed home -j -n 20                               # 推荐流（首页算法推荐，yt 专用，需登录会话）
+ting-play --playlists -j -n 50                               # 在线歌单列表（yt 专用，提取账号云端歌单，需登录会话）
 ting-play --related -j -n 10 -- <11 位 id | URL>             # 关联衍生推荐（Up Next，yt 专用，Innertube /next）
 ting-play --info -j -- <11 位 id | URL>                        # 只要元数据，什么都不解析；URL 自己选引擎
 ting-play --transcript --sub-lang zh-Hans -j -- URL         # yt 的字幕轨，按语言链挑

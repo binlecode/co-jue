@@ -92,6 +92,7 @@ func DetectBackground(mode string) Background {
 // escape it needs. With colours off every field but the two highlights is empty.
 type palette struct {
 	Reset, Bold, Dim, Accent, Mark, Play, PauseC, RowHL, RowEnd, Keycap string
+	Secondary, Muted                                                    string
 	on, tc, mono                                                        bool
 }
 
@@ -108,6 +109,10 @@ func paletteFor(colors bool, theme string, bg Background, truecolor bool) palett
 	}
 	if bg.RGB != nil {
 		ground = *bg.RGB
+	}
+	far := rgb{255, 255, 255}
+	if bg.Light {
+		far = rgb{}
 	}
 	switch theme {
 	case "minimal":
@@ -144,19 +149,33 @@ func paletteFor(colors bool, theme string, bg Background, truecolor bool) palett
 			p.Play, p.PauseC = fmt.Sprintf("\x1b[%dm", h.play16), fmt.Sprintf("\x1b[%dm", h.pa16)
 		}
 	}
-	// The key caps: a quiet ground under each key, lifted off the background toward its
-	// opposite (14% on dark, 10% on light) with truecolor; a gray cap without.
-	switch {
-	case theme == "mono":
-	case truecolor && theme != "minimal":
-		far, k := rgb{255, 255, 255}, 14
-		if bg.Light {
-			far, k = rgb{}, 10
+	// Visual hierarchy tiers: Secondary (medium contrast) for duration/index/status items,
+	// Muted (low contrast) for key labels/scrollbars/dividers. In truecolor community themes
+	// both are derived from ground with a contrast floor; minimal, mono and 16-color
+	// fall back to Dim. Key caps: a subdued ground (10% on dark, 8% on light in truecolor,
+	// 14% when background is untrusted in tmux; 100;97 in 16-color; empty in mono).
+	if truecolor && theme != "minimal" && theme != "mono" {
+		secK, mutK := 60, 36
+		capK := 10
+		if bg.RGB == nil {
+			capK = 14
 		}
-		c := blend(ground, far, k)
+		if bg.Light {
+			secK, mutK = 65, 48
+			capK = 8
+		}
+		s := blend(ground, far, secK)
+		m := tone(blend(ground, far, mutK), ground)
+		p.Secondary = fmt.Sprintf("\x1b[38;2;%d;%d;%dm", s.r, s.g, s.b)
+		p.Muted = fmt.Sprintf("\x1b[38;2;%d;%d;%dm", m.r, m.g, m.b)
+		c := blend(ground, far, capK)
 		p.Keycap = fmt.Sprintf("\x1b[48;2;%d;%d;%dm", c.r, c.g, c.b)
-	default:
-		p.Keycap = "\x1b[100;97m"
+	} else {
+		p.Secondary = p.Dim
+		p.Muted = p.Dim
+		if theme != "mono" {
+			p.Keycap = "\x1b[100;97m"
+		}
 	}
 	return p
 }
@@ -165,7 +184,7 @@ func blend(from, to rgb, pct int) rgb {
 	return rgb{from.r + (to.r-from.r)*pct/100, from.g + (to.g-from.g)*pct/100, from.b + (to.b-from.b)*pct/100}
 }
 
-// lum8 is a cheap relative luminance, 0..255 scale, on the squared channels.
+// lum8 is a cheap relative luminance, 0..10000 scale, on the squared channels.
 func lum8(c rgb) int {
 	return (2126*(c.r*c.r/255) + 7152*(c.g*c.g/255) + 722*(c.b*c.b/255)) / 255
 }

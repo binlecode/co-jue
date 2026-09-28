@@ -179,7 +179,7 @@ func TestDetailLinesRowBudget(t *testing.T) {
 	}
 
 	// Case 1: playing row with NO lyric ready -> Meta + Media + Desc (max 2 lines)
-	d1, lyricIdx1, _, _ := m.detailLines(80, 0)
+	d1, _, lyricIdx1, _, _ := m.detailLines(80, 0)
 	if lyricIdx1 != -1 {
 		t.Errorf("expected no lyric, got lyricIdx=%d", lyricIdx1)
 	}
@@ -196,7 +196,7 @@ func TestDetailLinesRowBudget(t *testing.T) {
 			{Start: 2.0, Duration: 10.0, Text: "Now Playing Lyric"},
 		},
 	}
-	d2, lyricIdx2, _, _ := m.detailLines(80, 0)
+	d2, _, lyricIdx2, _, _ := m.detailLines(80, 0)
 	if lyricIdx2 < 0 {
 		t.Errorf("expected lyric, got %d", lyricIdx2)
 	}
@@ -208,7 +208,7 @@ func TestDetailLinesRowBudget(t *testing.T) {
 	}
 
 	// Case 3: cursor on NON-playing row -> Meta + Desc (lyricIdx must be -1)
-	d3, lyricIdx3, _, _ := m.detailLines(80, 1)
+	d3, _, lyricIdx3, _, _ := m.detailLines(80, 1)
 	if lyricIdx3 != -1 {
 		t.Errorf("non-playing row should not have lyric, got %d", lyricIdx3)
 	}
@@ -276,7 +276,7 @@ func TestRealLyricPeekingNe(t *testing.T) {
 	}
 	m.cursor = 0
 
-	lines, lyricIdx, isInter, _ := m.detailLines(80, 0)
+	lines, _, lyricIdx, isInter, _ := m.detailLines(80, 0)
 	if lyricIdx < 0 {
 		t.Fatalf("expected lyric line in details, got index %d", lyricIdx)
 	}
@@ -342,7 +342,7 @@ func TestRealLyricPeekingInstrumental(t *testing.T) {
 	}
 	m.cursor = 0
 
-	lines, lyricIdx, _, _ := m.detailLines(80, 0)
+	lines, _, lyricIdx, _, _ := m.detailLines(80, 0)
 	if lyricIdx != -1 {
 		t.Fatalf("expected fallback to description, got lyricIdx=%d", lyricIdx)
 	}
@@ -389,7 +389,7 @@ func TestRealLyricPeekingBili(t *testing.T) {
 	}
 	m.cursor = 0
 
-	lines, lyricIdx, _, _ := m.detailLines(80, 0)
+	lines, _, lyricIdx, _, _ := m.detailLines(80, 0)
 	if lyricIdx != -1 {
 		t.Fatalf("expected fallback to description for bili, got lyricIdx=%d", lyricIdx)
 	}

@@ -122,8 +122,10 @@ func (m *Model) updateList(k tea.KeyMsg) tea.Cmd {
 		m.applyFilter()
 	case "a", "A":
 		return m.addToPlaylist()
-	case "b", "B":
+	case "b":
 		return m.browsePlaylists()
+	case "B":
+		return m.browseRemotePlaylists()
 	case "d":
 		m.removeFromPlaylist()
 	case "D":
@@ -476,6 +478,7 @@ const (
 	askNew                   // a: the first playlist's name
 	askAdd                   // a: which playlist (number or name)
 	askOpen                  // b: which playlist (number or name)
+	askRemoteOpen            // B: which remote playlist (number or name)
 	askRename                // R: the new name
 )
 
@@ -530,6 +533,8 @@ func (m *Model) updatePrompt(k tea.KeyMsg) tea.Cmd {
 			m.doAdd(pickName(v, pick))
 		case askOpen:
 			m.openPlaylist(pickName(v, pick))
+		case askRemoteOpen:
+			return m.openRemotePlaylist(v)
 		case askRename:
 			m.doRename(v)
 		}
@@ -538,6 +543,31 @@ func (m *Model) updatePrompt(k tea.KeyMsg) tea.Cmd {
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(k)
 	return cmd
+}
+
+func (m *Model) openRemotePlaylist(v string) tea.Cmd {
+	target := ""
+	if n, err := strconv.Atoi(v); err == nil && len(v) <= 9 && n >= 1 && n <= len(m.remotePick) {
+		target = m.remotePick[n-1].URL
+		if target == "" {
+			target = m.remotePick[n-1].ID
+		}
+	} else {
+		for _, pl := range m.remotePick {
+			if pl.Title == v {
+				target = pl.URL
+				if target == "" {
+					target = pl.ID
+				}
+				break
+			}
+		}
+	}
+	if target == "" {
+		target = v
+	}
+	m.remotePick = nil
+	return m.loadURL(target)
 }
 
 // pickName resolves an answer to the picker: a number on the list is that row's name (it
@@ -551,7 +581,7 @@ func pickName(v string, pick []verb.Playlist) string {
 }
 
 func (m *Model) cancelPrompt() tea.Cmd {
-	m.prompting, m.pick = false, nil
+	m.prompting, m.pick, m.remotePick = false, nil, nil
 	m.input.Blur()
 	if m.all == nil && m.pending == nil && m.busy == "" {
 		return tea.Quit

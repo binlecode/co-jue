@@ -242,17 +242,17 @@ detached 播放器）、生命周期与控制动词附带未被消费的 positio
   公开面则只有一个入口：修一次站点风控改的是引擎文件，碰不到公开契约。flag 面**按动词窄，不按文件窄**：
   每个修饰符只属于一个动词，配错动词退 1。
 - **转发在一切之前，门只有一道。** `ting-play` 在解析自己的 argv 之前、在任何依赖门之前认出引擎动词
-  （`--search` `--info` `--items` `--transcript` `--auth` `--feed` `--related`，只看 `--` 之前，所以一个恰好读作 `--info`
+  （`--search` `--info` `--items` `--transcript` `--auth` `--feed` `--related` `--playlists`，只看 `--` 之前，所以一个恰好读作 `--info`
   的查询仍是查询），拿走 `--engine`，其余 argv 原样 `exec` 给 `ting-engine-<name>`。
   于是只搜索不需要装 mpv；flag 门只在引擎里 —— `--sub-lang` 给没有字幕语言链的引擎、`--search -d`、
   两个动词同时给出，都是引擎的拒绝，退 1；信封与退出码一字不差是引擎自己的，因为 `exec` 之后
   没有东西留下来碰它们。`ting-play` 自己只拒一个：`--raw`（「数据契约」）。
 - **引擎怎么选：与播放同一条规则。** `--engine` 缺省取 `TING_DEFAULT_ENGINE`；没给 `--engine` 时，
   `--info`/`--items`/`--transcript`/`--related` 的句柄若是 URL 就按上面那张 host 表选引擎 —— 一个贴进来的 B 站链接
-  不该被送去问 YouTube。`--search`/`--feed` 不嗅：查询与 feed 类型不是句柄。
+  不该被送去问 YouTube。`--search`/`--feed`/`--playlists` 不嗅：查询、feed 类型与歌单动词不是句柄。
 - **以"有没有"声明能力（ARCHITECTURE.md「站点知识的边界」）。** 一个引擎做不到的事，它就不为它准备
   动词或修饰符；每个引擎接受什么由它自己陈述一次，经 `--engines` 的 `flags[]` 发布（今天 `--transcript`
-  只在 yt 与 ne，`--sub-lang` 只在 yt，`--feed` 与 `--related` 只在 yt —— 一条字幕轨、一次语言选择、一次流推荐是独立能力，ARCH-engine.md「字幕」）。
+  只在 yt 与 ne，`--sub-lang` 只在 yt，`--feed` 与 `--related` 只在 yt，`--playlists` 只在 yt —— 一条字幕轨、一次语言选择、一次流推荐与账号歌单是独立能力，ARCH-engine.md「字幕」）。
   调用方问 `flags[]` 里有没有，而不是无句柄地调一次、从 stderr 里分辨"缺句柄"还是"unknown flag"：
   那句文案不在契约里。
 - **`--search` 只吃一个 QUERY。** 一个 URL 会被拒绝（URL 是拿来播放或 `--info` 的）—— 包括在 `--` 之后，
@@ -268,6 +268,10 @@ detached 播放器）、生命周期与控制动词附带未被消费的 positio
   引擎轻量传输直接解析返回关联列表。信封完全复用搜索信封 `{status, engine, query:"related:<id>", count, results[]}`。
   非本站 host 或畸形/非视频句柄退 1；上游网络超时或 5xx 归 `network`，403 归 `forbidden`，4xx 或解析失败归 `unavailable`，
   退出码 2。
+- **`--playlists` 获取当前引擎登录账号下的外部在线歌单列表。** 支持 `-n N` 截取上限（默认 50）。
+  信封为 `{status: "ok", engine, count, playlists: [{id, title, url, count}]}`。
+  未配置 Cookie 或登录态不可读时在网络前快速失败，退 2，`reason: "cookies"`。
+  若账号下无在线歌单，返回 `count: 0, playlists: []`，退 0。带位置参数退 1。不支持该动词的引擎退 1。
 - **`--info` 印的是一条搜索行，外加章节。** 同一套行字段、同一套 `kind`/`access` 判断：一个手里只有
   句柄的调用方拿到的，与搜到它的调用方拿到的是同一种东西。
 - **`--items` 展开一切容器，包括一个视频的分 P。** 多 P 视频就是一个装着分 P 的容器，分 P 与播放列表条目

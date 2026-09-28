@@ -23,6 +23,7 @@ type strs struct {
 	PLAdd, PLOpen, PLAct, PLPromptAdd, PLPromptOpen, PLPromptNew, PLAdded, PLEmpty, PLNone    string
 	PLItem, PLItems, PLAbsent, PLSearchOnly, PLListOnly, PLRmKey, PLRemoved, PLDelKey         string
 	PLDeleted, PLRenameKey, PLRenamePrompt, PLRenamed                                         string
+	RemotePLAct, RemotePLOpen, RemotePLPrompt, RemotePLNotSupported, RemotePLNoCookies, PLNoneRemote string
 	UndoKey, UndoAct, UndoHint, UndoDone, UndoNone, UndoStale                                 string
 	HistKey, HistAct, HistLabel, HistEmpty, HistAbsent, PartsKey, PartsAct, PartsOne, InfoAct string
 	RelatedKey, RelatedAct, FeedAct, RelatedNoCap, NoResults, NoResultsFor                    string
@@ -61,6 +62,11 @@ var strsEN = strs{
 	PLListOnly: "that key needs a playlist (press b to open one)", PLRmKey: "remove", PLRemoved: "Removed from",
 	PLDelKey: "del-list", PLDeleted: "Deleted playlist", PLRenameKey: "rename",
 	PLRenamePrompt: "New name for playlist (Esc cancels)", PLRenamed: "Renamed to",
+	RemotePLAct: "Online Playlists", RemotePLOpen: "online playlists",
+	RemotePLPrompt: "Open which online playlist (number or name, Esc cancels)",
+	RemotePLNotSupported: "this engine does not support online playlists",
+	RemotePLNoCookies: "requires signed-in session (cookies missing)",
+	PLNoneRemote: "no online playlists found under account",
 	UndoKey: "undo", UndoAct: "Undo", UndoHint: "z to undo", UndoDone: "Undone", UndoNone: "nothing to undo",
 	UndoStale: "changed elsewhere, not undone",
 	HistKey:   "history", HistAct: "History", HistLabel: "newest first", HistEmpty: "nothing listened to yet",
@@ -107,6 +113,11 @@ var strsZH = strs{
 	PLListOnly: "该键只在播放列表里可用（按 b 打开一个）", PLRmKey: "移出", PLRemoved: "已移出",
 	PLDelKey: "删列表", PLDeleted: "已删除列表", PLRenameKey: "重命名",
 	PLRenamePrompt: "重命名列表名称（Esc 取消）", PLRenamed: "已重命名",
+	RemotePLAct: "在线歌单", RemotePLOpen: "在线歌单",
+	RemotePLPrompt: "打开哪个在线歌单（序号或名称，Esc 取消）",
+	RemotePLNotSupported: "该音源不支持在线歌单",
+	RemotePLNoCookies: "需要有效登录状态（Cookie 缺失）",
+	PLNoneRemote: "账号下尚无在线歌单",
 	UndoKey: "撤销", UndoAct: "撤销", UndoHint: "z 撤销", UndoDone: "已撤销", UndoNone: "无可撤销",
 	UndoStale: "已被别处修改，未撤销",
 	HistKey:   "历史", HistAct: "收听历史", HistLabel: "最近收听", HistEmpty: "还没有收听记录",

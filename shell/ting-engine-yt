@@ -1092,6 +1092,81 @@ feed_run() {
     esac
 }
 
+# 4c. --playlists
+# ==============================================================================
+
+playlists_run() {
+    # --playlists requires a signed-in browser session: YouTube web returns 401
+    # or empty list for anonymous/signed-out users. Fail fast before network.
+    if ((${#COOKIE_ARGS[@]} == 0)); then
+        printf '%s: no cookies: --playlists requires a signed-in browser session (set TING_COOKIE_BROWSER)\n' \
+            "$PROG" >&2
+        if is_json_out; then
+            jq -nc --arg e "$ENGINE_NAME" --arg reason "cookies" \
+                '{status: "error", engine: $e, count: 0, playlists: [], reason: $reason}'
+        fi
+        exit 2
+    fi
+
+    ensure_scratch
+    local limit=${NUM_RESULTS:-50}
+    local cmd=(
+        yt-dlp
+        --flat-playlist
+        --dump-single-json
+        --playlist-items "1:${limit}"
+        --skip-download
+        --no-warnings
+        --ignore-errors
+        --quiet
+        "https://www.youtube.com/feed/playlists"
+    )
+
+    local result_json rc=0 reason=""
+    result_json=$("${cmd[@]}" "${COOKIE_ARGS[@]}" 2>"$ERR_FILE") || rc=$?
+    if ((rc != 0)) || [[ -z "$result_json" ]]; then
+        reason=$(classify_yt_dlp_error "$(cat "$ERR_FILE" 2>/dev/null)" "$rc")
+        if [[ "$reason" == "cookies" ]]; then
+            cookie_diagnosis "$(cat "$ERR_FILE" 2>/dev/null)" >&2
+        fi
+        if is_json_out; then
+            jq -nc --arg e "$ENGINE_NAME" --arg reason "$reason" \
+                '{status: "error", engine: $e, count: 0, playlists: [], reason: $reason}'
+        else
+            cat "$ERR_FILE" >&2 2>/dev/null || true
+            echo "Error: playlists failed ($reason)" >&2
+        fi
+        exit $((rc <= 1 ? 2 : rc))
+    fi
+
+    local playlists_json
+    playlists_json=$(printf '%s' "$result_json" | jq -c '
+        [ (.entries // [])[]
+          | {
+              id: (.id // ""),
+              title: (.title // ""),
+              url: (.url // (if .id then "https://www.youtube.com/playlist?list=" + .id else "" end)),
+              count: (.playlist_count // null)
+            }
+          | select(.id != "" and .title != "")
+        ]')
+
+    if is_json_out; then
+        jq -nc --arg e "$ENGINE_NAME" --argjson list "$playlists_json" \
+            '{status: "ok", engine: $e, count: ($list | length), playlists: $list}'
+        return 0
+    fi
+
+    local count
+    count=$(jq 'length' <<<"$playlists_json")
+    if ((count == 0)); then
+        echo "No online playlists found under account."
+        return 0
+    fi
+
+    jq -r '.[] | "\(.title) (\(.id)) -> \(.url)"' <<<"$playlists_json"
+}
+
 # 4b. --related
 # ==============================================================================
 
@@ -1942,6 +2017,7 @@ engine verbs here unchanged; this argv is not part of the suite's public contrac
 Usage:
   ting-engine-yt --search [-n N] [--min-duration S] [--max-duration S] [--sort F] [-j] -- <query>
   ting-engine-yt --feed <home> [-n N] [-j]
+  ting-engine-yt --playlists [-n N] [-j]
   ting-engine-yt --related [-n N] [-j] -- <video-id | URL>
   ting-engine-yt --info [-j] -- <video-id | URL>
   ting-engine-yt --transcript [--sub-lang L] [-j [--segments]] -- <video-id | URL>
@@ -1956,6 +2032,8 @@ Exactly one verb per call. A modifier belongs to one verb and is refused next to
                   the duration bounds and the container gate both shorten it.
                   --sort: relevance | view_count | duration (default relevance)
   --feed          Personalized or dynamic feed. Supported type: home (YouTube homepage feed).
+                  Requires signed-in browser session (set TING_COOKIE_BROWSER)
+  --playlists     User's online playlists under account (e.g. Liked, Watch Later, created).
                   Requires signed-in browser session (set TING_COOKIE_BROWSER)
   --related       Related video recommendations for a given seed track (Up Next)
   --info          Metadata, in the same row shape --search returns, plus chapters
@@ -1989,7 +2067,7 @@ EOF
 # person and --capabilities answers with it for the registry, so the two cannot disagree.
 # --stream, --capabilities and --raw are absent on purpose: the player's pipe, the registry's
 # question and a self-check are not things a caller of ting-play can ask for.
-PUBLIC_FLAGS=(--search -n --min-duration --max-duration --sort --info --items --cursor --transcript --sub-lang --segments --auth --feed --related)
+PUBLIC_FLAGS=(--search -n --min-duration --max-duration --sort --info --items --cursor --transcript --sub-lang --segments --auth --feed --related --playlists)
 
 # Which verb a modifier belongs to. The gate below refuses it next to any other.
 MODIFIERS=()         # "flag verb" pairs, as given
@@ -2047,6 +2125,7 @@ while (($#)); do
         FEED_TYPE="$2"
         shift 2
         ;;
+    --playlists) set_action playlists "$1"; shift ;;
     --related) set_action related "$1"; shift ;;
     --info) set_action info "$1"; shift ;;
     --items) set_action items "$1"; shift ;;
@@ -2128,8 +2207,8 @@ while ((_i < ${#MODIFIERS[@]})); do
     case "$_flag" in
     -n)
         case "$ACTION" in
-        search | feed | related) ;;
-        *) die "$_flag applies only to --search, --feed and --related" ;;
+        search | feed | related | playlists) ;;
+        *) die "$_flag applies only to --search, --feed, --related and --playlists" ;;
         esac
         ;;
     *)
@@ -2149,7 +2228,7 @@ esac
 ((! SEGMENTS)) || [[ "$OUTPUT_MODE" == "json" ]] || die "--segments adds the timed cues to the -j envelope — add -j"
 
 case "$ACTION" in
-capabilities | auth)
+capabilities | auth | playlists)
     ((${#positional[@]} == 0)) || die "$VERB_FLAG takes no argument — it reports about this engine, not a handle"
     ;;
 feed)
@@ -2220,6 +2299,10 @@ feed)
     if ((NUM_RESULTS > 200)); then NUM_RESULTS=200; fi
     [[ "$FEED_TYPE" == "home" ]] || die "unknown feed '$FEED_TYPE' (yt engine supports: home)"
     ;;
+playlists)
+    is_non_negative_int "$NUM_RESULTS" || die "-n must be a non-negative integer"
+    if ((NUM_RESULTS > 200)); then NUM_RESULTS=200; fi
+    ;;
 related)
     is_non_negative_int "$NUM_RESULTS" || die "-n must be a non-negative integer"
     if ((NUM_RESULTS > 50)); then NUM_RESULTS=50; fi
@@ -2266,6 +2349,7 @@ transcript) transcript_run ;;
 items) items_run ;;
 stream) stream_run ;;
 feed) feed_run ;;
+playlists) playlists_run ;;
 related) related_run ;;
 esac
 exit 0

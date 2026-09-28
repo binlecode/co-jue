@@ -302,6 +302,38 @@ func (s *Suite) Related(ctx context.Context, engine, target string, n int) (*Sea
 	return &r, nil
 }
 
+// RemotePlaylist is one user online playlist entry.
+type RemotePlaylist struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	URL   string `json:"url"`
+	Count *int   `json:"count,omitempty"`
+}
+
+// RemotePlaylistsResult is the envelope returned by ting-play --playlists -j.
+type RemotePlaylistsResult struct {
+	Note      string           `json:"-"`
+	Status    string           `json:"status"`
+	Engine    string           `json:"engine"`
+	Count     int              `json:"count"`
+	Playlists []RemotePlaylist `json:"playlists"`
+}
+
+// RemotePlaylists asks one engine for the user's online playlists, through ting-play.
+func (s *Suite) RemotePlaylists(ctx context.Context, engine string, n int) (*RemotePlaylistsResult, error) {
+	argv := []string{s.TPlay, "--playlists", "--engine", engine, "-j"}
+	if n > 0 {
+		argv = append(argv, "-n", fmt.Sprint(n))
+	}
+	var r RemotePlaylistsResult
+	stderr, err := runErr(ctx, argv, nil, &r)
+	if err != nil {
+		return nil, err
+	}
+	r.Note = EngineMsg(engine, stderr)
+	return &r, nil
+}
+
 // PlayOpts are the launch flags; zero values are left to ting-play's own defaults.
 type PlayOpts struct {
 	Mode    string

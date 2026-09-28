@@ -39,6 +39,7 @@ type frame struct {
 	filterHint             bool
 	caretH                 int
 	details                []string
+	metaH                  int  // number of meta/media lines in details
 	lyricRow               int  // -1 when none, else index in details
 	lyricInter             bool // whether interlude
 	lyricTrans             bool // whether transitioning
@@ -124,9 +125,9 @@ func (m *Model) statusItems() []string {
 	return it
 }
 
-// statusLine renders the status items, dim, the engine first like any other.
+// statusLine renders the status items, secondary, the engine first like any other.
 func (m *Model) statusLine(items []string) string {
-	return m.p.Dim + strings.Join(items, " "+m.g.Sep+" ") + m.p.Reset
+	return m.p.Secondary + strings.Join(items, " "+m.p.Muted+m.g.Sep+m.p.Secondary+" ") + m.p.Reset
 }
 
 // queue is the running player's queue (pos, len), from whichever said it last: an event or
@@ -191,6 +192,9 @@ func (m *Model) navItems() []hint {
 		case full:
 			it = append(it, hint{"a", m.s.PLAdd}, hint{"b", m.s.PLOpen})
 		}
+	}
+	if full && search && m.engine().Has("--playlists") {
+		it = append(it, hint{"B", m.s.RemotePLOpen})
 	}
 	if m.suite.THistory != "" {
 		if m.src == srcHistory {
@@ -348,7 +352,7 @@ func (m *Model) layout() frame {
 			lines-f.chromeH-foot()-layoutCursorRow-coverRows >= coverMinRows {
 			f.coverGate, dw = true, f.rightEdge-coverCols-1
 		}
-		d, lyricIdx, isInter, isTrans := m.detailLines(dw, m.cursor)
+		d, metaH, lyricIdx, isInter, isTrans := m.detailLines(dw, m.cursor)
 		if f.coverGate {
 			for len(d) < coverRows {
 				d = append(d, "")
@@ -356,6 +360,7 @@ func (m *Model) layout() frame {
 		}
 		if lines-f.chromeH-foot()-layoutCursorRow-len(d) >= layoutDetailKeep {
 			f.details = d
+			f.metaH = metaH
 			f.lyricRow = lyricIdx
 			f.lyricInter = isInter
 			f.lyricTrans = isTrans
@@ -451,7 +456,7 @@ func (m *Model) playingRow(r row) bool {
 // detailLines is the focused row's details block, plain text: the meta line, what the player
 // is decoding when this row is the one playing, and up to two lines of description (or
 // the active synchronized lyric line when peeking on the playing row).
-func (m *Model) detailLines(cols, i int) ([]string, int, bool, bool) {
+func (m *Model) detailLines(cols, i int) ([]string, int, int, bool, bool) {
 	r := m.rows[i]
 	var dur, views string
 	if r.isLive() {
@@ -488,6 +493,7 @@ func (m *Model) detailLines(cols, i int) ([]string, int, bool, bool) {
 			out = append(out, m.w.trunc(ml, cols-2, m.g.Ell))
 		}
 	}
+	metaH := len(out)
 	lyricIdx := -1
 	isInter, isTrans := false, false
 	if m.playingRow(r) {
@@ -501,7 +507,7 @@ func (m *Model) detailLines(cols, i int) ([]string, int, bool, bool) {
 		d := m.w.trunc(r.Desc, (cols-2)*2-2, m.g.Ell)
 		out = append(out, m.w.wrap(d, cols-2, 2)...)
 	}
-	return out, lyricIdx, isInter, isTrans
+	return out, metaH, lyricIdx, isInter, isTrans
 }
 
 // ── render ──────────────────────────────────────────────────────────────────────────────
@@ -521,7 +527,7 @@ func (m *Model) View() string {
 	if m.all == nil {
 		// Before the first search lands there is no list to draw — just what is happening.
 		// The title line is the ready marker (query='…'), so it must not appear early.
-		return m.p.Dim + m.g.Spin[m.spin%len(m.g.Spin)] + " " + m.busy + m.p.Reset
+		return m.p.Secondary + m.g.Spin[m.spin%len(m.g.Spin)] + " " + m.busy + m.p.Reset
 	}
 
 	// The page readout reads the page size off the previous frame; the first frame, or one
@@ -562,12 +568,8 @@ func (m *Model) View() string {
 		head += strings.Repeat(" ", gap) + m.statusLine(f.status)
 	}
 	line(head)
-	for i, l := range f.statusLines {
-		if i == 0 {
-			line(m.statusLine(l))
-		} else {
-			line(p.Dim + strings.Join(l, " "+g.Sep+" ") + p.Reset)
-		}
+	for _, l := range f.statusLines {
+		line(m.statusLine(l))
 	}
 
 	// The notice line: a notice until the next key, else the fetch in flight. While an undo
@@ -582,13 +584,17 @@ func (m *Model) View() string {
 	switch {
 	case nl != "" || nt != "":
 		t := m.w.trunc(nt, f.rightEdge-m.w.of(nl+" ")-m.w.of(nu), g.Ell)
-		line(p.Bold + nl + p.Reset + " " + p.Dim + t + p.Reset + nu)
+		tail := ""
+		if nu != "" {
+			tail = p.Muted + nu + p.Reset
+		}
+		line(p.Bold + nl + p.Reset + " " + p.Secondary + t + p.Reset + tail)
 	case m.busy != "":
 		b := m.busy
 		if m.held {
 			b += " " + g.Sep + " " + m.s.BusyHeld
 		}
-		line(p.Dim + g.Spin[m.spin%len(g.Spin)] + " " + m.w.trunc(b, f.rightEdge-2, g.Ell) + p.Reset)
+		line(p.Secondary + g.Spin[m.spin%len(g.Spin)] + " " + m.w.trunc(b, f.rightEdge-2, g.Ell) + p.Reset)
 	}
 
 	if m.playerID != "" {
@@ -610,22 +616,25 @@ func (m *Model) View() string {
 	}
 	for i, d := range f.details {
 		var l string
-		if i == f.lyricRow {
+		switch {
+		case i == f.lyricRow:
 			style := p.Accent
 			if f.lyricInter {
-				style = p.Dim
+				style = p.Muted
 			} else if f.lyricTrans && p.on && !p.mono {
 				style = p.Bold + p.Accent
 			}
 			l = img + "  " + style + d + p.Reset
-		} else {
-			l = img + "  " + p.Dim + d + p.Reset
+		case i < f.metaH:
+			l = img + "  " + p.Secondary + d + p.Reset
+		default:
+			l = img + "  " + p.Muted + d + p.Reset
 		}
 		img = ""
 		if f.coverGate && i == coverRows/2 && m.coverLoading() {
 			t := g.Spin[m.spin%len(g.Spin)] + " loading pic..."
 			pad := f.rightEdge - coverCols + 1 + (coverCols-m.w.of(t))/2 - 2 - m.w.of(d)
-			l += strings.Repeat(" ", max(1, pad)) + p.Dim + t + p.Reset
+			l += strings.Repeat(" ", max(1, pad)) + p.Muted + t + p.Reset
 		}
 		line(l)
 	}
@@ -639,9 +648,13 @@ func (m *Model) View() string {
 		for _, l := range f.navLines {
 			var cells []string
 			for _, h := range l {
-				c := p.Keycap + p.Bold + h.key + p.Reset
+				keyStyle := ""
+				if p.mono {
+					keyStyle = p.Bold
+				}
+				c := p.Keycap + keyStyle + h.key + p.Reset
 				if h.label != "" {
-					c += " " + p.Dim + h.label + p.Reset
+					c += " " + p.Muted + h.label + p.Reset
 				}
 				cells = append(cells, c)
 			}
@@ -651,7 +664,7 @@ func (m *Model) View() string {
 	switch {
 	case m.filterOn:
 		if f.filterHint {
-			line(p.Dim + m.w.trunc(m.s.FilterHint, f.cols, g.Ell) + p.Reset)
+			line(p.Muted + m.w.trunc(m.s.FilterHint, f.cols, g.Ell) + p.Reset)
 		}
 		b.WriteString(p.Mark + ">" + p.Reset + " " + m.filter)
 	case m.prompting:
@@ -662,7 +675,7 @@ func (m *Model) View() string {
 		}
 		b.WriteString(p.Bold + g.Caret + " " + label + ":" + p.Reset + " " + m.input.View())
 	case m.jump != "":
-		b.WriteString(strings.Repeat(" ", max(0, f.rightEdge-len(m.jump))) + p.Dim + m.jump + p.Reset)
+		b.WriteString(strings.Repeat(" ", max(0, f.rightEdge-len(m.jump))) + p.Muted + m.jump + p.Reset)
 	}
 	return strings.TrimSuffix(b.String(), "\n")
 }
@@ -673,7 +686,7 @@ func (m *Model) renderRows(b *strings.Builder, f frame) {
 	if n == 0 {
 		t := m.s.NoMatch + " " + g.Dash + " " + m.s.NoMatchNew + " " + g.Sep + " " + m.s.NoMatchFilt +
 			" " + g.Sep + " " + m.s.NoMatchSrc
-		b.WriteString(p.Dim + m.w.trunc(t, f.cols, g.Ell) + p.Reset + "\n")
+		b.WriteString(p.Muted + m.w.trunc(t, f.cols, g.Ell) + p.Reset + "\n")
 		return
 	}
 	markW := m.w.of(g.Cursor) + 1
@@ -740,13 +753,15 @@ func (m *Model) renderRows(b *strings.Builder, f frame) {
 		}
 		// The rail ends at the right edge, then one blank, then the scrollbar.
 		fill := strings.Repeat(" ", max(1, f.rightEdge-railW-m.w.of(mark+num+title)))
+		railText := p.Secondary + rail + p.Reset
+		gutText := p.Muted + gut + p.Reset
 		switch {
 		case i == playing:
-			b.WriteString(p.RowHL + mark + num + p.Bold + title + fill + rail + p.RowEnd + " " + p.Dim + gut + p.Reset)
+			b.WriteString(p.RowHL + mark + num + p.Bold + title + fill + rail + p.RowEnd + " " + gutText)
 		case i == m.cursor:
-			b.WriteString(p.Mark + mark + num + p.Reset + p.Bold + title + p.Reset + fill + p.Dim + rail + p.Reset + " " + gut)
+			b.WriteString(p.Mark + mark + num + p.Reset + p.Bold + title + p.Reset + fill + railText + " " + gutText)
 		default:
-			b.WriteString(mark + num + title + fill + p.Dim + rail + " " + gut + p.Reset)
+			b.WriteString(mark + p.Muted + num + p.Reset + title + fill + railText + " " + gutText)
 		}
 		b.WriteString("\n")
 	}
@@ -808,7 +823,17 @@ func (m *Model) banner(f frame) string {
 		if pad < 1 {
 			pad = 1
 		}
-		out += strings.Repeat(" ", pad) + p.Dim + right + p.Reset
+		var rightParts strings.Builder
+		if tail != "" {
+			rightParts.WriteString(p.Secondary + tail + p.Reset)
+		}
+		if res != "" {
+			rightParts.WriteString(p.Muted + res + p.Reset)
+		}
+		if hintS != "" {
+			rightParts.WriteString(p.Muted + hintS + p.Reset)
+		}
+		out += strings.Repeat(" ", pad) + rightParts.String()
 	}
 	return out
 }
@@ -851,7 +876,7 @@ func (m *Model) progressBar(width int) string {
 			rest.WriteString(m.g.Rest)
 		}
 	}
-	return m.p.Accent + played.String() + m.p.Reset + m.p.Dim + m.p.Accent + rest.String() + m.p.Reset
+	return m.p.Accent + played.String() + m.p.Reset + m.p.Muted + rest.String() + m.p.Reset
 }
 
 // barCells is how much of a width-cell bar frac covers: whole cells, then the steps (of

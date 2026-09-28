@@ -118,8 +118,9 @@ type Model struct {
 	askKind   askKind
 	askLabel  string
 	askHead   string
-	pick      []verb.Playlist
-	payload   verb.QueueItem
+	pick       []verb.Playlist
+	remotePick []verb.RemotePlaylist
+	payload    verb.QueueItem
 	input     textinput.Model
 
 	undoStore string // playlist | queue: the store holding this session's copy
@@ -612,6 +613,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case feedMsg:
 		m.pending, m.busy = nil, ""
 		cmd := m.feedDone(msg)
+		return m, cmd
+
+	case remotePlaylistsMsg:
+		m.pending, m.busy = nil, ""
+		cmd := m.remotePlaylistsDone(msg)
 		return m, cmd
 
 	case infoMsg:
