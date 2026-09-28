@@ -19,6 +19,7 @@
 - **【中高 ROI · 待做 · 视觉层级】三层灰阶对比规范与按键/底噪弱化（Visual Hierarchy）。**
   - **收益**：中高。全面提升 13 套内置主题的审美质感与沉浸感，向 Linear/现代极简主义对齐。
   - **核心设计**：收敛建立三层视觉层级 —— Foreground（焦点标题/发声歌词，Bold+Accent）、Secondary（时长/排序/分 P 数，中灰阶）、Muted/Tertiary（按键提示/滚动条/分割线，暗灰阶）；确保底部快捷键提示不喧宾夺主，保持内容区呼吸感。
+  - **实施草案**：详见 [`docs/PLAN-visual-hierarchy.md`](PLAN-visual-hierarchy.md)。
   - **成本**：低。整理 `internal/tui/style.go` 与 `view.go` 的色阶映射。
 
 - **【最高优先级 · TUI Design / 视觉排版 · 待决】付费权限徽章（`access`）排版与信息熵裁决。**
@@ -33,6 +34,10 @@
 ---
 
 ### ⚪ 第二梯队：底层媒体源 · 数据契约 · 后台系统（次要优先级）
+
+- **【中 ROI · 待决 · 平台闭环】真实播放进度心跳回写 (Playback Heartbeat / Watch Ping)。**
+  - **收益**：中。将终端收听行为真实同步至平台云端历史，训练算法推荐模型，闭环跨端消费偏好。
+  - **核心冲突与卡点**：解流期打点存在“刚播放 2 秒切歌即被标满”的算法污染，且在起播关键路径增加延迟；高质量打点需由播放器在跨过播放阈值（如 >30s 或 >50%）后触发异步打点，但需设计无分层违规的异步通知通道（保持播放器不碰平台私有知识与 Cookie）。待方案成熟后另行单独立项。
 
 - **【中高 ROI · 待决】第四媒体源选型 —— SoundCloud (`sc`) vs 开放播客 (`pod`)。**
   - **收益**：中高。扩展纯音频生态位（独立音乐/混音 DJ 电台 或 开放播客长音频），进一步验证引擎对解耦架构。
@@ -58,7 +63,7 @@
   - **待决核心**：一个包含 10 首曲目的队列跳过了 1 首故障曲目，整体退出时应报 0 视为业务完成，还是记录部分失败？
 
 - **【低 ROI · 待决】MCP 官方包装层（stdio server）。**
-  - **收益**：中低。最新实测（[`docs/RESEARCH-tui-player.md`](RESEARCH-tui-player.md) §8）证实外部 MCP 工具均无法托管播放生命周期；而本仓裸 CLI 契约天然可被 Coding Agent（Claude Code / Codex）无损驱动。
+  - **收益**：中低。最新实测（[`docs/RESEARCH-tui-player.md`](RESEARCH-tui-player.md)「MCP 调研与 Agent 契约面」）证实外部 MCP 工具均无法托管播放生命周期；而本仓裸 CLI 契约天然可被 Coding Agent（Claude Code / Codex）无损驱动。
   - **成本**：高。需引入长连接 JSON-RPC 通信与额外运行时封装，是开启 Go 重写 NO 的唯一业务前置。
   - **待决问题**：是否需要官方封装一层 MCP stdio server，还是保持由 Agent 直接调用通用 CLI 动词？
 

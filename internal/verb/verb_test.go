@@ -247,3 +247,25 @@ func TestTranscriptNe(t *testing.T) {
 		t.Errorf("empty first segment text: %+v", tr.Segments[0])
 	}
 }
+
+func TestFeedNoCookiesIsTyped(t *testing.T) {
+	s := suite(t)
+	t.Setenv("TING_COOKIE_BROWSER", "none")
+	_, err := s.Feed(context.Background(), "yt", "home", 5)
+	var ve *Error
+	if !errors.As(err, &ve) || ve.Kind() != External {
+		t.Fatalf("got %v, want an External error", err)
+	}
+	if ve.Reason != "cookies" {
+		t.Errorf("reason: %q, want cookies", ve.Reason)
+	}
+}
+
+func TestRelatedUsageIsTyped(t *testing.T) {
+	s := suite(t)
+	_, err := s.Related(context.Background(), "yt", "bad_id", 5)
+	var ve *Error
+	if !errors.As(err, &ve) || ve.Kind() != Usage {
+		t.Fatalf("got %v, want a Usage error", err)
+	}
+}

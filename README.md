@@ -251,7 +251,7 @@ stopped moving, and the two were unhitched deliberately when the packaging decis
 `?` more / fewer keys · `n` new search ·
 `o` sort · `v` playback mode · `f` quality tier · `e` switch source · `a` add to playlist ·
 `b` open a playlist · `d` remove from the playlist on screen · `h` listening history ·
-`c` the focused row's parts · `i` the focused row's chapters · `+` add to the queue · `>` next track ·
+`g` related recommendations · `c` the focused row's parts · `i` the focused row's chapters · `+` add to the queue · `>` next track ·
 `u` the running player's queue — and inside it, `Enter` play that one now · `x` drop it ·
 `p`/`P` move it earlier/later · `X` drop everything still waiting ·
 `Space` pause · `-`/`=` volume · `#` row numbers (the jump's partner: it prints the

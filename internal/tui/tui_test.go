@@ -84,7 +84,7 @@ func run(m *Model, cmd tea.Cmd) {
 		for _, c := range msg {
 			run(m, c)
 		}
-	case searchDoneMsg, authMsg, playDoneMsg, verbDoneMsg, noticeMsg, volDoneMsg, urlMsg, infoMsg, partsMsg:
+	case searchDoneMsg, authMsg, playDoneMsg, verbDoneMsg, noticeMsg, volDoneMsg, urlMsg, infoMsg, partsMsg, relatedMsg, feedMsg:
 		_, next := m.Update(msg)
 		run(m, next)
 	}
@@ -372,7 +372,7 @@ func TestKeyBehindAFetchIsTold(t *testing.T) {
 	if m.pending == nil {
 		t.Fatal("o started no fetch")
 	}
-	for _, k := range []string{"i", "c"} {
+	for _, k := range []string{"i", "c", "g"} {
 		key(m, k)
 		if !m.held || !strings.Contains(m.View(), m.s.BusyHeld) {
 			t.Fatalf("%s behind a fetch: held %v, and the frame does not say so", k, m.held)
@@ -411,5 +411,61 @@ func TestURLTargetIsSchemeOrWWW(t *testing.T) {
 		if got := urlTarget(in); got != want {
 			t.Errorf("urlTarget(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestRelatedRowSourceReversible(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network")
+	}
+	m := model(t, Options{Query: "lofi hip hop", Search: verb.SearchOpts{N: 5}, Batch: 5})
+	start(t, m)
+
+	origTitle := m.rows[0].Title
+	key(m, "g")
+	if m.src != srcRelated {
+		t.Fatalf("g did not open srcRelated, src=%v (notice: %q %q)", m.src, m.noticeL, m.noticeT)
+	}
+	if len(m.rows) == 0 {
+		t.Fatal("related brought no rows")
+	}
+
+	// Pressing g again in srcRelated must exit back to srcSearch
+	key(m, "g")
+	if m.src != srcSearch {
+		t.Fatalf("g in srcRelated did not return to srcSearch, src=%v", m.src)
+	}
+	if len(m.rows) == 0 || m.rows[0].Title != origTitle {
+		t.Fatalf("original search rows not restored: %v", m.rows)
+	}
+}
+
+func TestFeedStartupSearchedFalse(t *testing.T) {
+	m := model(t, Options{Feed: "home"})
+	if m.query != "feed:home" {
+		t.Errorf("query is %q, want feed:home", m.query)
+	}
+	if m.searched() {
+		t.Errorf("searched() on feed:home returned true, want false")
+	}
+}
+
+func TestFeedStartupFailsToSearchPrompt(t *testing.T) {
+	t.Setenv("TING_COOKIE_BROWSER", "none")
+	shell, err := filepath.Abs("../../shell")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := verb.LocateIn(shell)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := New(context.Background(), s, Options{
+		Engines: []verb.Engine{{Name: "yt", Flags: []string{"--feed"}}},
+		Feed:    "home",
+	})
+	run(m, m.Init())
+	if !m.prompting || m.askKind != askSearch {
+		t.Fatalf("feed without cookies should fall back to search prompt, got prompting=%v kind=%v", m.prompting, m.askKind)
 	}
 }

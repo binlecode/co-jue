@@ -203,6 +203,11 @@ func (m *Model) navItems() []hint {
 	if len(m.rows) > 0 && m.cursor < len(m.rows) {
 		focusEng = m.rows[m.cursor].Engine
 	}
+	if m.src == srcRelated {
+		it = append(it, hint{"g", m.s.BackSearch})
+	} else if full && search && m.engineHas(focusEng, "--related") {
+		it = append(it, hint{"g", m.s.RelatedKey})
+	}
 	if m.src == srcParts {
 		it = append(it, hint{"c", m.s.BackSearch})
 	} else if full && search && m.engineHas(focusEng, "--items") {

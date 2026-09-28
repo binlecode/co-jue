@@ -25,11 +25,12 @@ const (
 	srcParts
 	srcChapters
 	srcQueue
+	srcRelated
 )
 
 // field is the title line's name for the source's label ("query='…'").
 func (s source) field() string {
-	return [...]string{"query", "playlist", "playlist", "history", "parts", "chapters", "queue"}[s]
+	return [...]string{"query", "playlist", "playlist", "history", "parts", "chapters", "queue", "related"}[s]
 }
 
 // stash is the one search the stored views return to. Going back replays it, never the
@@ -443,6 +444,104 @@ func (m *Model) infoDone(msg infoMsg) {
 	}
 	m.info = in
 	m.showChapters()
+}
+
+// openRelated is g: related recommendations for the focused row, when its engine has --related.
+func (m *Model) openRelated() tea.Cmd {
+	if m.src == srcRelated {
+		m.backToSearch()
+		return nil
+	}
+	if len(m.rows) == 0 || !m.searchOnly() || m.hold() {
+		return nil
+	}
+	r := m.rows[m.cursor]
+	if !m.engineHas(r.Engine, "--related") {
+		m.notice(m.s.RelatedAct+":", m.s.RelatedNoCap)
+		return nil
+	}
+	n := m.opt.Search.N
+	return m.engineCall(m.s.RelatedAct, func(ctx context.Context) tea.Msg {
+		res, err := m.suite.Related(ctx, r.Engine, r.ID, n)
+		return relatedMsg{res: res, title: r.Title, err: err}
+	})
+}
+
+type relatedMsg struct {
+	res   *verb.SearchResult
+	title string
+	err   error
+}
+
+func (m *Model) relatedDone(msg relatedMsg) {
+	if msg.err != nil {
+		m.notice(m.s.RelatedAct+":", storeMsg(msg.err, m.s.Failed))
+		return
+	}
+	if msg.res.Note != "" {
+		m.notice(m.s.RelatedAct+":", msg.res.Note)
+	}
+	if len(msg.res.Results) == 0 {
+		m.notice(m.s.RelatedAct+":", m.s.NoResults)
+		return
+	}
+	m.openRows(srcRelated, clean(msg.title), rowsFromSearch(msg.res))
+}
+
+func (m *Model) loadFeed(feedType string) tea.Cmd {
+	eng := m.opt.Engines[m.opt.Engine].Name
+	n := m.opt.Search.N
+	return m.engineCall(m.s.FeedAct, func(ctx context.Context) tea.Msg {
+		res, err := m.suite.Feed(ctx, eng, feedType, n)
+		return feedMsg{res: res, err: err}
+	})
+}
+
+type feedMsg struct {
+	res *verb.SearchResult
+	err error
+}
+
+func (m *Model) feedDone(msg feedMsg) tea.Cmd {
+	eng := m.opt.Engines[m.opt.Engine].Name
+	if msg.err != nil {
+		var ve *verb.Error
+		if errors.As(msg.err, &ve) {
+			if ve.Stderr != "" {
+				m.notice(m.s.FeedAct+":", verb.EngineMsg(eng, ve.Stderr))
+			} else if ve.Reason != "" {
+				m.notice(m.s.FeedAct+":", ve.Reason)
+			} else {
+				m.notice(m.s.FeedAct+":", storeMsg(msg.err, m.s.Failed))
+			}
+		} else {
+			m.notice(m.s.FeedAct+":", storeMsg(msg.err, m.s.Failed))
+		}
+		if !m.prompting {
+			return m.ask(askSearch, "", "", nil)
+		}
+		return nil
+	}
+	if msg.res.Note != "" {
+		m.notice(m.s.FeedAct+":", msg.res.Note)
+	}
+	if len(msg.res.Results) == 0 {
+		m.notice(m.s.FeedAct+":", m.s.NoResults)
+		if !m.prompting {
+			return m.ask(askSearch, "", "", nil)
+		}
+		return nil
+	}
+	rows := rowsFromSearch(msg.res)
+	if m.src != srcSearch {
+		m.stash = stash{all: rows, query: msg.res.Query, cursor: 0, top: 0}
+	} else {
+		m.all, m.rows = rows, rows
+		m.query = msg.res.Query
+		m.cursor, m.top = 0, 0
+		m.filterOn, m.filter = false, ""
+	}
+	return nil
 }
 
 func (m *Model) showChapters() {

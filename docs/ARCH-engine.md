@@ -93,7 +93,8 @@ id 形状与报错码是**一个**站点的事实；按「搜索 / 解析」把�
 `--transcript -j --segments` 是字幕的完整形态（ARCH-cli-contract.md「数据契约」）。
 
 **能力靠"有没有那个动词"声明。** `--transcript` 在 `ting-engine-yt` 与 `ting-engine-ne` 有而 `ting-engine-bili`
-没有（同一个动词底下是两种东西：一条字幕轨，一份歌词 ——「字幕」）；一个永远答"没有"的动词会让调用方
+没有（同一个动词底下是两种东西：一条字幕轨，一份歌词 ——「字幕」）；`--feed` 与 `--related` 仅在 `ting-engine-yt` 声明
+（流推荐与关联衍生），一个永远答"没有"的动词会让调用方
 分不清"这个站没有"与"今天不走运/被限流了"。修饰符也一样：`--sub-lang` 只有 yt 列出，因为一首歌一条
 歌词，没有可挑的东西。
 
@@ -106,6 +107,8 @@ id 形状与报错码是**一个**站点的事实；按「搜索 / 解析」把�
 ting-play --search -j -n 5 -- "lofi hip hop"                # 查询 → 结果信封（缺省引擎）
 ting-play --search --engine bili -j -n 5 -- "周杰伦"        # 同一个信封，底下是 curl 不是 yt-dlp
 ting-play --search --engine bili -j --max-duration 600 -- 周杰伦  # 界整个落进站点的一个时长桶，由站点筛
+ting-play --feed home -j -n 20                               # 推荐流（首页算法推荐，yt 专用，需登录会话）
+ting-play --related -j -n 10 -- <11 位 id | URL>             # 关联衍生推荐（Up Next，yt 专用，Innertube /next）
 ting-play --info -j -- <11 位 id | URL>                        # 只要元数据，什么都不解析；URL 自己选引擎
 ting-play --transcript --sub-lang zh-Hans -j -- URL         # yt 的字幕轨，按语言链挑
 ting-play --transcript -j --segments -- URL                 # 同上，带时间轴
@@ -113,6 +116,9 @@ ting-play --items --engine bili -j -- BV1…                  # 一个视频的�
 ting-play --items -j -- "…/playlist?list=PL…"               # 容器 → 条目清单
 ting-play --items -j -- "…/@handle"                         # 频道投稿；满批时带 next_cursor
 ting-play --items -j --cursor o:500 -- "…/@handle"          # 续批，与上一批不重叠
+ting-play --items -j -- WL                                   # 稍后观看（WL 容器，需登录会话）
+ting-play --items -j -- feed:subs                            # 订阅更新容器（需登录会话）
+ting-play --items -j -- feed:history                         # 观看历史容器（需登录会话）
 ting-play --items --engine bili -j -- am10624               # 音频歌单，纯 HTTP
 ting-play --items --engine bili -j -- ml148005847           # 视频收藏夹，失效稿件与番剧被判据丢掉
 ting-play --items -j -- "…/<uid>/lists/<sid>?type=season"   # 创作者合集

@@ -134,6 +134,8 @@ func (m *Model) updateList(k tea.KeyMsg) tea.Cmd {
 		m.undo()
 	case "h", "H":
 		m.openHistory()
+	case "g":
+		return m.openRelated()
 	case "c", "C":
 		return m.openParts()
 	case "i", "I":
@@ -262,7 +264,9 @@ func (m *Model) jumpTo(num string) {
 
 // searched is whether the list is a search's, so a re-fetch has a query to send: a URL
 // opened in its place keeps the URL as its header, and no engine searches for that.
-func (m *Model) searched() bool { return m.query != "" && urlTarget(m.query) == "" }
+func (m *Model) searched() bool {
+	return m.query != "" && urlTarget(m.query) == "" && m.feed == ""
+}
 
 func (m *Model) cycleSort() tea.Cmd {
 	if !m.searched() || m.hold() {

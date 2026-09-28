@@ -167,19 +167,20 @@ fi
 # token — see probe_raw.
 ANON_ARGS=(--extractor-args "youtube:player_client=android")
 
-ACTION=""            # search | stream | info | transcript | items | auth | capabilities
+ACTION=""            # search | stream | info | transcript | items | auth | capabilities | feed | related
 VERB_FLAG=""         # the verb flag as typed — the one-verb-per-invocation gate reads it
 COLOR_MODE="auto"
 OUTPUT_MODE="list"   # list (prose) | json | raw (--raw: the site's own record, engine-only)
 SEGMENTS=0           # --segments: the transcript envelope keeps its timed cues
 
-# --search. The `-n` and --sort defaults are cross-engine: a caller who wants a different
+# --search, --feed, --related. The `-n` and --sort defaults are cross-engine: a caller who wants a different
 # result count by default wants it from whichever source they asked. ARCH-cli-contract.md「配置面」.
 NUM_RESULTS=$TING_SEARCH_RESULTS
 MIN_DURATION=0
 MAX_DURATION=0
 SORT_FIELD="$TING_SORT_FIELD"
 QUERY=""
+FEED_TYPE=""
 FILTERED_JSON=""
 
 # --stream. The `-f` default is cross-engine too: a user who listens rather than watches
@@ -190,6 +191,7 @@ FMT=""               # the yt-dlp format string the mode resolves to
 
 TARGET=""            # the handle as the caller typed it
 TARGET_URL=""        # the watch URL it normalises to
+TARGET_ID=""         # the 11-char video id it normalises to
 CONTAINER_ID=""      # the list id --items resolves to (PL… / OLAK5uy_… / UU…), or a channel handle
 CONTAINER_URL=""     # the canonical playlist or channel-videos URL that id normalises to
 CURSOR=""            # the --cursor token as the caller typed it, "" when absent
@@ -709,6 +711,7 @@ normalize_target() {
         TARGET_URL="https://www.youtube.com/watch?v=$t"
         ;;
     esac
+    TARGET_ID=$(url_video_id "$TARGET_URL")
 }
 
 # The list id a URL carries in `list=`, or "". Read from the QUERY and nowhere else: on this
@@ -744,7 +747,7 @@ url_list_id() {
 # characters after `PL` where a list made today carries 32. Length is not this site's
 # invariant; the prefix is.
 container_is_list_id() {
-    [[ "$1" =~ ^(PL|OLAK5uy_|UU|UL|LL|FL)[A-Za-z0-9_-]*$ ]]
+    [[ "$1" =~ ^(PL|OLAK5uy_|UU|UL|LL|FL|WL)[A-Za-z0-9_-]*$ ]]
 }
 
 # A CHANNEL, NORMALISED TO ITS VIDEOS TAB — or "" when the handle is not a channel at all.
@@ -796,16 +799,57 @@ channel_videos_url() {
 # The HOST gate fires first here too: an off-site URL is the same usage error at every verb
 # and must be reported before this engine's opinion about what a container looks like.
 normalize_container() {
-    local t=$1 host id=""
+    local t=$1 host id="" u_path=""
     case "$t" in
+    feed:subs | feed/subscriptions)
+        CONTAINER_ID="subscriptions"
+        CONTAINER_URL="https://www.youtube.com/feed/subscriptions"
+        return 0
+        ;;
+    feed:history | feed/history)
+        CONTAINER_ID="history"
+        CONTAINER_URL="https://www.youtube.com/feed/history"
+        return 0
+        ;;
     http://* | https://*)
         host=$(url_host "$t")
         is_own_host "$host" ||
             die "'$host' is not a YouTube host — this engine resolves YouTube only (another site needs its own engine: ting-play --engine NAME)"
+        u_path="${t#*://}"
+        u_path="${u_path#*/}"
+        u_path="${u_path%%\?*}"
+        u_path="${u_path%%#*}"
+        case "$u_path" in
+        feed/subscriptions)
+            CONTAINER_ID="subscriptions"
+            CONTAINER_URL="https://www.youtube.com/feed/subscriptions"
+            return 0
+            ;;
+        feed/history)
+            CONTAINER_ID="history"
+            CONTAINER_URL="https://www.youtube.com/feed/history"
+            return 0
+            ;;
+        esac
         id=$(url_list_id "$t")
         ;;
     youtube.com/* | www.youtube.com/* | m.youtube.com/* | music.youtube.com/* | \
         youtu.be/* | youtube-nocookie.com/* | www.youtube-nocookie.com/*)
+        u_path="${t#*/}"
+        u_path="${u_path%%\?*}"
+        u_path="${u_path%%#*}"
+        case "$u_path" in
+        feed/subscriptions)
+            CONTAINER_ID="subscriptions"
+            CONTAINER_URL="https://www.youtube.com/feed/subscriptions"
+            return 0
+            ;;
+        feed/history)
+            CONTAINER_ID="history"
+            CONTAINER_URL="https://www.youtube.com/feed/history"
+            return 0
+            ;;
+        esac
         id=$(url_list_id "https://$t")
         ;;
     *) id="$t" ;;
@@ -831,7 +875,7 @@ normalize_container() {
         ;;
     esac
     container_is_list_id "$id" ||
-        die "'$id' is not a container — --items reads a playlist (PL…), an album (OLAK5uy_…), a channel's uploads (UU…) or a channel (…/@handle). A single video is what --info and a play take"
+        die "'$id' is not a container — --items reads a playlist (PL…/WL/LL), an album (OLAK5uy_…), a channel's uploads (UU…) or a channel (…/@handle). A single video is what --info and a play take"
     CONTAINER_ID="$id"
     CONTAINER_URL="https://www.youtube.com/playlist?list=$id"
 }
@@ -951,6 +995,296 @@ search_run() {
         # caller. `engine` is what lets the player route a chosen row back here without
         # pattern-matching its URL. One line: every machine envelope in this suite is.
         printf '%s' "$FILTERED_JSON" | jq -c --arg e "$ENGINE_NAME" --arg q "$QUERY" \
+            '{status: "ok", engine: $e, query: $q, count: length,
+              results: map({id, title, url, channel, duration, duration_fmt, view_count,
+                            live_status, description, kind, access, thumbnail})}'
+        ;;
+    esac
+}
+
+# 4a. --feed
+# ==============================================================================
+
+feed_run() {
+    local query_str="feed:$FEED_TYPE"
+
+    # --feed home requires a signed-in browser session: YouTube web returns
+    # an empty list (count 0) for anonymous/signed-out users. Fail fast before network.
+    if ((${#COOKIE_ARGS[@]} == 0)); then
+        printf '%s: no cookies: --feed %s requires a signed-in browser session (set TING_COOKIE_BROWSER); or use --search\n' \
+            "$PROG" "$FEED_TYPE" >&2
+        if is_json_out; then
+            jq -nc --arg e "$ENGINE_NAME" --arg q "$query_str" --arg reason "cookies" \
+                '{status: "error", engine: $e, query: $q, count: 0, results: [], reason: $reason}'
+        fi
+        exit 2
+    fi
+
+    if ((NUM_RESULTS == 0)); then
+        if is_json_out; then
+            jq -nc --arg e "$ENGINE_NAME" --arg q "$query_str" \
+                '{status: "ok", engine: $e, query: $q, count: 0, results: []}'
+        fi
+        exit 0
+    fi
+
+    ensure_scratch
+    local cmd=(
+        yt-dlp
+        --flat-playlist
+        --dump-single-json
+        --playlist-items "1:${NUM_RESULTS}"
+        --skip-download
+        --no-warnings
+        --ignore-errors
+        --quiet
+        "https://www.youtube.com/"
+    )
+
+    local result_json rc=0 reason=""
+    # Do not silently fall back to anonymous for home feed: an unreadable cookie store
+    # would return a misleading empty result (count 0). Fail deterministically.
+    result_json=$("${cmd[@]}" "${COOKIE_ARGS[@]}" 2>"$ERR_FILE") || rc=$?
+    if ((rc != 0)) || [[ -z "$result_json" ]]; then
+        reason=$(classify_yt_dlp_error "$(cat "$ERR_FILE" 2>/dev/null)" "$rc")
+        if [[ "$reason" == "cookies" ]]; then
+            cookie_diagnosis "$(cat "$ERR_FILE" 2>/dev/null)" >&2
+        fi
+        if is_json_out; then
+            jq -nc --arg e "$ENGINE_NAME" --arg q "$query_str" --arg reason "$reason" \
+                '{status: "error", engine: $e, query: $q, count: 0, results: [], reason: $reason}'
+        else
+            cat "$ERR_FILE" >&2 2>/dev/null || true
+            echo "Error: feed failed for '$FEED_TYPE' ($reason)" >&2
+        fi
+        exit $((rc <= 1 ? 2 : rc))
+    fi
+
+    local filtered_json
+    filtered_json=$(printf '%s' "$result_json" | jq "$JQ_PRELUDE
+        [ (.entries // [])[]
+          | select((.ie_key // \"Youtube\") == \"Youtube\")
+          | select((.duration != null and (.duration | type) == \"number\") or .live_status == \"is_live\")
+          | . + {duration_fmt: (.duration | fmt_dur), description: (.description | oneline),
+                 kind: \"track\", access: \"full\", thumbnail: pick_thumb} ]")
+
+    case "$OUTPUT_MODE" in
+    list)
+        printf '%s' "$filtered_json" | jq -r --arg note "$MUSIC_CHAR" '
+            to_entries[]
+            | (.key + 1) as $i
+            | .value
+            | (if $note == "" then "" else $note + " " end) + "\($i). \(.title)",
+              "  - " + (if .live_status == "is_live" then "LIVE" else (.duration_fmt // "--") end),
+              "  - " + (if .view_count == null then "n/a" else (.view_count | tostring) end) + " views",
+              "  - \(.url)"'
+        ;;
+    raw)
+        printf '%s' "$filtered_json" | jq -c --arg e "$ENGINE_NAME" --arg q "$query_str" \
+            '{status: "ok", engine: $e, query: $q, count: length, results: .}'
+        ;;
+    *)
+        printf '%s' "$filtered_json" | jq -c --arg e "$ENGINE_NAME" --arg q "$query_str" \
+            '{status: "ok", engine: $e, query: $q, count: length,
+              results: map({id, title, url, channel, duration, duration_fmt, view_count,
+                            live_status, description, kind, access, thumbnail})}'
+        ;;
+    esac
+}
+
+# 4b. --related
+# ==============================================================================
+
+related_run() {
+    local target_id="$TARGET_ID"
+    local query_str="related:$target_id"
+
+    if ((NUM_RESULTS == 0)); then
+        if is_json_out; then
+            jq -nc --arg e "$ENGINE_NAME" --arg q "$query_str" \
+                '{status: "ok", engine: $e, query: $q, count: 0, results: []}'
+        fi
+        exit 0
+    fi
+
+    ensure_scratch
+
+    local post_data
+    post_data=$(jq -nc --arg id "$target_id" '{
+        context: {
+            client: {
+                clientName: "WEB",
+                clientVersion: "2.20260101.00.00",
+                hl: "en"
+            }
+        },
+        videoId: $id
+    }')
+
+    local curl_out curl_rc=0 resp http_code
+    curl_out=$(curl -s -S --max-time 5 -w "\n%{http_code}" \
+        -X POST "https://www.youtube.com/youtubei/v1/next?prettyPrint=false" \
+        -H "Content-Type: application/json" \
+        -d "$post_data" 2>"$ERR_FILE") || curl_rc=$?
+
+    if ((curl_rc != 0)) || [[ -z "$curl_out" ]]; then
+        if is_json_out; then
+            jq -nc --arg e "$ENGINE_NAME" --arg q "$query_str" --arg reason "network" \
+                '{status: "error", engine: $e, query: $q, count: 0, results: [], reason: $reason}'
+        else
+            cat "$ERR_FILE" >&2 2>/dev/null || true
+            echo "Error: related failed for '$target_id' (network)" >&2
+        fi
+        exit 2
+    fi
+
+    http_code=$(tail -n1 <<<"$curl_out")
+    resp=$(sed '$d' <<<"$curl_out")
+
+    if [[ "$http_code" == "429" || "$http_code" =~ ^5[0-9]{2}$ ]]; then
+        if is_json_out; then
+            jq -nc --arg e "$ENGINE_NAME" --arg q "$query_str" --arg reason "network" \
+                '{status: "error", engine: $e, query: $q, count: 0, results: [], reason: $reason}'
+        else
+            echo "Error: related failed for '$target_id' (network: HTTP $http_code)" >&2
+        fi
+        exit 2
+    elif [[ "$http_code" == "403" ]]; then
+        if is_json_out; then
+            jq -nc --arg e "$ENGINE_NAME" --arg q "$query_str" --arg reason "forbidden" \
+                '{status: "error", engine: $e, query: $q, count: 0, results: [], reason: $reason}'
+        else
+            echo "Error: related failed for '$target_id' (forbidden: HTTP $http_code)" >&2
+        fi
+        exit 2
+    elif [[ ! "$http_code" =~ ^2[0-9]{2}$ ]]; then
+        if is_json_out; then
+            jq -nc --arg e "$ENGINE_NAME" --arg q "$query_str" --arg reason "unavailable" \
+                '{status: "error", engine: $e, query: $q, count: 0, results: [], reason: $reason}'
+        else
+            echo "Error: related failed for '$target_id' (unavailable: HTTP $http_code)" >&2
+        fi
+        exit 2
+    fi
+
+    # Structure check: secondary results must be present in the response
+    printf '%s' "$resp" | jq -e '(.contents.twoColumnWatchNextResults.secondaryResults.secondaryResults.results != null)' >/dev/null 2>&1 || {
+        if is_json_out; then
+            jq -nc --arg e "$ENGINE_NAME" --arg q "$query_str" --arg reason "unavailable" \
+                '{status: "error", engine: $e, query: $q, count: 0, results: [], reason: $reason}'
+        else
+            echo "Error: related failed for '$target_id' (unavailable: missing secondary results)" >&2
+        fi
+        exit 2
+    }
+
+    local filtered_json
+    filtered_json=$(printf '%s' "$resp" | jq "$JQ_PRELUDE
+        def parse_dur_str:
+          if . == null or (test(\"^[0-9]+(:[0-9]+)*$\") | not) then null
+          else
+            (split(\":\") | map(tonumber)) as \$p
+            | if (\$p | length) == 3 then (\$p[0]*3600 + \$p[1]*60 + \$p[2])
+              elif (\$p | length) == 2 then (\$p[0]*60 + \$p[1])
+              elif (\$p | length) == 1 then \$p[0]
+              else null
+              end
+          end;
+
+        [ .contents.twoColumnWatchNextResults.secondaryResults.secondaryResults.results[]?
+          | if .lockupViewModel then
+              .lockupViewModel
+              | select(.contentType == \"LOCKUP_CONTENT_TYPE_VIDEO\")
+              | .contentId as \$id
+              | (.metadata.lockupMetadataViewModel.title.content // \"\") as \$title
+              | (.metadata.lockupMetadataViewModel.metadata.contentMetadataViewModel.metadataRows[0].metadataParts[0].text.content // \"\") as \$channel
+              | ([.. | .thumbnailBadgeViewModel?.text? // empty][0] // \"\") as \$raw_dur
+              | (\$raw_dur | parse_dur_str) as \$dur
+              | (if (\$raw_dur | test(\"LIVE\"; \"i\")) then \"is_live\" else null end) as \$live
+              | select((\$dur != null) or (\$live != null))
+              | {
+                  id: \$id,
+                  url: (\"https://www.youtube.com/watch?v=\" + \$id),
+                  title: \$title,
+                  channel: \$channel,
+                  duration: \$dur,
+                  duration_fmt: (\$dur | fmt_dur),
+                  view_count: null,
+                  live_status: \$live,
+                  description: \"\",
+                  kind: \"track\",
+                  access: \"full\",
+                  thumbnails: (.contentImage.thumbnailViewModel.image.sources // [])
+                }
+                | . + {thumbnail: pick_thumb}
+                | del(.thumbnails)
+            elif .compactVideoRenderer then
+              .compactVideoRenderer
+              | .videoId as \$id
+              | (.title.simpleText // (.title.runs[0].text // \"\")) as \$title
+              | (.shortBylineText.runs[0].text // \"\") as \$channel
+              | (.lengthText.simpleText // \"\") as \$raw_dur
+              | (\$raw_dur | parse_dur_str) as \$dur
+              | (if (.badges[0]?.metadataBadgeRenderer.label // \"\" | test(\"LIVE\"; \"i\")) then \"is_live\" else null end) as \$live
+              | select((\$dur != null) or (\$live != null))
+              | {
+                  id: \$id,
+                  url: (\"https://www.youtube.com/watch?v=\" + \$id),
+                  title: \$title,
+                  channel: \$channel,
+                  duration: \$dur,
+                  duration_fmt: (\$dur | fmt_dur),
+                  view_count: null,
+                  live_status: \$live,
+                  description: \"\",
+                  kind: \"track\",
+                  access: \"full\",
+                  thumbnails: (.thumbnails // [])
+                }
+                | . + {thumbnail: pick_thumb}
+                | del(.thumbnails)
+            else empty
+            end
+        ] | .[:$NUM_RESULTS]") || {
+        if is_json_out; then
+            jq -nc --arg e "$ENGINE_NAME" --arg q "$query_str" --arg reason "unavailable" \
+                '{status: "error", engine: $e, query: $q, count: 0, results: [], reason: $reason}'
+        else
+            echo "Error: related failed for '$target_id' (unavailable: parse error)" >&2
+        fi
+        exit 2
+    }
+
+    local raw_count filtered_count
+    raw_count=$(printf '%s' "$resp" | jq '(.contents.twoColumnWatchNextResults.secondaryResults.secondaryResults.results // []) | length' 2>/dev/null) || raw_count=0
+    filtered_count=$(printf '%s' "$filtered_json" | jq 'length' 2>/dev/null) || filtered_count=0
+    if ((NUM_RESULTS > 0 && raw_count > 0 && filtered_count == 0)); then
+        if is_json_out; then
+            jq -nc --arg e "$ENGINE_NAME" --arg q "$query_str" --arg reason "unavailable" \
+                '{status: "error", engine: $e, query: $q, count: 0, results: [], reason: $reason}'
+        else
+            echo "Error: related failed for '$target_id' (unavailable: could not parse entries)" >&2
+        fi
+        exit 2
+    fi
+
+    case "$OUTPUT_MODE" in
+    list)
+        printf '%s' "$filtered_json" | jq -r --arg note "$MUSIC_CHAR" '
+            to_entries[]
+            | (.key + 1) as $i
+            | .value
+            | (if $note == "" then "" else $note + " " end) + "\($i). \(.title)",
+              "  - " + (if .live_status == "is_live" then "LIVE" else (.duration_fmt // "--") end),
+              "  - " + (if .view_count == null then "n/a" else (.view_count | tostring) end) + " views",
+              "  - \(.url)"'
+        ;;
+    raw)
+        printf '%s' "$filtered_json" | jq -c --arg e "$ENGINE_NAME" --arg q "$query_str" \
+            '{status: "ok", engine: $e, query: $q, count: length, results: .}'
+        ;;
+    *)
+        printf '%s' "$filtered_json" | jq -c --arg e "$ENGINE_NAME" --arg q "$query_str" \
             '{status: "ok", engine: $e, query: $q, count: length,
               results: map({id, title, url, channel, duration, duration_fmt, view_count,
                             live_status, description, kind, access, thumbnail})}'
@@ -1478,6 +1812,16 @@ def item_url: if (.url | type) == "string" and (.url | startswith("http"))
 # ONE yt-dlp call, --flat-playlist: measured 2026-09-10, an 87-video list answers in 1.0s and
 # a 12-track album in 0.7s, and each entry already carries the whole item record.
 items_run() {
+    case "$CONTAINER_ID" in
+    WL | LL | subscriptions | history)
+        if ((${#COOKIE_ARGS[@]} == 0)); then
+            printf '%s: no cookies: %s requires a signed-in browser session (set TING_COOKIE_BROWSER)\n' \
+                "$PROG" "$CONTAINER_ID" >&2
+            items_fail "cookies"
+        fi
+        ;;
+    esac
+
     ensure_scratch
 
     local start=$((CURSOR_OFFSET + 1)) end=$((CURSOR_OFFSET + ITEMS_MAX))
@@ -1597,6 +1941,8 @@ engine verbs here unchanged; this argv is not part of the suite's public contrac
 
 Usage:
   ting-engine-yt --search [-n N] [--min-duration S] [--max-duration S] [--sort F] [-j] -- <query>
+  ting-engine-yt --feed <home> [-n N] [-j]
+  ting-engine-yt --related [-n N] [-j] -- <video-id | URL>
   ting-engine-yt --info [-j] -- <video-id | URL>
   ting-engine-yt --transcript [--sub-lang L] [-j [--segments]] -- <video-id | URL>
   ting-engine-yt --items [--cursor TOKEN] [-j] -- <list-id | playlist URL | channel>
@@ -1609,6 +1955,9 @@ Exactly one verb per call. A modifier belongs to one verb and is refused next to
   --search        Search. -n is how many to FETCH (default 20), not how many come back:
                   the duration bounds and the container gate both shorten it.
                   --sort: relevance | view_count | duration (default relevance)
+  --feed          Personalized or dynamic feed. Supported type: home (YouTube homepage feed).
+                  Requires signed-in browser session (set TING_COOKIE_BROWSER)
+  --related       Related video recommendations for a given seed track (Up Next)
   --info          Metadata, in the same row shape --search returns, plus chapters
   --transcript    The caption track as clean text. --sub-lang is a comma-separated
                   PRIORITY CHAIN (default en,zh-Hans,zh,ja)
@@ -1640,7 +1989,7 @@ EOF
 # person and --capabilities answers with it for the registry, so the two cannot disagree.
 # --stream, --capabilities and --raw are absent on purpose: the player's pipe, the registry's
 # question and a self-check are not things a caller of ting-play can ask for.
-PUBLIC_FLAGS=(--search -n --min-duration --max-duration --sort --info --items --cursor --transcript --sub-lang --segments --auth)
+PUBLIC_FLAGS=(--search -n --min-duration --max-duration --sort --info --items --cursor --transcript --sub-lang --segments --auth --feed --related)
 
 # Which verb a modifier belongs to. The gate below refuses it next to any other.
 MODIFIERS=()         # "flag verb" pairs, as given
@@ -1692,6 +2041,13 @@ while (($#)); do
         shift 2
         ;;
     --search) set_action search "$1"; shift ;;
+    --feed)
+        set_action feed "$1"
+        need_value "$@"
+        FEED_TYPE="$2"
+        shift 2
+        ;;
+    --related) set_action related "$1"; shift ;;
     --info) set_action info "$1"; shift ;;
     --items) set_action items "$1"; shift ;;
     --transcript) set_action transcript "$1"; shift ;;
@@ -1769,7 +2125,17 @@ _i=0
 while ((_i < ${#MODIFIERS[@]})); do
     _flag=${MODIFIERS[_i]%% *}
     _verb=${MODIFIERS[_i]#* }
-    [[ "$_verb" == "$ACTION" ]] || die "$_flag applies only to --$_verb"
+    case "$_flag" in
+    -n)
+        case "$ACTION" in
+        search | feed | related) ;;
+        *) die "$_flag applies only to --search, --feed and --related" ;;
+        esac
+        ;;
+    *)
+        [[ "$_verb" == "$ACTION" ]] || die "$_flag applies only to --$_verb"
+        ;;
+    esac
     _i=$((_i + 1))
 done
 
@@ -1786,6 +2152,9 @@ case "$ACTION" in
 capabilities | auth)
     ((${#positional[@]} == 0)) || die "$VERB_FLAG takes no argument — it reports about this engine, not a handle"
     ;;
+feed)
+    ((${#positional[@]} == 0)) || die "--feed takes no positional argument (got ${#positional[@]})"
+    ;;
 search)
     ((${#positional[@]} > 0)) || die "--search needs a query"
     for _q in "${positional[@]}"; do
@@ -1798,6 +2167,9 @@ search)
     if ((${#positional[@]} != 1)); then
         if [[ "$ACTION" == "items" ]]; then
             die "--items takes exactly one list id, playlist URL or channel (got ${#positional[@]})"
+        fi
+        if [[ "$ACTION" == "related" ]]; then
+            die "--related takes exactly one video id or URL (got ${#positional[@]})"
         fi
         die "$VERB_FLAG takes exactly one video id or URL (got ${#positional[@]})"
     fi
@@ -1843,6 +2215,17 @@ search)
     validate_enum "$SORT_FIELD" relevance view_count duration ||
         die "--sort must be one of: relevance, view_count, duration"
     ;;
+feed)
+    is_non_negative_int "$NUM_RESULTS" || die "-n must be a non-negative integer"
+    if ((NUM_RESULTS > 200)); then NUM_RESULTS=200; fi
+    [[ "$FEED_TYPE" == "home" ]] || die "unknown feed '$FEED_TYPE' (yt engine supports: home)"
+    ;;
+related)
+    is_non_negative_int "$NUM_RESULTS" || die "-n must be a non-negative integer"
+    if ((NUM_RESULTS > 50)); then NUM_RESULTS=50; fi
+    normalize_target "$TARGET"
+    [[ -n "$TARGET_ID" ]] || die "'$TARGET' does not contain a video id (to inspect a container, pass --items)"
+    ;;
 transcript)
     # The value reaches yt-dlp as one argv element, so this is a contract check, not a
     # quoting one.
@@ -1867,7 +2250,14 @@ items)
     ;;
 esac
 
-require_deps yt-dlp jq
+case "$ACTION" in
+related)
+    require_deps curl jq
+    ;;
+*)
+    require_deps yt-dlp jq
+    ;;
+esac
 
 case "$ACTION" in
 search) search_run ;;
@@ -1875,5 +2265,7 @@ info) info_run ;;
 transcript) transcript_run ;;
 items) items_run ;;
 stream) stream_run ;;
+feed) feed_run ;;
+related) related_run ;;
 esac
 exit 0

@@ -1562,6 +1562,7 @@ ting_gate() { # <env assignments and argv…> — which gate answered
     *"requires a terminal"*) echo tty ;;
     *"must be one of"*) echo mode ;;
     *"unknown flag"*) echo unknown-flag ;;
+    *"--feed"*) echo feed ;;
     *) echo other ;;
     esac
 }
@@ -1573,6 +1574,11 @@ report "…search args forwarded"     tty "$(ting_gate "$TING_TUI" --engine bili
 # there too and this pair would say nothing.
 report "…menu args, and -f is legal" tty "$(ting_gate "$TING_TUI" -f video --volume 60 "lofi")"
 report "…chrome args"               tty "$(ting_gate TING_LANG=zh "$TING_TUI" --theme nord "lofi")"
+report "…--feed home reaches the TTY gate" tty "$(ting_gate "$TING_TUI" --feed home)"
+report "ting: --feed nope is rejected" feed "$(ting_gate "$TING_TUI" --feed nope)"
+report "ting: --feed with query is rejected" feed "$(ting_gate "$TING_TUI" --feed home "query")"
+report "ting: --feed on engine without feed is rejected" feed "$(ting_gate "$TING_TUI" --engine bili --feed home)"
+report "ting: --feed= empty is rejected" feed "$(ting_gate "$TING_TUI" --feed=)"
 
 # ── WHERE A THIRD-PARTY ENGINE MAY LIVE: three places, one order. `ting` once scanned PATH
 # only when the sibling glob came up empty, which made the one situation an installed
@@ -1879,7 +1885,7 @@ _ro_verb_has() {
 _ro=0
 _ro_n=0
 for n in $ENGINES; do
-    for _v in --info --transcript --items; do
+    for _v in --info --transcript --items --related; do
         _ro_verb_has "$n" "$_v" || continue
         for _bad in "-f audio" "--quality low"; do
             _ro_n=$((_ro_n + 1))
@@ -1918,7 +1924,7 @@ report "every read-only verb refuses a stream flag" "$_ro_n" "$_ro"
 _ro_host=0
 _ro_host_n=0
 for n in $ENGINES; do
-    for _v in --info --transcript --items; do
+    for _v in --info --transcript --items --related; do
         _ro_verb_has "$n" "$_v" || continue
         # The companion flag rides along where the documented line has one — and whether
         # THIS engine has it is discovered, never tabled. --sub-lang is --transcript's and
@@ -2120,6 +2126,27 @@ for h in 'https://music.163.com/artist?id=6452' \
         _ner=$((_ner + 1))
 done
 report "ne refuses a non-song handle" 4 "$_ner"
+
+echo "── --feed, --related, and container feeds: offline gate ───────────"
+report "--feed requires value" 1 "$(rc shell/ting-engine-yt --feed)"
+report "--feed rejects unknown feed" 1 "$(rc shell/ting-engine-yt --feed nope)"
+report "--feed rejects positional args" 1 "$(rc shell/ting-engine-yt --feed home -- extra)"
+report "--feed home needs cookies" 2 "$(TING_COOKIE_BROWSER=none rc shell/ting-engine-yt --feed home -j)"
+report "…and says so in the envelope" 0 \
+    "$(TING_COOKIE_BROWSER=none jq_ok '.status=="error" and .reason=="cookies" and .count==0' shell/ting-engine-yt --feed home -j)"
+report "--related rejects off-site host" 1 "$(rc shell/ting-engine-yt --related -- 'https://bilibili.com/video/BV1xx')"
+report "--related rejects malformed id" 1 "$(rc shell/ting-engine-yt --related -- 'bad_id')"
+report "--related rejects playlist without video id" 1 "$(rc shell/ting-engine-yt --related -- 'https://www.youtube.com/playlist?list=PL123')"
+report "--related rejects no target" 1 "$(rc shell/ting-engine-yt --related)"
+report "-n works on --feed" 2 "$(TING_COOKIE_BROWSER=none rc shell/ting-engine-yt --feed home -n 5 -j)"
+report "-n works on --related" 2 "$(http_proxy=$NOPROXY https_proxy=$NOPROXY rc shell/ting-engine-yt --related -n 5 -- $MEDIA_ID)"
+report "-n rejected on --items" 1 "$(rc shell/ting-engine-yt --items -n 5 -- WL)"
+report "WL needs cookies" 2 "$(TING_COOKIE_BROWSER=none rc shell/ting-engine-yt --items -j -- WL)"
+report "LL needs cookies" 2 "$(TING_COOKIE_BROWSER=none rc shell/ting-engine-yt --items -j -- LL)"
+report "feed:subs needs cookies" 2 "$(TING_COOKIE_BROWSER=none rc shell/ting-engine-yt --items -j -- feed:subs)"
+report "feed:history needs cookies" 2 "$(TING_COOKIE_BROWSER=none rc shell/ting-engine-yt --items -j -- feed:history)"
+report "…and says so in the envelope" 0 \
+    "$(TING_COOKIE_BROWSER=none jq_ok '.status=="error" and .reason=="cookies"' shell/ting-engine-yt --items -j -- WL)"
 
 echo "── --items on a video: the offline gate ───────────────────────────"
 # The part-list pipeline itself (a part list feeding the store and the queue with no field
@@ -2542,6 +2569,10 @@ spawn ne-items-def shell/ting-play --engine ne --items -j -- "$NE_LIST"
 spawn bili-fav     shell/ting-play --engine bili --items -j -- "$BILI_FAV"
 spawn bili-season  shell/ting-play --engine bili --items -j -- "$BILI_SEASON"
 spawn yt-channel   shell/ting-play --engine yt --items -j -- "$YT_CHANNEL"
+spawn yt-related   shell/ting-play --engine yt --related -n 5 -j -- "$MEDIA_ID"
+if [ "$(shell/ting-play --auth --engine yt -j 2>/dev/null | jq -r '.auth' 2>/dev/null)" = "cookie" ]; then
+    spawn yt-feed-home shell/ting-play --engine yt --feed home -n 2 -j
+fi
 # The two halves of one cursor round trip, fired TOGETHER: the second is not waiting on the
 # first's token, it asserts that the token the first hands out is the offset the second reads.
 spawn yt-big1      shell/ting-play --engine yt --items -j -- "$YT_BIG"
@@ -2851,6 +2882,15 @@ for _slot in yt-items bili-items ne-items bili-fav bili-season yt-channel yt-big
         _cursor_shape=$((_cursor_shape + 1))
 done
 report "has_more and next_cursor answer together" 7 "$_cursor_shape"
+
+report "yt --related yields valid recommendations" 0 \
+    "$(jqv '.status=="ok" and .engine=="yt" and (.count|type)=="number" and .count>0 and ((.results|length)==.count)
+            and all(.results[]; (.id|type)=="string" and (.title|type)=="string" and (.channel|type)=="string"
+                                and .kind=="track" and .access=="full" and ((.duration!=null and (.duration|type)=="number") or .live_status=="is_live"))' "$(out yt-related)")"
+if [ "$(shell/ting-play --auth --engine yt -j 2>/dev/null | jq -r '.auth' 2>/dev/null)" = "cookie" ]; then
+    report "yt --feed home yields status ok with cookies" 0 \
+        "$(jqv '.status=="ok" and .query=="feed:home" and (.count|type)=="number" and .count>0 and ((.results|length)==.count)' "$(out yt-feed-home)")"
+fi
 
 BILI_ITEMS_OUT=$(out bili-items)
 report "an item list adds to a playlist, unmapped" 0 \

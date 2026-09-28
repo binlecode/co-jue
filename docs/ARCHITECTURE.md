@@ -373,8 +373,8 @@ User-Agent、Referer、cookie 来源、域名规则、风控分类只有一份�
 
 - 转发发生在 argv 解析与**一切依赖门之前**：只搜索不需要装 mpv。
 - 只看 `--` 之前的 argv：一条恰好读作 `--info` 的查询仍是一条查询。
-- 没给 `--engine` 时，`--info` / `--items` / `--transcript` 的句柄若是 URL，按主机选引擎 —— 与播放
-  同一条规则，否则同一条链接播得了、却查不了它的元数据；查询不是句柄，所以 `--search` 不嗅探。
+- 没给 `--engine` 时，`--info` / `--items` / `--transcript` / `--related` 的句柄若是 URL，按主机选引擎 —— 与播放
+  同一条规则，否则同一条链接播得了、却查不了它的元数据；查询与 feed 类型不是句柄，所以 `--search` / `--feed` 不嗅探。
 - 内部动词（`--stream`、`--capabilities`）不在转发表里，从入口调它们就是未知 flag，退 1。
   `--raw`（引擎对着自己站点的自检，未投影的原始记录）是 `ting-play` 唯一自己拒的 flag：`-j` 才是契约。
 
@@ -516,7 +516,7 @@ jq 的 `fmt_dur` 定义在**五个**里 —— 三个引擎、`ting-playlist` �
         v
    +-------------------------------------------------------------------
    | ting-play
-   |  (0) 引擎动词？（--search --info --items --transcript --auth，只看 -- 之前）
+   |  (0) 引擎动词？（--search --info --items --transcript --auth --feed --related，只看 -- 之前）
    |      是 -> forward_engine_verb：取出 --engine（没给且句柄是 URL 就按主机选），
    |           拒 --raw，其余原样 exec ting-engine-<name>          <- 在一切依赖门之前
    |  (a) 长选项**归一化**循环
@@ -816,7 +816,7 @@ ARCH-cli-contract.md「命令规格」）与 `-j`（结构化结果），
   第一版必须先证明队列会**推进**，而那是其余一切所依赖的部分。加它们是给 `ting-play` 加动词
   （每个都带自己的 `-j` 信封，「两个存储」），不是加一个新命令 —— 队列归播放器（ARCH-player.md「队列」）。
 - `ting` 的行是每次搜索对缓存结果的一次 jq —— 小 N 没问题；不是为几千条结果设计的。
-- **播放器里的 URL 嗅探** —— 缺省 `--engine` 时，`ting-play` 按 host 把 HTTP(S) 或已知简写 URL 路由到匹配的引擎（`yt` / `bili` / `ne`），播放与 `--info` / `--items` / `--transcript` 同一条规则；显式 `--engine` 优先，未知 host 取默认引擎（ARCH-cli-contract.md「命令规格」）。这张 host 表是播放器里唯一一处近似站点知识的东西，它只选文件、不解句柄 —— 句柄归不归这个站，仍由引擎的 host 白名单说了算。
+- **播放器里的 URL 嗅探** —— 缺省 `--engine` 时，`ting-play` 按 host 把 HTTP(S) 或已知简写 URL 路由到匹配的引擎（`yt` / `bili` / `ne`），播放与 `--info` / `--items` / `--transcript` / `--related` 同一条规则；显式 `--engine` 优先，未知 host 取默认引擎（ARCH-cli-contract.md「命令规格」）。这张 host 表是播放器里唯一一处近似站点知识的东西，它只选文件、不解句柄 —— 句柄归不归这个站，仍由引擎的 host 白名单说了算。
 - **一个共享的引擎库** —— 刻意不建；那份重复是"一个引擎是一个自足文件"的代价（「命令拓扑」）。
 - 不套 MCP 包装（「定位与设计目标」）。不依赖第三方媒体客户端（「系统全景」）。
 - **对一个 detached 播放器的运行时控制是一组动词**（`--set-volume N`、`--pause`、

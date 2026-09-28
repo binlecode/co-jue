@@ -25,6 +25,7 @@ type strs struct {
 	PLDeleted, PLRenameKey, PLRenamePrompt, PLRenamed                                         string
 	UndoKey, UndoAct, UndoHint, UndoDone, UndoNone, UndoStale                                 string
 	HistKey, HistAct, HistLabel, HistEmpty, HistAbsent, PartsKey, PartsAct, PartsOne, InfoAct string
+	RelatedKey, RelatedAct, FeedAct, RelatedNoCap, NoResults, NoResultsFor                    string
 	ChapKey, ChapNone, QKey, QLabel, QPlayNow, QRmKey, QMvKey, QClearKey, QOne, QElsewhere    string
 	QPlayingRow, QRemoved, QCleared, QStale                                                   string
 	PrefAct, PrefPinned, PrefFailed                                                           string
@@ -64,6 +65,9 @@ var strsEN = strs{
 	UndoStale: "changed elsewhere, not undone",
 	HistKey:   "history", HistAct: "History", HistLabel: "newest first", HistEmpty: "nothing listened to yet",
 	HistAbsent: "ting-history is not installed", PartsKey: "parts", PartsAct: "Parts",
+	RelatedKey: "related", RelatedAct: "Related", FeedAct: "Feed",
+	RelatedNoCap: "this engine does not support related recommendations",
+	NoResults:    "no results", NoResultsFor: "no results for",
 	PartsOne: "this video has only one part", InfoAct: "Info", ChapKey: "chapters", ChapNone: "this item has no chapters",
 	QKey: "queue", QLabel: "waiting", QPlayNow: "play now", QRmKey: "remove", QMvKey: "move", QClearKey: "clear",
 	QOne: "the queue holds only the track that is playing", QElsewhere: "go back to the results first, then open the queue",
@@ -107,6 +111,9 @@ var strsZH = strs{
 	UndoStale: "已被别处修改，未撤销",
 	HistKey:   "历史", HistAct: "收听历史", HistLabel: "最近收听", HistEmpty: "还没有收听记录",
 	HistAbsent: "未安装 ting-history", PartsKey: "分P", PartsAct: "分P", PartsOne: "这个视频只有一 P",
+	RelatedKey: "相关", RelatedAct: "相关", FeedAct: "推荐",
+	RelatedNoCap: "该引擎不支持相关推荐",
+	NoResults:    "无结果", NoResultsFor: "无结果",
 	InfoAct: "详情", ChapKey: "章节", ChapNone: "这个条目没有章节",
 	QKey: "队列", QLabel: "待播队列", QPlayNow: "立刻播", QRmKey: "移出", QMvKey: "上移/下移", QClearKey: "清空",
 	QOne: "队列里只有正在播放的这一首", QElsewhere: "先回结果列表再看队列",

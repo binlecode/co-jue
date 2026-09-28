@@ -2,8 +2,9 @@ ting — interactive terminal browser for the installed engines
 
 Usage:
   ting [options] [search query]
+  ting --feed home [options]
 
-With no query, prompts for one (interactive). Requires a terminal.
+With no query, defaults to your feed (home) on engines supporting it, or prompts for one. Requires a terminal.
 
 Search options (forwarded to ting-play --search):
   -n NUM    Number of results to fetch (default: 20)
@@ -16,6 +17,7 @@ Search options (forwarded to ting-play --search):
             them, so whatever is installed is what the e key offers.
 
 Menu options:
+  --feed TYPE   Launch directly into a feed: home (bypasses search prompt)
   -f MODE   Playback mode (default: audio): audio | video | fast
             (playback is detached — ascii/viz need a terminal to draw on)
   --volume N  mpv startup volume, 0-100 (default: unset -> mpv's own default);
@@ -77,6 +79,8 @@ Keys (List View):
            "are you sure" first; this is what replaced that question
   h        open the listening log as the row source; h again
            returns to the search results                    (needs ting-history)
+  g        open the focused row's related recommendations as the row source; g again
+           returns to the search results                   (only when the engine has --related)
   c        open the focused row's parts as the row source; c again returns to the
            search results          (only when the engine has --items)
   i        open the focused row's CHAPTERS as the row source, with one metadata

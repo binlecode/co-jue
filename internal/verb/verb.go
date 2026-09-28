@@ -271,6 +271,37 @@ func (s *Suite) Search(ctx context.Context, engine, query string, o SearchOpts) 
 	return &r, nil
 }
 
+// Feed asks one engine for a dynamic or personalized feed, through ting-play.
+func (s *Suite) Feed(ctx context.Context, engine, feedType string, n int) (*SearchResult, error) {
+	argv := []string{s.TPlay, "--feed", feedType, "--engine", engine, "-j"}
+	if n > 0 {
+		argv = append(argv, "-n", fmt.Sprint(n))
+	}
+	var r SearchResult
+	stderr, err := runErr(ctx, argv, nil, &r)
+	if err != nil {
+		return nil, err
+	}
+	r.Note = EngineMsg(engine, stderr)
+	return &r, nil
+}
+
+// Related asks one engine for related video recommendations for a target handle, through ting-play.
+func (s *Suite) Related(ctx context.Context, engine, target string, n int) (*SearchResult, error) {
+	argv := []string{s.TPlay, "--related", "--engine", engine, "-j"}
+	if n > 0 {
+		argv = append(argv, "-n", fmt.Sprint(n))
+	}
+	argv = append(argv, "--", target)
+	var r SearchResult
+	stderr, err := runErr(ctx, argv, nil, &r)
+	if err != nil {
+		return nil, err
+	}
+	r.Note = EngineMsg(engine, stderr)
+	return &r, nil
+}
+
 // PlayOpts are the launch flags; zero values are left to ting-play's own defaults.
 type PlayOpts struct {
 	Mode    string

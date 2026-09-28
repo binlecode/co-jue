@@ -43,8 +43,9 @@ func installDir() string {
 var usage string
 
 type flags struct {
-	engine, mode, volume, n, sort, minDur, maxDur, pageRows, color, theme string
-	query                                                                 []string
+	engine, mode, volume, n, sort, minDur, maxDur, pageRows, color, theme, feed string
+	feedSet                                                                     bool
+	query                                                                       []string
 }
 
 func parseArgs(args []string) flags {
@@ -60,18 +61,24 @@ func parseArgs(args []string) flags {
 	valued := map[string]*string{
 		"--engine": &f.engine, "-f": &f.mode, "--volume": &f.volume, "-n": &f.n,
 		"--sort": &f.sort, "--min-duration": &f.minDur, "--max-duration": &f.maxDur,
-		"-p": &f.pageRows, "--color": &f.color, "--theme": &f.theme,
+		"-p": &f.pageRows, "--color": &f.color, "--theme": &f.theme, "--feed": &f.feed,
 	}
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if dst, ok := valued[a]; ok {
 			*dst = need(i, a)
+			if a == "--feed" {
+				f.feedSet = true
+			}
 			i++
 			continue
 		}
 		if k, v, ok := strings.Cut(a, "="); ok && strings.HasPrefix(k, "--") {
 			if dst, ok := valued[k]; ok {
 				*dst = v
+				if k == "--feed" {
+					f.feedSet = true
+				}
 				continue
 			}
 		}
@@ -91,7 +98,7 @@ func parseArgs(args []string) flags {
 			fmt.Printf("ting %s\n", ver)
 			os.Exit(0)
 		case strings.HasPrefix(a, "-") && len(a) > 1:
-			die(1, "unknown flag '%s' (ting flags: -n --min-duration --max-duration --sort -f -p --engine --color --theme --volume); run 'ting -h'", a)
+			die(1, "unknown flag '%s' (ting flags: -n --min-duration --max-duration --sort -f -p --engine --color --theme --volume --feed); run 'ting -h'", a)
 		default:
 			f.query = append(f.query, a)
 		}
@@ -198,6 +205,23 @@ func main() {
 		}
 		idx = 0
 	}
+	feedOpt := ""
+	if f.feedSet {
+		if len(f.query) > 0 {
+			die(1, "--feed takes no search query (got '%s')", strings.Join(f.query, " "))
+		}
+		if f.feed != "home" {
+			die(1, "--feed must be home (got '%s')", f.feed)
+		}
+		if !engines[idx].Has("--feed") {
+			die(1, "engine '%s' does not support --feed", engines[idx].Name)
+		}
+		feedOpt = f.feed
+	} else if len(f.query) == 0 && engines[idx].Has("--feed") {
+		// Default startup mode: with no query, default to --feed home if the engine supports it.
+		// If loading the feed fails (e.g. no cookies or network error), it smoothly falls back to askSearch.
+		feedOpt = "home"
+	}
 
 	mode := pick(f.mode, cfg, "TING_PLAY_MODE")
 	if !oneOf(mode, "audio", "video", "fast") {
@@ -300,6 +324,7 @@ func main() {
 		Engines:   engines,
 		Engine:    idx,
 		Query:     strings.Join(f.query, " "),
+		Feed:      feedOpt,
 		Search:    verb.SearchOpts{N: n, MinDur: minDur, MaxDur: maxDur, Sort: sort},
 		Play:      verb.PlayOpts{Mode: mode, Quality: quality, Volume: volume},
 		Loop:      loop,

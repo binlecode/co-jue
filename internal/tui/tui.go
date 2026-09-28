@@ -21,6 +21,7 @@ type Options struct {
 	Engines   []verb.Engine
 	Engine    int // index into Engines
 	Query     string
+	Feed      string
 	Search    verb.SearchOpts
 	Play      verb.PlayOpts
 	Loop      string // off | seq | one
@@ -104,6 +105,7 @@ type Model struct {
 	all        []row
 	rows       []row
 	query      string
+	feed       string
 	cursor     int
 	top        int // scroll mode's window top; page mode derives its page from the cursor
 	psize      int // the last frame's page size
@@ -199,7 +201,12 @@ func New(ctx context.Context, suite *verb.Suite, opt Options) *Model {
 	if m.opt.Search.N <= 0 {
 		m.opt.Search.N = 20
 	}
-	m.query = opt.Query
+	if opt.Feed != "" && opt.Query == "" {
+		m.feed = opt.Feed
+		m.query = "feed:" + opt.Feed
+	} else {
+		m.query = opt.Query
+	}
 	m.chapFollow = -1
 	m.lyricsCache = make(map[string]*lyricTrack)
 	m.lyricActiveIdx = -1
@@ -423,6 +430,8 @@ func (m *Model) Init() tea.Cmd {
 	switch {
 	case m.prompting:
 		cmds = append(cmds, textinput.Blink)
+	case m.feed != "":
+		cmds = append(cmds, m.loadFeed(m.feed))
 	case urlTarget(m.query) != "":
 		m.query = urlTarget(m.query)
 		cmds = append(cmds, m.loadURL(m.query))
@@ -595,6 +604,16 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.partsDone(msg)
 		return m, nil
 
+	case relatedMsg:
+		m.pending, m.busy = nil, ""
+		m.relatedDone(msg)
+		return m, nil
+
+	case feedMsg:
+		m.pending, m.busy = nil, ""
+		cmd := m.feedDone(msg)
+		return m, cmd
+
 	case infoMsg:
 		m.pending, m.busy = nil, ""
 		m.infoDone(msg)
@@ -707,13 +726,13 @@ func (m *Model) searchDone(msg searchDoneMsg) tea.Cmd {
 		// Nothing matched: a notice, and the rows on screen stay — except on the first
 		// search, where there are none to keep and the list is simply empty, with the n / e
 		// / b keys that fix it all still there.
-		text := "no results"
+		text := m.s.NoResults
 		if req.kind == fetchNew {
-			text = `no results for "` + req.query + `"`
+			text = m.s.NoResultsFor + ` "` + req.query + `"`
 		}
 		m.notice(m.s.SearchAct+":", text)
 		if m.all == nil {
-			m.all, m.rows, m.query = []row{}, []row{}, req.query
+			m.all, m.rows, m.query, m.feed = []row{}, []row{}, req.query, ""
 		}
 		return nil
 	}
@@ -741,6 +760,7 @@ func (m *Model) searchDone(msg searchDoneMsg) tea.Cmd {
 		m.mark("TING_SORT_FIELD")
 	case fetchNew:
 		m.query = req.query
+		m.feed = ""
 	}
 	m.all, m.rows = rows, rows
 	m.cursor, m.top = 0, 0
