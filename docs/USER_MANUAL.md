@@ -23,7 +23,7 @@
   - [4.4 13 套现代主题与真彩三层灰阶（`t`）](#44-13-套现代主题与真彩三层灰阶t)
 - [5. 键盘交互心流与日常操作指南](#5-键盘交互心流与日常操作指南)
   - [5.1 常用快捷键完整速查卡](#51-常用快捷键完整速查卡)
-  - [5.2 一个视图，七大行源（可逆双向键位：g / b / h / c / i / u）](#52-一个视图七大行源可逆双向键位g--b--h--c--i--u)
+  - [5.2 一个视图，八大行源（可逆双向键位：g / b / B / h / c / i / u）](#52-一个视图八大行源可逆双向键位g--b--b--h--c--i--u)
   - [5.3 跨平台一键轮换音源（`e`）](#53-跨平台一键轮换音源e)
   - [5.4 播放模式与解码形态（`r` / `v` / `f`）](#54-播放模式与解码形态r--v--f)
   - [5.5 零阻断心流与 3 秒撤销安全兜底（`z` 机制）](#55-零阻断心流与-3-秒撤销安全兜底z-机制)
@@ -32,12 +32,12 @@
 - [6. 进阶玩法：后台脱离与命令行控制（Agent 契约面）](#6-进阶玩法后台脱离与命令行控制agent-契约面)
   - [6.1 终端关闭也能听：后台脱离播放（`ting-play -d`）](#61-终端关闭也能听后台脱离播放ting-play--d)
   - [6.2 实时状态监控与播放器无缝接管机制](#62-实时状态监控与播放器无缝接管机制)
-  - [6.3 推荐流与关联推荐 CLI 动词（`--feed` 与 `--related`）](#63-推荐流与关联推荐-cli-动词--feed-与---related)
+  - [6.3 推荐流、在线歌单与关联推荐 CLI 动词（`--feed`、`--playlists` 与 `--related`）](#63-推荐流在线歌单与关联推荐-cli-动词--feed--playlists-与---related)
   - [6.4 待播队列管理与管道编排（`--queue -`、`ting-history`）](#64-待播队列管理与管道编排--queue---ting-history)
   - [6.5 终端频谱与波形可视化（`-f viz`）](#65-终端频谱与波形可视化-f-viz)
 - [7. 账号关联与个人偏好配置手册](#7-账号关联与个人偏好配置手册)
   - [7.1 自动记住你的操作（11 个偏好键就地写回）](#71-自动记住你的操作11-个偏好键就地写回)
-  - [7.2 解锁高码率音质与专属推送：关联浏览器登录状态](#72-解锁高码率音质与专属推送关联浏览器登录状态)
+  - [7.2 关联浏览器登录状态与多账号切换（`TING_COOKIE_ACCOUNT` 与 `--account`）](#72-关联浏览器登录状态与多账号切换ting_cookie_account-与---account)
   - [7.3 推荐常用配置模板（~/.config/ting/config）](#73-推荐常用配置模板configtingconfig)
 - [8. 零门槛安装与环境准备](#8-零门槛安装与环境准备)
   - [8.1 系统核心依赖（5 大基础工具）](#81-系统核心依赖5-大基础工具)
@@ -116,6 +116,7 @@ ting "lofi hip hop"
 
 | 云端库名称 | 句柄格式 | 说明 |
 |---|---|---|
+| **在线歌单列表 (Playlists)** | `ting-play --playlists -j` 或 TUI 按大写 **`B`** | 提取账号下全部云端歌单（支持多账号） |
 | **稍后观看 (Watch Later)** | `WL` 或 `https://www.youtube.com/playlist?list=WL` | 个人暂存待看列表 |
 | **已喜欢的视频 (Liked)** | `LL` 或 `https://www.youtube.com/playlist?list=LL` | 个人赞过的视频与音乐 |
 | **订阅频道最新动态** | `feed:subs` 或完整 URL | 关注创作者的最近发布流（支持 500 首批量） |
@@ -123,6 +124,9 @@ ting "lofi hip hop"
 
 在终端中只需执行例如：
 ```sh
+# 提取当前音源账号下的在线歌单列表
+ting-play --playlists -j
+
 # 查看稍后观看列表
 ting-play --items -j -- WL
 
@@ -282,7 +286,7 @@ ting 采用统一渲染器，所有非搜索内容均作为**临时替换行源*
 - **视频分 P（`c`）**：在 B 站等多 P 视频上按 `c` 展开分集列表，再按 `c` 原路返回；
 - **分段章节（`i`）**：在油管或带时间轴的长音频上按 `i` 展开章节（如 `03:20 第一章`），光标随播放进度自动同步；再按 `i` 返回；
 - **待播队列（`u`）**：按下 `u` 打开当前播放器队列，可对等待中的曲目按 `x` 移出、按 `X` 清空、或用 `p` / `P` 调整顺序，再按 `u` 返回；
-- **外部粘贴（URL）**：粘贴外部专辑/合集链接自动展开为只读容器行，按 `b` 原路退出。
+- **外部粘贴（URL）**：粘贴外部专辑/合集链接自动展开为只读容器行，按 `b` 或 `B` 原路退出。
 
 > **零网络开销返回**：返回刚才的搜索列表走的是内存快照暂存，零网络往返延迟，原光标与翻页位置绝对保留。
 
@@ -375,16 +379,22 @@ ting-play --stop --all
 
 > **无缝接管机制**：若后台已运行着 `ting-play -d`，此时在终端启动 `ting` TUI 界面，系统会**自动捕获并无缝接管**正在播放的声音（横幅自动亮起、时钟自动对齐），退出 TUI 时也不会误杀原有声音。
 
-### 6.3 推荐流与关联推荐 CLI 动词（`--feed` 与 `--related`）
+### 6.3 推荐流、在线歌单与关联推荐 CLI 动词（`--feed`、`--playlists` 与 `--related`）
 
 ```sh
 # 1. 获取 YouTube 账号首页推荐流（单行 JSON 信封，20 条）
 ting-play --feed home -j -n 20
 
-# 2. 毫秒级提取指定单曲的 Up Next 关联推荐
+# 2. 提取当前音源账号下的在线歌单列表（大写 B 对应的底座动词）
+ting-play --playlists -j -n 50
+
+# 配合 --account 指定所用多账号邮箱或 authuser 序号
+ting-play --playlists --account bin.le.code@gmail.com -j
+
+# 3. 毫秒级提取指定单曲的 Up Next 关联推荐
 ting-play --related -j -n 10 -- ad05Qt95g4w
 
-# 3. 提取稍后观看 (WL) 或订阅更新 (feed:subs) 容器
+# 4. 提取稍后观看 (WL) 或订阅更新 (feed:subs) 容器
 ting-play --items -j -- WL
 ting-play --items -j -- feed:subs
 ```
@@ -420,13 +430,55 @@ ting-play -f viz -- "https://www.youtube.com/watch?v=ad05Qt95g4w"
 
 在 `ting` 界面中切换主题（`t`）、语言（`l`）、音源（`e`）、排序（`o`）、循环（`r`）、行号（`#`）、列表模式（`Tab`）或音质时，**退出时 ting 会自动将这些更改写回你的用户配置文件**，下次开机自动生效。
 
-### 7.2 解锁高码率音质与专属推送：关联浏览器登录状态
+### 7.2 关联浏览器登录状态与多账号切换（`TING_COOKIE_ACCOUNT` 与 `--account`）
 
 B 站、网易云等对游客用户限制了最高音频码率，而 YouTube 首页推荐与稍后观看需要登录态。如果你已在系统浏览器中登录了对应平台，ting 支持免鉴权直接借用浏览器 Cookie：
 
 ```ini
 # 借用 Chrome 浏览器登录凭据（亦可填 edge, safari, firefox, brave 等；设为 none 为纯匿名）
 TING_COOKIE_BROWSER=chrome
+```
+
+#### 💡 多 Google 账号无缝切换（指定首选账号）
+
+如果你的 Chrome 浏览器中同时登录了多个 Google / YouTube 账号（例如工作账号与个人日常账号），系统默认会使用第 1 个登录的主账号（`authuser=0`）。
+
+ting 支持通过 **邮箱地址** 或 **数字序号** 精准指定你听歌的首选账号：
+
+1. **配置文件永久生效（最推荐）**：
+   在 `~/.config/ting/config` 中设置：
+   ```ini
+   # 直接填写你要使用的 Google 账号邮箱（自动匹配 Chrome 登录态）：
+   TING_COOKIE_ACCOUNT=bin.le.code@gmail.com
+
+   # 或者直接填写 Google authuser 序号（0, 1, 2...）：
+   # TING_COOKIE_ACCOUNT=1
+   ```
+2. **命令行参数临时指定**：
+   ```sh
+   # 启动 TUI 时单次指定账号
+   ting --account bin.le.code@gmail.com
+   ting --account 1
+
+   # CLI 工具调用时指定账号
+   ting-play --feed home --account bin.le.code@gmail.com -j
+   ting-play --playlists --account 1 -j
+   ```
+3. **终端环境变量会话生效**：
+   ```sh
+   export TING_COOKIE_ACCOUNT="bin.le.code@gmail.com"
+   ting
+   ```
+
+#### 🔍 如何查看本机 Chrome 已登录的全部 Google 账号序号？
+在终端运行以下一行命令，即可列出 Chrome 默认配置中已登录的全部账号及对应序号：
+```sh
+jq -r '.account_info[] | "\(.email)"' "$HOME/Library/Application Support/Google/Chrome/Default/Preferences" 2>/dev/null | nl -v 0
+```
+你可以随时通过 `ting-play --auth` 校验当前生效的账号与绑定状态：
+```sh
+$ ting-play --auth
+cookie (chrome, account: bin.le.code@gmail.com, authuser: 1)
 ```
 
 ### 7.3 推荐常用配置模板（~/.config/ting/config）
@@ -439,6 +491,9 @@ TING_DEFAULT_ENGINE=yt
 
 # 借用哪个浏览器的登录态（开启专属推荐流与高码率）
 TING_COOKIE_BROWSER=chrome
+
+# 首选 Google/YouTube 账号（支持直接填邮箱或填 authuser 序号 0, 1...）
+TING_COOKIE_ACCOUNT=bin.le.code@gmail.com
 
 # 默认主题皮肤（推荐 minimal, tokyonight, nord, rosepine, catppuccin）
 TING_THEME=tokyonight
