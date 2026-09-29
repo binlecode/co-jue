@@ -57,12 +57,12 @@ echo "Tarball SHA-256: ${SHA256}"
 
 echo
 echo "=== 4. Locate and Update Tap Repository ==="
-TAP_DIR="$(brew --repository binlecode/ting 2>/dev/null || true)"
+TAP_DIR="$(brew --repository binlecode/tap 2>/dev/null || true)"
 if [ -z "$TAP_DIR" ] || [ ! -d "$TAP_DIR" ]; then
-  TAP_DIR="/opt/homebrew/Library/Taps/binlecode/homebrew-ting"
+  TAP_DIR="/opt/homebrew/Library/Taps/binlecode/homebrew-tap"
   if [ ! -d "$TAP_DIR" ]; then
-    echo "Cloning tap binlecode/ting..."
-    git clone git@github.com-binlecode:binlecode/homebrew-ting.git "$TAP_DIR"
+    echo "Cloning tap binlecode/tap..."
+    git clone git@github.com-binlecode:binlecode/homebrew-tap.git "$TAP_DIR"
   fi
 fi
 
@@ -95,15 +95,15 @@ fi
 echo
 echo "=== 6. Local Brew Upgrade & Contract Test ==="
 echo "Upgrading ting..."
-brew upgrade binlecode/ting/ting 2>/dev/null || brew reinstall binlecode/ting/ting
+brew upgrade binlecode/tap/ting 2>/dev/null || brew reinstall binlecode/tap/ting
 
 echo "Running brew test..."
-brew test binlecode/ting/ting
+brew test binlecode/tap/ting
 
 INSTALLED_VER="$(ting --version 2>/dev/null || echo "unknown")"
 echo
 echo "========================================================"
 echo "✨ Homebrew Formula Release Complete!"
 echo "   Installed: ${INSTALLED_VER}"
-echo "   Tap Formula: binlecode/ting/ting (${VERSION})"
+echo "   Tap Formula: binlecode/tap/ting (${VERSION})"
 echo "========================================================"
