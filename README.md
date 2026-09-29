@@ -29,7 +29,7 @@ ting-history --ls -n 20 -j             # machine: what was played, when, for how
 
 **Reference implementation.** This is a working shell suite that its author uses daily, published
 together with a design document that is longer than most of the code it describes. Since `v0.8.0`
-it is also tagged and installable from a tap (`brew install binlecode/ting/ting`) — what ships
+it is also tagged and installable from a tap (`brew tap binlecode/ting && brew install ting`) — what ships
 is these scripts plus a TUI built from source; the engines and the player stay in shell, so a Go
 rewrite of those stays ruled out (see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)「分析：驱动决定的六条发现」 for why).
 
@@ -206,8 +206,8 @@ go build -o shell/.ting-go ./cmd/ting   # the TUI is Go; everything else runs as
 Or install the released version:
 
 ```sh
-brew install binlecode/ting/ting
-# or: brew tap binlecode/ting && brew install ting
+brew tap binlecode/ting && brew install ting
+# or direct one-liner: brew install binlecode/ting/ting
 ```
 
 For daily use from a checkout, symlink the four public commands onto your PATH. Each goes

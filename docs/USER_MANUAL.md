@@ -542,9 +542,8 @@ sudo apt install yt-dlp mpv jq curl netcat-openbsd openssl
 
 #### 方式一：Homebrew 一键安装（推荐）
 ```sh
-brew install binlecode/ting/ting
-# 或显式添加 tap 后安装:
-# brew tap binlecode/ting && brew install ting
+brew tap binlecode/ting && brew install ting
+# 或直接单行全名安装: brew install binlecode/ting/ting
 ```
 
 #### 方式二：克隆源码编译（跨平台通用）
