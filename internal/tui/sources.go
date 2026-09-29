@@ -27,11 +27,12 @@ const (
 	srcQueue
 	srcRelated
 	srcPlaylists // the store's playlists themselves, one row each: b and w4 open it
+	srcRemotePlaylists // user's online playlists from engine: B opens it
 )
 
 // field is the title line's name for the source's label ("query='…'").
 func (s source) field() string {
-	return [...]string{"query", "playlist", "playlist", "history", "parts", "chapters", "queue", "related", "playlists"}[s]
+	return [...]string{"query", "playlist", "playlist", "history", "parts", "chapters", "queue", "related", "playlists", "playlists"}[s]
 }
 
 // stash is the one search the stored views return to. Going back replays it, never the
@@ -54,7 +55,7 @@ type info struct {
 // returning -1 so they never overwrite top-level workspaces.
 func (m *Model) currentWorkspace() Workspace {
 	switch m.src {
-	case srcPlaylist, srcContainer, srcPlaylists:
+	case srcPlaylist, srcContainer, srcPlaylists, srcRemotePlaylists:
 		return WsPlaylists
 	case srcHistory:
 		return WsHistory
@@ -464,10 +465,10 @@ func (m *Model) openFocusedPlaylist() {
 	}
 }
 
-// browseRemotePlaylists is B: a toggle — from a container back to search, otherwise
-// fetch the user's online playlists under account.
+// browseRemotePlaylists is B: a toggle — from a container, playlist or remote playlists back to search,
+// otherwise fetch the user's online playlists under account.
 func (m *Model) browseRemotePlaylists() tea.Cmd {
-	if m.src == srcContainer || m.src == srcPlaylist {
+	if m.src == srcContainer || m.src == srcPlaylist || m.src == srcRemotePlaylists {
 		m.backToSearch()
 		return nil
 	}
@@ -516,16 +517,58 @@ func (m *Model) remotePlaylistsDone(msg remotePlaylistsMsg) tea.Cmd {
 		m.notice(m.s.RemotePLAct+":", m.s.PLNoneRemote)
 		return nil
 	}
-	m.remotePick = msg.res.Playlists
-	pick := make([]verb.Playlist, len(m.remotePick))
-	for i, pl := range m.remotePick {
-		cnt := 0
+	rows := m.remotePlaylistRows(msg.res.Playlists, eng)
+	m.openRows(srcRemotePlaylists, m.s.RemotePLAct, rows)
+	return nil
+}
+
+func (m *Model) remotePlaylistRows(ls []verb.RemotePlaylist, eng string) []row {
+	rows := make([]row, 0, len(ls))
+	for _, pl := range ls {
+		rail := ""
 		if pl.Count != nil {
-			cnt = *pl.Count
+			unit := m.s.PLItems
+			if *pl.Count == 1 {
+				unit = m.s.PLItem
+			}
+			rail = fmt.Sprintf("%d %s", *pl.Count, unit)
 		}
-		pick[i] = verb.Playlist{Name: pl.Title, Count: cnt}
+		target := pl.URL
+		if target == "" {
+			target = pl.ID
+		}
+		ch := rail
+		if ch == "" {
+			ch = eng
+		}
+		rows = append(rows, row{
+			Title:   pl.Title,
+			URL:     target,
+			ID:      pl.ID,
+			Engine:  eng,
+			Channel: ch,
+			Rail:    rail,
+			N:       -1,
+			Sec:     -1,
+		})
 	}
-	return m.ask(askRemoteOpen, m.s.RemotePLPrompt, m.s.RemotePLAct, pick)
+	return rows
+}
+
+// openFocusedRemotePlaylist opens the remote playlist under the cursor.
+func (m *Model) openFocusedRemotePlaylist() tea.Cmd {
+	if m.src != srcRemotePlaylists || m.cursor >= len(m.rows) {
+		return nil
+	}
+	r := m.rows[m.cursor]
+	target := r.URL
+	if target == "" {
+		target = r.ID
+	}
+	if target == "" {
+		target = r.Title
+	}
+	return m.loadURL(target)
 }
 
 func (m *Model) playlistOnly() bool {
@@ -540,7 +583,7 @@ func (m *Model) playlistOnly() bool {
 // playing stops, but only once the undo offer has closed: the stopped player is the one
 // thing the undo could not put back.
 func (m *Model) removeFromPlaylist() {
-	if m.src == srcPlaylists {
+	if m.src == srcPlaylists || m.src == srcRemotePlaylists {
 		m.notice(m.s.PLAct+":", "D "+m.s.PLDelKey)
 		return
 	}

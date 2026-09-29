@@ -63,6 +63,8 @@ func (m *Model) statusItems() []string {
 	if m.src == srcPlaylists {
 		// The library's rows are lists, which have no engine of their own.
 		it = []string{strconv.Itoa(len(m.rows)) + " " + m.s.PLOpen}
+	} else if m.src == srcRemotePlaylists {
+		it = []string{m.engine().Name, strconv.Itoa(len(m.rows)) + " " + m.s.RemotePLOpen}
 	} else if m.src == srcSearch {
 		sort := map[string]string{"relevance": m.s.SortRelevance, "view_count": m.s.SortViews,
 			"duration": m.s.SortDur}[m.opt.Search.Sort]
@@ -161,7 +163,7 @@ func (m *Model) navItems() []hint {
 	switch m.src {
 	case srcQueue:
 		it = append(it, hint{m.g.Enter, m.s.QPlayNow})
-	case srcPlaylists:
+	case srcPlaylists, srcRemotePlaylists:
 		it = append(it, hint{m.g.Enter, m.s.PLOpenKey})
 	default:
 		it = append(it, hint{m.g.Enter, m.s.Play})
@@ -204,11 +206,17 @@ func (m *Model) navItems() []hint {
 				it = append(it, hint{"a", m.s.PLAdd})
 			}
 			it = append(it, hint{"b", m.s.BackSearch})
+		case m.src == srcRemotePlaylists:
+			if full {
+				it = append(it, hint{"b", m.s.PLOpen})
+			}
 		case full:
 			it = append(it, hint{"a", m.s.PLAdd}, hint{"b", m.s.PLOpen})
 		}
 	}
-	if full && search && m.engine().Has("--playlists") {
+	if m.src == srcRemotePlaylists {
+		it = append(it, hint{"B", m.s.BackSearch})
+	} else if full && search && m.engine().Has("--playlists") {
 		it = append(it, hint{"B", m.s.RemotePLOpen})
 	}
 	if m.suite.THistory != "" {
@@ -489,7 +497,7 @@ func (m *Model) playingRow(r row) bool {
 // the active synchronized lyric line when peeking on the playing row).
 func (m *Model) detailLines(cols, i int) ([]string, int, int, bool, bool) {
 	r := m.rows[i]
-	if m.src == srcPlaylists {
+	if m.src == srcPlaylists || m.src == srcRemotePlaylists {
 		// A list's details are its count and when it last changed, already on Channel.
 		return []string{m.w.trunc(r.Channel, cols-2, m.g.Ell)}, 1, -1, false, false
 	}

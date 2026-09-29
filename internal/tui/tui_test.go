@@ -614,10 +614,11 @@ func TestRemotePlaylistsKey(t *testing.T) {
 		t.Fatalf("B with 0 playlists should show PLNoneRemote, got %q: %q", m3.noticeL, m3.noticeT)
 	}
 
-	// 4. Engine with --playlists, account has playlists -> opens picker
+	// 4. Engine with --playlists, account has playlists -> opens main stage view
 	m4 := model(t, Options{})
 	m4.prompting = false
-	cmd := m4.remotePlaylistsDone(remotePlaylistsMsg{
+	m4.all, m4.rows = []row{{Title: "song", Engine: "yt"}}, []row{{Title: "song", Engine: "yt"}}
+	m4.remotePlaylistsDone(remotePlaylistsMsg{
 		res: &verb.RemotePlaylistsResult{
 			Status: "ok",
 			Engine: "yt",
@@ -628,29 +629,40 @@ func TestRemotePlaylistsKey(t *testing.T) {
 			},
 		},
 	})
-	if cmd == nil || !m4.prompting || m4.askKind != askRemoteOpen || len(m4.pick) != 2 {
-		t.Fatalf("remotePlaylistsDone with 2 playlists should prompt askRemoteOpen, got prompting=%v kind=%v pick=%d", m4.prompting, m4.askKind, len(m4.pick))
+	if m4.prompting || m4.src != srcRemotePlaylists || len(m4.rows) != 2 {
+		t.Fatalf("remotePlaylistsDone should open srcRemotePlaylists with 2 rows, got prompting=%v src=%v rows=%d", m4.prompting, m4.src, len(m4.rows))
 	}
-	if m4.pickCursor != 0 {
-		t.Fatalf("pickCursor should start at 0, got %d", m4.pickCursor)
+	if m4.cursor != 0 {
+		t.Fatalf("cursor should start at 0, got %d", m4.cursor)
 	}
 
 	// Move cursor down with j
 	key(m4, "j")
-	if m4.pickCursor != 1 {
-		t.Fatalf("j should move pickCursor to 1, got %d", m4.pickCursor)
+	if m4.cursor != 1 {
+		t.Fatalf("j should move cursor to 1, got %d", m4.cursor)
 	}
 
 	// Move cursor up with k
 	key(m4, "k")
-	if m4.pickCursor != 0 {
-		t.Fatalf("k should move pickCursor to 0, got %d", m4.pickCursor)
+	if m4.cursor != 0 {
+		t.Fatalf("k should move cursor to 0, got %d", m4.cursor)
 	}
 
 	// Move cursor down with down arrow
 	key(m4, "down")
-	if m4.pickCursor != 1 {
-		t.Fatalf("down should move pickCursor to 1, got %d", m4.pickCursor)
+	if m4.cursor != 1 {
+		t.Fatalf("down should move cursor to 1, got %d", m4.cursor)
+	}
+
+	// Enter on focused remote playlist loads the URL
+	if cmd := m4.openFocusedRemotePlaylist(); cmd == nil {
+		t.Fatalf("openFocusedRemotePlaylist should return a command to load the playlist")
+	}
+
+	// B in srcRemotePlaylists toggles back to search
+	key(m4, "B")
+	if m4.src != srcSearch || len(m4.rows) != 1 {
+		t.Fatalf("B in srcRemotePlaylists should return to search, got src=%v rows=%d", m4.src, len(m4.rows))
 	}
 
 	// Test 22-item window bound

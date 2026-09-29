@@ -22,9 +22,9 @@ type strs struct {
 	UItems, UChap, Likes, Total, URLAct, ContainerAct, BackSearch                                    string
 	PLAdd, PLOpen, PLOpenKey, PLsLabel, PLAct, PLPromptAdd, PLPromptNew, PLAdded, PLEmpty, PLNone    string
 	PLItem, PLItems, PLAbsent, PLSearchOnly, PLListOnly, PLRmKey, PLRemoved, PLDelKey                string
-	PLDeleted, PLRenameKey, PLRenamePrompt, PLRenamed                                                string
-	RemotePLAct, RemotePLOpen, RemotePLPrompt, RemotePLNotSupported, RemotePLNoCookies, PLNoneRemote string
-	UndoKey, UndoAct, UndoHint, UndoDone, UndoNone, UndoStale                                        string
+	PLDeleted, PLRenameKey, PLRenamePrompt, PLRenamed                                 string
+	RemotePLAct, RemotePLOpen, RemotePLNotSupported, RemotePLNoCookies, PLNoneRemote string
+	UndoKey, UndoAct, UndoHint, UndoDone, UndoNone, UndoStale                         string
 	HistKey, HistAct, HistLabel, HistEmpty, HistAbsent, PartsKey, PartsAct, PartsOne, InfoAct        string
 	RelatedKey, RelatedAct, FeedAct, RelatedNoCap, NoResults, NoResultsFor                           string
 	ChapKey, ChapNone, QKey, QLabel, QPlayNow, QRmKey, QMvKey, QClearKey, QOne, QElsewhere           string
@@ -66,7 +66,6 @@ var strsEN = strs{
 	PLDelKey: "del-list", PLDeleted: "Deleted playlist", PLRenameKey: "rename",
 	PLRenamePrompt: "New name for playlist (Esc cancels)", PLRenamed: "Renamed to",
 	RemotePLAct: "Online Playlists", RemotePLOpen: "online playlists",
-	RemotePLPrompt:       "Open which online playlist (number or name, Esc cancels)",
 	RemotePLNotSupported: "this engine does not support online playlists",
 	RemotePLNoCookies:    "requires signed-in session (cookies missing)",
 	PLNoneRemote:         "no online playlists found under account",
@@ -124,7 +123,6 @@ var strsZH = strs{
 	PLDelKey: "删列表", PLDeleted: "已删除列表", PLRenameKey: "重命名",
 	PLRenamePrompt: "重命名列表名称（Esc 取消）", PLRenamed: "已重命名",
 	RemotePLAct: "在线歌单", RemotePLOpen: "在线歌单",
-	RemotePLPrompt:       "打开哪个在线歌单（序号或名称，Esc 取消）",
 	RemotePLNotSupported: "该音源不支持在线歌单",
 	RemotePLNoCookies:    "需要有效登录状态（Cookie 缺失）",
 	PLNoneRemote:         "账号下尚无在线歌单",

@@ -122,7 +122,6 @@ type Model struct {
 	askHead    string
 	pick       []verb.Playlist
 	pickCursor int
-	remotePick []verb.RemotePlaylist
 	payload    verb.QueueItem
 	input      textinput.Model
 

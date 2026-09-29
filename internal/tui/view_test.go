@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/binlecode/ting/internal/verb"
-	"github.com/charmbracelet/bubbles/textinput"
 )
 
 func TestFullTUIFrameVisual(t *testing.T) {
@@ -160,47 +159,35 @@ func TestRemotePlaylistsFrameVisual(t *testing.T) {
 			Theme: "minimal",
 			Keys:  "full",
 		},
-		g:         glyphsUTF,
-		p:         paletteFor(true, "minimal", Background{}, true),
-		w:         newWidth(false),
-		width:     80,
-		height:    24,
-		query:     "lofi",
-		src:       srcSearch,
-		prompting: true,
-		askKind:   askRemoteOpen,
-		askLabel:  strsZH.RemotePLPrompt,
-		askHead:   strsZH.RemotePLAct,
-		pick: []verb.Playlist{
-			{Name: "Liked videos", Count: 12},
-			{Name: "Watch later", Count: 5},
-		},
-		remotePick: []verb.RemotePlaylist{
-			{ID: "LL", Title: "Liked videos", URL: "https://www.youtube.com/playlist?list=LL"},
-			{ID: "WL", Title: "Watch later", URL: "https://www.youtube.com/playlist?list=WL"},
-		},
+		g:      glyphsUTF,
+		p:      paletteFor(true, "minimal", Background{}, true),
+		w:      newWidth(false),
+		width:  80,
+		height: 24,
+		label:  strsZH.RemotePLAct,
+		src:    srcRemotePlaylists,
 		rows: []row{
-			{Engine: "yt", Title: "Song 1", Duration: floatPtr(120.0)},
+			{Title: "Liked videos", Engine: "yt", Channel: "12 首", Rail: "12 首", N: -1, Sec: -1},
+			{Title: "Watch later", Engine: "yt", Channel: "5 首", Rail: "5 首", N: -1, Sec: -1},
 		},
 	}
 	m.all = m.rows
-	m.input = textinput.New()
-	m.input.Focus()
+	m.stage = newStage()
 
 	frame := m.View()
-	t.Logf("=== TUI Frame Remote Playlists Picker ===\n%s\n", frame)
+	t.Logf("=== TUI Frame Remote Playlists ===\n%s\n", frame)
 
 	if !strings.Contains(frame, "在线歌单") {
-		t.Errorf("frame missing picker title '在线歌单'")
+		t.Errorf("frame missing title '在线歌单'")
 	}
 	if !strings.Contains(frame, "Liked videos") || !strings.Contains(frame, "Watch later") {
-		t.Errorf("frame missing playlist names in picker")
+		t.Errorf("frame missing playlist names")
 	}
 	if !strings.Contains(frame, "12 首") || !strings.Contains(frame, "5 首") {
-		t.Errorf("frame missing playlist counts in picker")
+		t.Errorf("frame missing playlist counts")
 	}
-	if !strings.Contains(frame, "打开哪个在线歌单") {
-		t.Errorf("frame missing prompt label '打开哪个在线歌单'")
+	if !strings.Contains(frame, "返回搜索列表") {
+		t.Errorf("frame missing hint '返回搜索列表'")
 	}
 }
 

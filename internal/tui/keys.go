@@ -124,12 +124,21 @@ func (m *Model) updateList(k tea.KeyMsg) tea.Cmd {
 		case srcPlaylists:
 			m.openFocusedPlaylist()
 			return nil
+		case srcRemotePlaylists:
+			return m.openFocusedRemotePlaylist()
 		}
 		return m.playCmd()
 	case "esc":
 		if m.src == srcPlaylist {
 			m.openPlaylists()
-		} else if m.src == srcPlaylists {
+		} else if m.src == srcContainer && m.stage.Has(WsPlaylists) && m.stage.State(WsPlaylists).Src == srcRemotePlaylists {
+			st := m.stage.State(WsPlaylists)
+			m.src, m.label = st.Src, st.Label
+			m.all, m.rows = st.All, st.Rows
+			m.cursor, m.top = st.Cursor, st.Top
+			m.filter, m.filterOn = st.Filter, st.FilterOn
+			m.clampCursor()
+		} else if m.src == srcPlaylists || m.src == srcRemotePlaylists || m.src == srcContainer {
 			m.backToSearch()
 		}
 		return nil
@@ -169,7 +178,7 @@ func (m *Model) updateList(k tea.KeyMsg) tea.Cmd {
 			m.mark("TING_THEME")
 		}
 	case "+":
-		if m.src == srcPlaylists {
+		if m.src == srcPlaylists || m.src == srcRemotePlaylists {
 			m.notice(m.s.QAct+":", m.s.PLListOnly)
 			return nil
 		}
@@ -181,7 +190,7 @@ func (m *Model) updateList(k tea.KeyMsg) tea.Cmd {
 		m.applyFilter()
 	case "a", "A":
 		// The library's rows are lists, not tracks: there is nothing under the cursor to add.
-		if m.src == srcPlaylists {
+		if m.src == srcPlaylists || m.src == srcRemotePlaylists {
 			m.notice(m.s.PLAct+":", m.s.PLListOnly)
 			return nil
 		}
@@ -503,6 +512,11 @@ func (m *Model) updateFilter(k tea.KeyMsg) tea.Cmd {
 		case srcPlaylists:
 			m.openFocusedPlaylist()
 			return nil
+		case srcRemotePlaylists:
+			cmd := m.openFocusedRemotePlaylist()
+			m.filterOn, m.filter = false, ""
+			m.applyFilter()
+			return cmd
 		}
 		return m.playCmd()
 	case "ctrl+v":
@@ -550,14 +564,13 @@ func (m *Model) applyFilter() {
 type askKind int
 
 const (
-	askSearch     askKind = iota // the startup query and n
-	askNew                       // a: the first playlist's name
-	askAdd                       // a: which playlist (number or name)
-	askRemoteOpen                // B: which remote playlist (number or name)
-	askRename                    // R: the new name
+	askSearch askKind = iota // the startup query and n
+	askNew                   // a: the first playlist's name
+	askAdd                   // a: which playlist (number or name)
+	askRename                // R: the new name
 )
 
-// ask opens the prompt. pick is the numbered list a (and B) choose from, drawn above it.
+// ask opens the prompt. pick is the numbered list a chooses from, drawn above it.
 func (m *Model) ask(kind askKind, label, head string, pick []verb.Playlist) tea.Cmd {
 	m.prompting, m.askKind, m.askLabel, m.askHead, m.pick, m.pickCursor = true, kind, label, head, pick, 0
 	m.input.SetValue("")
@@ -630,8 +643,6 @@ func (m *Model) updatePrompt(k tea.KeyMsg) tea.Cmd {
 			m.doAdd(v)
 		case askAdd:
 			m.doAdd(pickName(v, pick))
-		case askRemoteOpen:
-			return m.openRemotePlaylist(v)
 		case askRename:
 			m.doRename(v)
 		}
@@ -640,31 +651,6 @@ func (m *Model) updatePrompt(k tea.KeyMsg) tea.Cmd {
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(k)
 	return cmd
-}
-
-func (m *Model) openRemotePlaylist(v string) tea.Cmd {
-	target := ""
-	if n, err := strconv.Atoi(v); err == nil && len(v) <= 9 && n >= 1 && n <= len(m.remotePick) {
-		target = m.remotePick[n-1].URL
-		if target == "" {
-			target = m.remotePick[n-1].ID
-		}
-	} else {
-		for _, pl := range m.remotePick {
-			if pl.Title == v {
-				target = pl.URL
-				if target == "" {
-					target = pl.ID
-				}
-				break
-			}
-		}
-	}
-	if target == "" {
-		target = v
-	}
-	m.remotePick = nil
-	return m.loadURL(target)
 }
 
 // pickName resolves an answer to the picker: a number on the list is that row's name (it
@@ -678,7 +664,7 @@ func pickName(v string, pick []verb.Playlist) string {
 }
 
 func (m *Model) cancelPrompt() tea.Cmd {
-	m.prompting, m.pick, m.remotePick, m.pickCursor = false, nil, nil, 0
+	m.prompting, m.pick, m.pickCursor = false, nil, 0
 	m.input.Blur()
 	if m.all == nil && m.pending == nil && m.busy == "" {
 		return tea.Quit
