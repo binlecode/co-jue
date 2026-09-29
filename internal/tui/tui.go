@@ -98,6 +98,7 @@ type Model struct {
 	src        source
 	label      string // a stored source's name for itself, on the title line
 	plName     string // the playlist on screen, as the store spells it
+	renameFrom string // the playlist R is renaming: the one on screen, or the library's focused row
 	total      int    // a parts or chapters list's length, for "part k/total"
 	totalFmt   string // a parts list's summed length, when every part has one
 	stash      stash
@@ -529,7 +530,9 @@ func (m *Model) coverCmd() tea.Cmd {
 	if !c.on || c.inFlight != "" || m.prompting && m.all == nil || len(m.rows) == 0 {
 		return nil
 	}
-	if !m.layout().coverGate {
+	// The wide frame draws the cover in the inspector column, whatever the list's gate says.
+	f := m.layout()
+	if !f.coverGate && (m.geom.Mode != layout.Wide || m.geom.Inspector.Empty()) {
 		return nil
 	}
 	u := m.rows[m.cursor].Thumb

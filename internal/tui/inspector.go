@@ -46,18 +46,21 @@ func (ins *inspectorModel) UpdateLyrics(segments []verb.Segment, activeIdx int, 
 	ins.loading = loading
 }
 
-// CoverBox returns the absolute screen coordinates (1-based row and col) for two-pass Kitty placement.
+// CoverBox returns the absolute screen coordinates (1-based row and col) for two-pass Kitty
+// placement: the first line under the header, which View leaves blank for it. bounds.Y is the
+// 0-based screen row the column starts on, set by the frame that draws it.
 func (ins *inspectorModel) CoverBox() (row, col, w, h int, ok bool) {
-	if ins.bounds.Empty() || ins.thumbURL == "" {
+	if ins.bounds.Empty() || ins.thumbURL == "" || ins.bounds.H < 1+coverRows {
 		return 0, 0, 0, 0, false
 	}
-	// Placed at the top of the inspector rectangle
-	return ins.bounds.Y + 1, ins.bounds.X + 1, min(14, ins.bounds.W), min(7, ins.bounds.H), true
+	return ins.bounds.Y + 2, ins.bounds.X + 1, min(coverCols, ins.bounds.W), min(coverRows, ins.bounds.H), true
 }
 
 // View outputs pure text with blank padding for the cover art, strictly avoiding raw Kitty escapes
 // inside the multi-column text stream to prevent Lipgloss line-splitting corruption.
-func (ins *inspectorModel) View(p palette, s strs, g glyphs, w width) string {
+// coverOn is whether a cover can be drawn at all: without it there is no image to make room
+// for, and the blank block would only push the lyrics down.
+func (ins *inspectorModel) View(p palette, s strs, g glyphs, w width, coverOn bool) string {
 	if ins.bounds.Empty() {
 		return ""
 	}
@@ -67,14 +70,11 @@ func (ins *inspectorModel) View(p palette, s strs, g glyphs, w width) string {
 	// Header
 	sb.WriteString(p.Bold + s.InspectorTitle + p.Reset + "\n")
 
-	// Cover art placeholder (blank area so two-pass Kitty placement has a clean canvas)
-	coverH := 7
-	if ins.bounds.H < 18 {
-		coverH = 4
-	}
-	if ins.thumbURL != "" {
-		for i := 0; i < coverH; i++ {
-			sb.WriteString(strings.Repeat(" ", ins.bounds.W) + "\n")
+	// Cover art placeholder (blank area so two-pass Kitty placement has a clean canvas). The
+	// image is always coverRows tall, so the room left for it is too.
+	if ins.thumbURL != "" && coverOn && ins.bounds.H >= 1+coverRows {
+		for i := 0; i < coverRows; i++ {
+			sb.WriteString("\n")
 		}
 	}
 

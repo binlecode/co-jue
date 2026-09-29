@@ -26,11 +26,12 @@ const (
 	srcChapters
 	srcQueue
 	srcRelated
+	srcPlaylists // the store's playlists themselves, one row each: b and w4 open it
 )
 
 // field is the title line's name for the source's label ("query='…'").
 func (s source) field() string {
-	return [...]string{"query", "playlist", "playlist", "history", "parts", "chapters", "queue", "related"}[s]
+	return [...]string{"query", "playlist", "playlist", "history", "parts", "chapters", "queue", "related", "playlists"}[s]
 }
 
 // stash is the one search the stored views return to. Going back replays it, never the
@@ -53,7 +54,7 @@ type info struct {
 // returning -1 so they never overwrite top-level workspaces.
 func (m *Model) currentWorkspace() Workspace {
 	switch m.src {
-	case srcPlaylist, srcContainer:
+	case srcPlaylist, srcContainer, srcPlaylists:
 		return WsPlaylists
 	case srcHistory:
 		return WsHistory
@@ -183,6 +184,10 @@ func (m *Model) switchWorkspace(target Workspace) tea.Cmd {
 		if target == WsQueue && m.playerID != "" {
 			return m.revalidateQueueCmd()
 		}
+		// The library is a local read: another writer may have changed it since.
+		if m.src == srcPlaylists {
+			m.reloadPlaylists("")
+		}
 		return nil
 	}
 
@@ -195,7 +200,13 @@ func (m *Model) switchWorkspace(target Workspace) tea.Cmd {
 	case WsQueue:
 		m.openQueue()
 	case WsPlaylists:
-		return m.browsePlaylists()
+		if !m.openPlaylists() {
+			// Nothing to show: the tab goes back to the view still on screen.
+			if ws := m.currentWorkspace(); ws >= 0 {
+				m.stage.SwitchTo(ws)
+				m.navbar.SwitchTo(ws)
+			}
+		}
 	case WsHistory:
 		m.openHistory()
 	}
@@ -363,26 +374,94 @@ func (m *Model) doAdd(name string) {
 	m.arm("playlist", w, m.s.PLAct+":", m.s.PLAdded+" "+m.g.Arrow+" "+name)
 }
 
-// browsePlaylists is b: a toggle — from a playlist (or a pasted container) back to the
-// results, otherwise the picker.
-func (m *Model) browsePlaylists() tea.Cmd {
-	if m.src == srcPlaylist || m.src == srcContainer {
+// browsePlaylists is b: a toggle — from the library, a playlist or a pasted container back
+// to the results, otherwise the library.
+func (m *Model) browsePlaylists() {
+	if m.src == srcPlaylists || m.src == srcPlaylist || m.src == srcContainer {
 		m.backToSearch()
-		return nil
+		return
 	}
+	m.openPlaylists()
+}
+
+// playlistRows is the library as rows: the name is the title, the count rides the rail
+// where a track's clock would, and the details say when it last changed.
+func (m *Model) playlistRows(ls []verb.Playlist) []row {
+	rows := make([]row, 0, len(ls))
+	for _, pl := range ls {
+		unit := m.s.PLItems
+		if pl.Count == 1 {
+			unit = m.s.PLItem
+		}
+		count := fmt.Sprintf("%d %s", pl.Count, unit)
+		meta := count
+		if len(pl.UpdatedAt) >= 10 {
+			meta += " " + m.g.Sep + " " + pl.UpdatedAt[:10]
+		}
+		rows = append(rows, row{Title: pl.Name, Channel: meta, Rail: count, N: -1, Sec: -1})
+	}
+	return rows
+}
+
+// openPlaylists puts the store's playlists on the stage, where the list keys move over them
+// and Enter opens one; false (with its notice) when there is nothing to show.
+func (m *Model) openPlaylists() bool {
 	if !m.haveStore() {
-		return nil
+		return false
 	}
 	ls, err := m.suite.PlaylistLs(m.call())
 	if err != nil {
 		m.notice(m.s.PLAct+":", storeMsg(err, m.s.Failed))
-		return nil
+		return false
 	}
 	if len(ls) == 0 {
 		m.notice(m.s.PLAct+":", m.s.PLNone)
-		return nil
+		return false
 	}
-	return m.ask(askOpen, m.s.PLPromptOpen, m.s.PLOpen, ls)
+	m.openRows(srcPlaylists, m.s.PLsLabel, m.playlistRows(ls))
+	return true
+}
+
+// reloadPlaylists re-reads the library on screen, the cursor on the row named focus (or
+// where it was); an empty library returns to the results.
+func (m *Model) reloadPlaylists(focus string) {
+	ls, err := m.suite.PlaylistLs(m.call())
+	if err != nil {
+		m.notice(m.s.PLAct+":", storeMsg(err, m.s.Failed))
+		return
+	}
+	if len(ls) == 0 {
+		m.backToSearch()
+		return
+	}
+	m.all = m.playlistRows(ls)
+	m.rows = m.all
+	if m.filterOn {
+		keep := m.cursor
+		m.applyFilter()
+		m.cursor = keep
+	}
+	for i, r := range m.rows {
+		if focus != "" && r.Title == focus {
+			m.cursor = i
+		}
+	}
+	m.clampCursor()
+}
+
+// focusedPlaylist is the name of the library row under the cursor, "" when there is none.
+func (m *Model) focusedPlaylist() string {
+	if m.src != srcPlaylists || m.cursor >= len(m.rows) {
+		return ""
+	}
+	return m.rows[m.cursor].Title
+}
+
+// openFocusedPlaylist is Enter on the library.
+func (m *Model) openFocusedPlaylist() {
+	if name := m.focusedPlaylist(); name != "" {
+		m.openPlaylist(name)
+	}
 }
 
 // browseRemotePlaylists is B: a toggle — from a container back to search, otherwise
@@ -450,7 +529,7 @@ func (m *Model) remotePlaylistsDone(msg remotePlaylistsMsg) tea.Cmd {
 }
 
 func (m *Model) playlistOnly() bool {
-	if m.src == srcPlaylist {
+	if m.src == srcPlaylist || m.src == srcPlaylists && m.focusedPlaylist() != "" {
 		return true
 	}
 	m.notice(m.s.PLAct+":", m.s.PLListOnly)
@@ -461,6 +540,10 @@ func (m *Model) playlistOnly() bool {
 // playing stops, but only once the undo offer has closed: the stopped player is the one
 // thing the undo could not put back.
 func (m *Model) removeFromPlaylist() {
+	if m.src == srcPlaylists {
+		m.notice(m.s.PLAct+":", "D "+m.s.PLDelKey)
+		return
+	}
 	if len(m.rows) == 0 || !m.playlistOnly() || !m.haveStore() {
 		return
 	}
@@ -484,16 +567,25 @@ func (m *Model) removeFromPlaylist() {
 	m.reloadPlaylist(m.plName)
 }
 
-// deletePlaylist is D: the whole list on screen, then back to the results.
+// deletePlaylist is D: the whole list on screen, then back to the results — or, on the
+// library, the list under the cursor, and the library stays.
 func (m *Model) deletePlaylist() {
 	if !m.playlistOnly() || !m.haveStore() {
 		return
 	}
+	lib := m.src == srcPlaylists
+	tracks, name := m.all, m.plName
+	if lib {
+		name = m.focusedPlaylist()
+		tracks = nil
+		if l, err := m.suite.PlaylistShow(m.call(), name); err == nil {
+			tracks = rowsFromItems(l, false)
+		}
+	}
 	playing := false
-	for _, r := range m.all {
+	for _, r := range tracks {
 		playing = playing || m.playingRow(r)
 	}
-	name := m.plName
 	w, err := m.suite.PlaylistDel(m.call(), name, pid)
 	if err != nil {
 		m.notice(m.s.PLAct+":", storeMsg(err, m.s.Failed))
@@ -504,19 +596,28 @@ func (m *Model) deletePlaylist() {
 	} else if playing {
 		m.stopNow()
 	}
+	if lib {
+		m.reloadPlaylists("")
+		return
+	}
 	m.backToSearch()
 }
 
+// renamePlaylist is R: the list on screen, or the one under the cursor on the library.
 func (m *Model) renamePlaylist() tea.Cmd {
 	if !m.playlistOnly() || !m.haveStore() {
 		return nil
+	}
+	m.renameFrom = m.plName
+	if m.src == srcPlaylists {
+		m.renameFrom = m.focusedPlaylist()
 	}
 	return m.ask(askRename, m.s.PLRenamePrompt, "", nil)
 }
 
 func (m *Model) doRename(to string) {
-	from := m.plName
-	if to == from {
+	from := m.renameFrom
+	if to == from || from == "" {
 		return
 	}
 	w, err := m.suite.PlaylistRename(m.call(), from, to, pid)
@@ -524,7 +625,11 @@ func (m *Model) doRename(to string) {
 		m.notice(m.s.PLAct+":", storeMsg(err, m.s.Failed))
 		return
 	}
-	m.plName, m.label = to, to
+	if m.src == srcPlaylists {
+		m.reloadPlaylists(to)
+	} else {
+		m.plName, m.label = to, to
+	}
 	m.arm("playlist", w, m.s.PLAct+":", m.s.PLRenamed+" "+m.g.Arrow+" "+to)
 }
 
@@ -1119,6 +1224,8 @@ func (m *Model) undoShowPlaylist(w *verb.Written) {
 		}
 	}
 	switch {
+	case m.src == srcPlaylists:
+		m.reloadPlaylists(w.Name)
 	case m.src == srcPlaylist && m.plName == w.Name:
 		m.reloadPlaylist(w.Name)
 		place()

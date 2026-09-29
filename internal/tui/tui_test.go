@@ -226,8 +226,17 @@ func TestSortCycles(t *testing.T) {
 	if m.opt.Search.Sort != "view_count" {
 		t.Fatalf("o left the sort on %q", m.opt.Search.Sort)
 	}
-	if !strings.Contains(strings.SplitN(m.View(), "\n", 2)[0], m.s.SortViews) {
-		t.Errorf("the title line does not name the new sort: %q", strings.SplitN(m.View(), "\n", 2)[0])
+	lines := strings.Split(m.View(), "\n")
+	headLimit := min(len(lines), m.layout().chromeH)
+	found := false
+	for _, l := range lines[:headLimit] {
+		if strings.Contains(l, m.s.SortViews) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("header/status lines do not name the new sort %q: %q", m.s.SortViews, strings.Join(lines[:headLimit], "\n"))
 	}
 }
 
@@ -238,8 +247,9 @@ func typeLine(m *Model, s string) {
 	key(m, "enter")
 }
 
-// a stores the focused row, b opens the store's list by its number, d removes a row and z
-// puts it back — each checked against the store itself, not the screen.
+// a stores the focused row, b puts the store's playlists on the stage and Enter opens the one
+// under the cursor, d removes a row and z puts it back — each checked against the store
+// itself, not the screen.
 func TestPlaylistRoundTrip(t *testing.T) {
 	m := model(t, Options{Query: "lofi hip hop", Search: verb.SearchOpts{N: 5}, Batch: 5})
 	start(t, m)
@@ -266,9 +276,12 @@ func TestPlaylistRoundTrip(t *testing.T) {
 		t.Fatalf("the store holds %d rows after two a's, want 2", n)
 	}
 	key(m, "b")
-	typeLine(m, "1")
+	if m.src != srcPlaylists || m.prompting || len(m.rows) != 1 || m.rows[0].Title != "t" {
+		t.Fatalf("b left source %v (prompting %v) with %d rows, want the library's one", m.src, m.prompting, len(m.rows))
+	}
+	key(m, "enter")
 	if m.src != srcPlaylist || len(m.rows) != 2 {
-		t.Fatalf("b 1 left source %v with %d rows", m.src, len(m.rows))
+		t.Fatalf("b Enter left source %v with %d rows", m.src, len(m.rows))
 	}
 	key(m, "d")
 	if n := stored(); n != 1 || m.rows[0].URL == first {
@@ -284,6 +297,90 @@ func TestPlaylistRoundTrip(t *testing.T) {
 	key(m, "b")
 	if m.src != srcSearch || len(m.rows) != 5 {
 		t.Errorf("b did not return to the 5 results (source %v, %d rows)", m.src, len(m.rows))
+	}
+}
+
+// The library is a stage of its own: w4 opens it in place of the results (no picker at the
+// foot), R renames and d deletes the list under the cursor with the library kept on screen,
+// z brings a deleted list back, and Esc climbs out to the results.
+func TestPlaylistLibraryStage(t *testing.T) {
+	m := model(t, Options{Query: "lofi hip hop", Search: verb.SearchOpts{N: 5}, Batch: 5})
+	start(t, m)
+	names := func() []string {
+		ls, err := m.suite.PlaylistLs(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, pl := range ls {
+			out = append(out, pl.Name)
+		}
+		return out
+	}
+	for _, n := range []string{"one", "two"} {
+		key(m, "a")
+		typeLine(m, n)
+	}
+	if got := names(); len(got) != 2 {
+		t.Fatalf("the store holds %v after two new lists", got)
+	}
+	key(m, "w")
+	key(m, "4")
+	if m.src != srcPlaylists || m.prompting || len(m.rows) != 2 {
+		t.Fatalf("w4 left source %v (prompting %v) with %d rows, want the 2-row library", m.src, m.prompting, len(m.rows))
+	}
+	if !strings.Contains(m.View(), "playlists='") {
+		t.Errorf("the library's title line does not name it")
+	}
+	key(m, "down")
+	target := m.rows[m.cursor].Title
+	key(m, "R")
+	typeLine(m, "renamed")
+	if m.src != srcPlaylists || m.rows[m.cursor].Title != "renamed" {
+		t.Fatalf("R on %q left source %v with %q under the cursor", target, m.src, m.rows[m.cursor].Title)
+	}
+	key(m, "d")
+	if m.noticeL == "" {
+		t.Fatal("d on the library should show notice to use D")
+	}
+	key(m, "D")
+	if got := names(); len(got) != 1 || got[0] == "renamed" {
+		t.Fatalf("D on the library left %v in the store", got)
+	}
+	if m.src != srcPlaylists || len(m.rows) != 1 {
+		t.Fatalf("D on the library left source %v with %d rows", m.src, len(m.rows))
+	}
+	key(m, "z")
+	if got := names(); len(got) != 2 || len(m.rows) != 2 || m.rows[m.cursor].Title != "renamed" {
+		t.Fatalf("z left %v stored and %d rows, cursor on %q", got, len(m.rows), m.rows[m.cursor].Title)
+	}
+	key(m, "esc")
+	if m.src != srcSearch || len(m.rows) != 5 {
+		t.Errorf("Esc did not return to the 5 results (source %v, %d rows)", m.src, len(m.rows))
+	}
+}
+
+// A wide frame is never taller than the terminal — else the renderer drops its top, the
+// title line and the tabs with it — and its first line is the title, with the key block,
+// the notice and a playlist picker all drawn.
+func TestWideFrameFitsTheTerminal(t *testing.T) {
+	m := model(t, Options{Query: "lofi hip hop", Search: verb.SearchOpts{N: 20}, Batch: 20, Keys: "full"})
+	start(t, m)
+	// One list stored, so a draws its picker, and the add's undo offer is the notice line.
+	key(m, "a")
+	typeLine(m, "x")
+	for _, sz := range [][2]int{{140, 40}, {100, 24}, {120, 30}} {
+		m.Update(tea.WindowSizeMsg{Width: sz[0], Height: sz[1]})
+		key(m, "a")
+		for _, v := range []string{m.View(), func() string { key(m, "esc"); return m.View() }()} {
+			lines := strings.Split(v, "\n")
+			if len(lines) > sz[1] {
+				t.Errorf("%dx%d: the frame is %d lines", sz[0], sz[1], len(lines))
+			}
+			if !strings.Contains(lines[0], "query='") {
+				t.Errorf("%dx%d: line 1 is not the title: %q", sz[0], sz[1], lines[0])
+			}
+		}
 	}
 }
 

@@ -20,7 +20,7 @@ type strs struct {
 	Failed, AdoptAct, AdoptMany                                                                string
 
 	UItems, UChap, Likes, Total, URLAct, ContainerAct, BackSearch                                    string
-	PLAdd, PLOpen, PLAct, PLPromptAdd, PLPromptOpen, PLPromptNew, PLAdded, PLEmpty, PLNone           string
+	PLAdd, PLOpen, PLOpenKey, PLsLabel, PLAct, PLPromptAdd, PLPromptNew, PLAdded, PLEmpty, PLNone    string
 	PLItem, PLItems, PLAbsent, PLSearchOnly, PLListOnly, PLRmKey, PLRemoved, PLDelKey                string
 	PLDeleted, PLRenameKey, PLRenamePrompt, PLRenamed                                                string
 	RemotePLAct, RemotePLOpen, RemotePLPrompt, RemotePLNotSupported, RemotePLNoCookies, PLNoneRemote string
@@ -31,7 +31,7 @@ type strs struct {
 	QPlayingRow, QRemoved, QCleared, QStale                                                          string
 	PrefAct, PrefPinned, PrefFailed                                                                  string
 	BusyHeld, NextSearch                                                                             string
-	WorkspaceAct, WorkspaceHint, FeedNotSupported, StageModeBack, NoLyricsAvail, LyricLoading string
+	WorkspaceAct, WorkspaceHint, FeedNotSupported, StageModeBack, NoLyricsAvail, LyricLoading        string
 	InspectorTitle, NavTitle, LyricInterlude                                                         string
 	WsSearchTitle, WsFeedsTitle, WsQueueTitle, WsPlaylistsTitle, WsHistoryTitle                      string
 }
@@ -57,8 +57,8 @@ var strsEN = strs{
 	AdoptMany: "several background players are running, none adopted (ting-play --status lists them)",
 	UItems:    "items", UChap: "chapters", Likes: "likes", Total: "total", URLAct: "URL",
 	ContainerAct: "Container", BackSearch: "back to results",
-	PLAdd: "add to list", PLOpen: "playlists", PLAct: "Playlist",
-	PLPromptAdd: "Add to which (number, name, Esc cancels)", PLPromptOpen: "Open which (number, name, Esc cancels)",
+	PLAdd: "add to list", PLOpen: "playlists", PLOpenKey: "open", PLsLabel: "all", PLAct: "Playlist",
+	PLPromptAdd: "Add to which (number, name, Esc cancels)",
 	PLPromptNew: "Name the new playlist (Esc cancels)", PLAdded: "Added to", PLEmpty: "that playlist is empty",
 	PLNone: "no playlists yet (press a to make one)", PLItem: "item", PLItems: "items",
 	PLAbsent: "ting-playlist is not installed", PLSearchOnly: "that key needs search results (press n to search)",
@@ -115,8 +115,8 @@ var strsZH = strs{
 	AdoptMany: "后台有多个播放器在跑，没有接管（ting-play --status 可以看）",
 	UItems:    "项", UChap: "章", Likes: "赞", Total: "总长", URLAct: "链接", ContainerAct: "合集",
 	BackSearch: "返回搜索列表",
-	PLAdd:      "加入列表", PLOpen: "播放列表", PLAct: "播放列表",
-	PLPromptAdd: "加入哪个（序号或名称，Esc 取消）", PLPromptOpen: "打开哪个（序号或名称，Esc 取消）",
+	PLAdd:      "加入列表", PLOpen: "播放列表", PLOpenKey: "打开", PLsLabel: "全部", PLAct: "播放列表",
+	PLPromptAdd: "加入哪个（序号或名称，Esc 取消）",
 	PLPromptNew: "新建列表名称（Esc 取消）", PLAdded: "已加入", PLEmpty: "该列表是空的",
 	PLNone: "还没有播放列表（按 a 建一个）", PLItem: "首", PLItems: "首",
 	PLAbsent: "未安装 ting-playlist", PLSearchOnly: "该键只在搜索结果里可用（按 n 重新搜索）",

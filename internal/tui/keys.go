@@ -121,8 +121,18 @@ func (m *Model) updateList(k tea.KeyMsg) tea.Cmd {
 		case srcQueue:
 			m.queueKey("enter")
 			return nil
+		case srcPlaylists:
+			m.openFocusedPlaylist()
+			return nil
 		}
 		return m.playCmd()
+	case "esc":
+		if m.src == srcPlaylist {
+			m.openPlaylists()
+		} else if m.src == srcPlaylists {
+			m.backToSearch()
+		}
+		return nil
 	case "n", "N":
 		return m.openPrompt("")
 	case "o", "O":
@@ -159,6 +169,10 @@ func (m *Model) updateList(k tea.KeyMsg) tea.Cmd {
 			m.mark("TING_THEME")
 		}
 	case "+":
+		if m.src == srcPlaylists {
+			m.notice(m.s.QAct+":", m.s.PLListOnly)
+			return nil
+		}
 		return m.enqueue()
 	case ">":
 		return m.skip()
@@ -166,9 +180,14 @@ func (m *Model) updateList(k tea.KeyMsg) tea.Cmd {
 		m.filterOn, m.filter = true, ""
 		m.applyFilter()
 	case "a", "A":
+		// The library's rows are lists, not tracks: there is nothing under the cursor to add.
+		if m.src == srcPlaylists {
+			m.notice(m.s.PLAct+":", m.s.PLListOnly)
+			return nil
+		}
 		return m.addToPlaylist()
 	case "b":
-		return m.browsePlaylists()
+		m.browsePlaylists()
 	case "B":
 		return m.browseRemotePlaylists()
 	case "d":
@@ -478,8 +497,12 @@ func (m *Model) updateFilter(k tea.KeyMsg) tea.Cmd {
 			m.applyFilter()
 			return m.loadURL(u)
 		}
-		if m.src == srcChapters {
+		switch m.src {
+		case srcChapters:
 			return m.playChapter()
+		case srcPlaylists:
+			m.openFocusedPlaylist()
+			return nil
 		}
 		return m.playCmd()
 	case "ctrl+v":
@@ -530,12 +553,11 @@ const (
 	askSearch     askKind = iota // the startup query and n
 	askNew                       // a: the first playlist's name
 	askAdd                       // a: which playlist (number or name)
-	askOpen                      // b: which playlist (number or name)
 	askRemoteOpen                // B: which remote playlist (number or name)
 	askRename                    // R: the new name
 )
 
-// ask opens the prompt. pick is the numbered list a/b choose from, drawn above it.
+// ask opens the prompt. pick is the numbered list a (and B) choose from, drawn above it.
 func (m *Model) ask(kind askKind, label, head string, pick []verb.Playlist) tea.Cmd {
 	m.prompting, m.askKind, m.askLabel, m.askHead, m.pick, m.pickCursor = true, kind, label, head, pick, 0
 	m.input.SetValue("")
@@ -608,8 +630,6 @@ func (m *Model) updatePrompt(k tea.KeyMsg) tea.Cmd {
 			m.doAdd(v)
 		case askAdd:
 			m.doAdd(pickName(v, pick))
-		case askOpen:
-			m.openPlaylist(pickName(v, pick))
 		case askRemoteOpen:
 			return m.openRemotePlaylist(v)
 		case askRename:

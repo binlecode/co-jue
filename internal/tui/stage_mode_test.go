@@ -154,7 +154,7 @@ func TestInspectorSyncedLyrics(t *testing.T) {
 	g := glyphsUTF
 	w := newWidth(false)
 
-	v := ins.View(p, s, g, w)
+	v := ins.View(p, s, g, w, false)
 	if !strings.Contains(v, "NOW PLAYING / LYRIC STREAM") {
 		t.Errorf("Inspector view should contain header, got: %s", v)
 	}
@@ -170,14 +170,14 @@ func TestInspectorSyncedLyrics(t *testing.T) {
 
 	// Loading state test
 	ins.UpdateLyrics(nil, -1, false, true)
-	vLoading := ins.View(p, s, g, w)
+	vLoading := ins.View(p, s, g, w, false)
 	if !strings.Contains(vLoading, "(loading lyrics...)") {
 		t.Errorf("Inspector loading view should contain loading indicator, got: %s", vLoading)
 	}
 
 	// No lyrics available test
 	ins.UpdateLyrics(nil, -1, false, false)
-	vNone := ins.View(p, s, g, w)
+	vNone := ins.View(p, s, g, w, false)
 	if !strings.Contains(vNone, "(no synchronized lyrics available)") {
 		t.Errorf("Inspector no-lyrics view should contain no lyrics indicator, got: %s", vNone)
 	}

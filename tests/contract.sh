@@ -356,10 +356,10 @@ undo_pane() {
         tmux send-keys -t "$TS" '#'
         poll_until 10 pane_has '^[>▶▎] +1\.' >/dev/null
         tmux send-keys -t "$TS" b
-        # Asserted, not waited on blind: every step below rides on this picker, and a poll
-        # whose answer was thrown away made a slow picker read as "the list did not open".
-        report "b lists the stored list" 1 "$(poll_until 10 pane_has '1\. undo-list')"
-        tmux send-keys -t "$TS" 1 Enter
+        # Asserted, not waited on blind: every step below rides on this library, and a poll
+        # whose answer was thrown away made a slow library read as "the list did not open".
+        report "b lists the stored list" 1 "$(poll_until 10 pane_has '^[>▶▎] +1\. undo-list')"
+        tmux send-keys -t "$TS" Enter
         report "undo: the list opens" 1 "$(poll_until 10 pane_has "playlist='undo-list'")"
         U_BEFORE=$(ul_show undo-list)
         tmux send-keys -t "$TS" Down
@@ -438,9 +438,12 @@ undo_pane() {
         report "a made the one-track list" 1 "$(ul_count undo-solo)"
         # Removing the last track: back to the search, no question, the empty-list sentence
         # AND the offer on one line — and z brings the track back into the list it reopens.
+        # The library lists by file name: undo-list is row 1, undo-solo row 2.
         tmux send-keys -t "$TS" b
-        poll_until 10 pane_has 'undo-solo' >/dev/null
-        tmux send-keys -t "$TS" undo-solo Enter
+        poll_until 10 pane_has '^[>▶▎] +1\. undo-list' >/dev/null
+        tmux send-keys -t "$TS" Down
+        poll_until 5 pane_has '^[>▶▎] +2\. undo-solo' >/dev/null
+        tmux send-keys -t "$TS" Enter
         poll_until 10 pane_has "playlist='undo-solo'" >/dev/null
         U_SOLO=$(ul_show undo-solo)
         tmux send-keys -t "$TS" d
@@ -450,23 +453,23 @@ undo_pane() {
         tmux send-keys -t "$TS" z
         report "…and z reopens it with the track" 1 "$(poll_until 10 pane_has "playlist='undo-solo'")"
         report "…as the store has it" 0 "$([ "$(ul_show undo-solo)" = "$U_SOLO" ]; echo $?)"
-        # Let the empty list stand: it is still a list, and the picker still offers it.
+        # Let the empty list stand: it is still a list, and the library still offers it.
         tmux send-keys -t "$TS" d
         poll_until 10 pane_has 'z to undo' >/dev/null
         poll_until 8 pane_lacks 'z to undo' >/dev/null
         tmux send-keys -t "$TS" b
-        report "an emptied list stays in the picker" 1 "$(poll_until 10 pane_has 'undo-solo +0 items')"
+        report "an emptied list stays in the library" 1 "$(poll_until 10 pane_has 'undo-solo +0 items')"
         tmux send-keys -t "$TS" Escape
         # Waited out before the next key: an Esc with a letter right behind it is Alt+letter to
         # the reader, and the `b` below would be eaten as the tail of one.
-        poll_until 10 pane_lacks 'Open which' >/dev/null
+        report "…and Esc climbs out of it to the results" 1 "$(poll_until 10 pane_back "playlists='" "query='")"
         # THE HELD-BACK STOP. Round one takes no undo: the player must survive the offer and
         # stop when it closes. Round two takes it: the player must survive the offer's END,
         # which is proved by outliving a second offer (the next d's) that closes after it.
         ul_players() { shell/ting-play --status -j 2>/dev/null | jq '.players | length'; }
         tmux send-keys -t "$TS" b
-        poll_until 10 pane_has '[0-9]\. undo-list' >/dev/null
-        tmux send-keys -t "$TS" undo-list Enter
+        poll_until 10 pane_has '^[>▶▎] +1\. undo-list' >/dev/null
+        tmux send-keys -t "$TS" Enter
         poll_until 10 pane_has "playlist='undo-list'" >/dev/null
         tmux send-keys -t "$TS" Enter
         undo_playing=$(poll_until 40 pane_has 'Playing: ')
@@ -557,8 +560,8 @@ undo_pane() {
             tmux send-keys -t "$TS" u
             poll_until 10 pane_back "queue='" "query='" >/dev/null
             tmux send-keys -t "$TS" b
-            poll_until 10 pane_has '[0-9]\. undo-list' >/dev/null
-            tmux send-keys -t "$TS" undo-list Enter
+            poll_until 10 pane_has '^[>▶▎] +1\. undo-list' >/dev/null
+            tmux send-keys -t "$TS" Enter
             poll_until 10 pane_has "playlist='undo-list'" >/dev/null
         fi
         # The copies go with the process that could have used them — so one is left OPEN when
@@ -576,9 +579,11 @@ undo_pane() {
         tmux new-session -d -s "$TS" -x 100 -y 30 \
             "cd '$PWD' && env TING_HISTORY=0 TMPDIR='$TMPDIR' TING_STATE_DIR='$UNDO_STATE' TING_CONFIG='$UNDO_CFG' TING_LANG=zh '$TING_TUI' 'lofi hip hop'; printf 'RC=%s\n' \$?; sleep 20"
         if [ "$(poll_until 40 pane_has "query='")" = 1 ]; then
+            # This pane may or may not number its rows (the pref the en pane wrote back), so the
+            # library is waited on by its title line; the cursor starts on row 1, undo-list.
             tmux send-keys -t "$TS" b
-            poll_until 10 pane_has '[0-9]\. undo-list' >/dev/null
-            tmux send-keys -t "$TS" undo-list Enter
+            poll_until 10 pane_has "playlists='" >/dev/null
+            tmux send-keys -t "$TS" Enter
             poll_until 10 pane_has "playlist='undo-list'" >/dev/null
             U_ZH=$(ul_show undo-list)
             tmux send-keys -t "$TS" d
@@ -3899,25 +3904,23 @@ else
         echo "  ---- end of pane ----" >&2
     fi
 
-    # `b` is the same door as `h`, but it has to ASK which room — and asking used to mean one
-    # line of the store's own prose above a caret identical to the search prompt, with the
-    # name typed from memory. It now prints the store NUMBERED, and the number is resolved in
-    # the TUI so the store still only ever hears a name. Three claims, one sequence: the
-    # picker lists what is stored, a digit opens THAT list (the header names it, so an
+    # `b` is the same door as `h`, but it opens a room of rooms: the store's playlists become
+    # the stage's rows (the title line says playlists=, and the search rows are gone from it),
+    # not a picker squeezed under the results. Three claims, one sequence: the library lists
+    # what is stored with the cursor on it, Enter opens THAT list (the header names it, so an
     # off-by-one is legible), and `b` again is still the way out.
     tmux send-keys -t "$TS" b
-    picked=$(poll_until 10 pane_has '1\. seeded-list')
-    report "b lists the stored playlists" 1 "$picked"
+    lib_up() { pane_has "playlists='" && pane_has '^[>▶▎] +1\. seeded-list'; }
+    picked=$(poll_until 10 lib_up)
+    report "b lists the stored playlists on the stage" 1 "$picked"
     if [ "$picked" != 1 ]; then
         echo "  ---- pane at the moment b did not list the store ----" >&2
         tmux capture-pane -t "$TS" -p -J >&2 2>/dev/null
         echo "  ---- end of pane ----" >&2
     fi
-    # The digit, then Enter: prompt_name's reader ends on Enter like every other prompt here.
-    tmux send-keys -t "$TS" 1
     tmux send-keys -t "$TS" Enter
     byname=$(poll_until 10 pane_has "playlist='seeded-list'")
-    report "1 opens that playlist by number" 1 "$byname"
+    report "Enter opens the playlist under the cursor" 1 "$byname"
 
     # R renames the playlist currently on screen
     tmux send-keys -t "$TS" R
@@ -3932,10 +3935,10 @@ else
 
     # reopen the renamed playlist and test D (delete playlist)
     tmux send-keys -t "$TS" b
-    poll_until 10 pane_has '1\. renamed-list' >/dev/null
-    tmux send-keys -t "$TS" 1 Enter
+    poll_until 10 pane_has '^[>▶▎] +1\. renamed-list' >/dev/null
+    tmux send-keys -t "$TS" Enter
     opened=$(poll_until 10 pane_has "playlist='renamed-list'")
-    report "1 reopens the renamed playlist by number" 1 "$opened"
+    report "Enter reopens the renamed playlist" 1 "$opened"
 
     # No y/N any more (the undo section below says why): D acts on the one key, and the frame
     # it lands on is the search with the undo offer on it.
@@ -4349,8 +4352,8 @@ else
     # with the playlist gone — a list vanishing with nothing said about it. The second
     # assertion is the one that matters: the playlist is still on screen afterwards.
     tmux send-keys -t "$TS" b
-    if [ "$(poll_until 10 pane_has '1\. qv-list')" = 1 ]; then
-        tmux send-keys -t "$TS" 1
+    qv_lib() { pane_has "playlists='" && pane_has 'qv-list'; }
+    if [ "$(poll_until 10 qv_lib)" = 1 ]; then
         tmux send-keys -t "$TS" Enter
         opened=$(poll_until 10 pane_has "playlist='qv-list'")
         report "a playlist is on screen to press u from" 1 "$opened"

@@ -46,6 +46,7 @@ type frame struct {
 	lyricInter             bool // whether interlude
 	lyricTrans             bool // whether transitioning
 	coverGate              bool // this frame draws a cover column (its rows charged either way)
+	footH                  int  // the rows under the list: gaps, hint block, filter hint, caret
 	psize, start, end      int
 }
 
@@ -59,7 +60,10 @@ func (m *Model) ambigW() int {
 // statusItems is the title line's right-hand segment. A field at its default takes no cell.
 func (m *Model) statusItems() []string {
 	var it []string
-	if m.src == srcSearch {
+	if m.src == srcPlaylists {
+		// The library's rows are lists, which have no engine of their own.
+		it = []string{strconv.Itoa(len(m.rows)) + " " + m.s.PLOpen}
+	} else if m.src == srcSearch {
 		sort := map[string]string{"relevance": m.s.SortRelevance, "view_count": m.s.SortViews,
 			"duration": m.s.SortDur}[m.opt.Search.Sort]
 		// The engine of the rows on screen, which a pasted URL can make other than the
@@ -154,9 +158,12 @@ func (m *Model) navItems() []hint {
 	if m.opt.ListMode == "page" {
 		it = append(it, hint{m.g.AH, m.s.Page})
 	}
-	if m.src == srcQueue {
+	switch m.src {
+	case srcQueue:
 		it = append(it, hint{m.g.Enter, m.s.QPlayNow})
-	} else {
+	case srcPlaylists:
+		it = append(it, hint{m.g.Enter, m.s.PLOpenKey})
+	default:
 		it = append(it, hint{m.g.Enter, m.s.Play})
 	}
 	if full {
@@ -184,6 +191,12 @@ func (m *Model) navItems() []hint {
 		case m.src == srcPlaylist:
 			if full {
 				it = append(it, hint{"a", m.s.PLAdd}, hint{"d", m.s.PLRmKey}, hint{"D", m.s.PLDelKey}, hint{"R", m.s.PLRenameKey})
+			}
+			it = append(it, hint{"b", m.s.BackSearch})
+		case m.src == srcPlaylists:
+			it = append(it, hint{"D", m.s.PLDelKey})
+			if full {
+				it = append(it, hint{"R", m.s.PLRenameKey})
 			}
 			it = append(it, hint{"b", m.s.BackSearch})
 		case m.src == srcContainer:
@@ -381,7 +394,12 @@ func (m *Model) layout() frame {
 			f.lyricRow = -1
 		}
 	}
-	avail := lines - f.chromeH - foot() - len(f.details) - layoutCursorRow
+	detH := len(f.details)
+	if m.geom.Mode == layout.Wide {
+		// In wide mode details live in the right inspector column, not under the stage rows.
+		detH = 0
+	}
+	avail := lines - f.chromeH - foot() - detH - layoutCursorRow
 	for avail < 1 {
 		switch {
 		case f.rowGap > 0:
@@ -394,9 +412,10 @@ func (m *Model) layout() frame {
 			avail = 1
 		}
 		if avail < 1 {
-			avail = lines - f.chromeH - foot() - len(f.details) - layoutCursorRow
+			avail = lines - f.chromeH - foot() - detH - layoutCursorRow
 		}
 	}
+	f.footH = foot()
 	f.psize = avail
 	if m.opt.ListMode == "page" && m.opt.PageRows < f.psize {
 		f.psize = m.opt.PageRows
@@ -470,6 +489,10 @@ func (m *Model) playingRow(r row) bool {
 // the active synchronized lyric line when peeking on the playing row).
 func (m *Model) detailLines(cols, i int) ([]string, int, int, bool, bool) {
 	r := m.rows[i]
+	if m.src == srcPlaylists {
+		// A list's details are its count and when it last changed, already on Channel.
+		return []string{m.w.trunc(r.Channel, cols-2, m.g.Ell)}, 1, -1, false, false
+	}
 	var dur, views string
 	if r.isLive() {
 		dur, views = m.g.Live, "live now"
@@ -638,18 +661,28 @@ func (m *Model) View() string {
 	line("")
 
 	if m.geom.Mode == layout.Wide && m.geom.Stage.W > 0 {
+		// The columns get what the chrome and the foot leave, counted on this frame: the
+		// geometry's Stage.H assumes a one-line header and no foot, and a block taller than
+		// the terminal scrolls the title line off the top. The jump readout is one more line.
+		contentH := m.height - f.chromeH - f.footH
+		if m.jump != "" {
+			contentH--
+		}
+		if contentH < 1 {
+			contentH = 1
+		}
+		m.inspector.bounds.Y, m.inspector.bounds.H = f.chromeH, contentH
 		var stageB strings.Builder
 		stageF := f
 		stageF.cols = m.geom.Stage.W
 		stageF.rightEdge = m.geom.Stage.W - f.ambig - 1
 		m.renderRows(&stageB, stageF)
-		inspStr := m.inspector.View(m.p, m.s, m.g, m.w)
-		contentH := m.geom.Stage.H
-		if contentH <= 0 {
-			contentH = (f.end - f.start) + len(f.details) + 2
-		}
+		inspStr := m.inspector.View(m.p, m.s, m.g, m.w, m.cover.on)
 		colWidths := []int{m.geom.Stage.W, m.geom.Inspector.W}
 		joined := layout.JoinColumns([]string{strings.TrimSuffix(stageB.String(), "\n"), inspStr}, colWidths, contentH, layout.GutterWidth, m.w.of)
+		// The cover rides on the block's first line, after the join: its bytes are not text
+		// and must not be measured as a column's width.
+		b.WriteString(m.coverEscape(f))
 		for _, l := range strings.Split(joined, "\n") {
 			line(l)
 		}
@@ -929,11 +962,14 @@ func (m *Model) coverEscape(f frame) string {
 		return kittyDel(false)
 	}
 	if m.geom.Mode == layout.Wide && !m.geom.Inspector.Empty() {
+		// Placed by absolute position, so the cursor the renderer is tracking is saved
+		// around it and put back.
 		if row, col, _, _, ok := m.inspector.CoverBox(); ok {
 			if img := m.cover.done[m.inspector.thumbURL]; img != nil {
-				return kittyDel(false) + fmt.Sprintf("\x1b[%d;%dH", row, col) + kittyPut(img.b64)
+				return kittyDel(false) + "\x1b7" + fmt.Sprintf("\x1b[%d;%dH", row, col) + kittyPut(img.b64) + "\x1b8"
 			}
 		}
+		return kittyDel(false)
 	}
 	if f.coverGate && len(m.rows) > 0 {
 		if img := m.cover.done[m.rows[m.cursor].Thumb]; img != nil {
