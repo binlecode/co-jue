@@ -89,6 +89,10 @@ else
   git -C "$TAP_DIR" add Formula/ting.rb
   git -C "$TAP_DIR" commit -m "ting ${VERSION}"
   git -C "$TAP_DIR" push origin main
+  # Sync developer workspace checkout if present
+  if [ -d "/Users/binle/workspace_fullstack/homebrew-tap" ]; then
+    git -C /Users/binle/workspace_fullstack/homebrew-tap pull --ff-only 2>/dev/null || true
+  fi
   echo "PASS: Tap repository updated and pushed to GitHub."
 fi
 
