@@ -19,18 +19,21 @@ type strs struct {
 	QAdd, QSkip, QAct, Loop, LoopAct, LoopOff, LoopSeq, LoopOne, LoopNext, QNone, QEnd, QAdded string
 	Failed, AdoptAct, AdoptMany                                                                string
 
-	UItems, UChap, Likes, Total, URLAct, ContainerAct, BackSearch                             string
-	PLAdd, PLOpen, PLAct, PLPromptAdd, PLPromptOpen, PLPromptNew, PLAdded, PLEmpty, PLNone    string
-	PLItem, PLItems, PLAbsent, PLSearchOnly, PLListOnly, PLRmKey, PLRemoved, PLDelKey         string
-	PLDeleted, PLRenameKey, PLRenamePrompt, PLRenamed                                         string
+	UItems, UChap, Likes, Total, URLAct, ContainerAct, BackSearch                                    string
+	PLAdd, PLOpen, PLAct, PLPromptAdd, PLPromptOpen, PLPromptNew, PLAdded, PLEmpty, PLNone           string
+	PLItem, PLItems, PLAbsent, PLSearchOnly, PLListOnly, PLRmKey, PLRemoved, PLDelKey                string
+	PLDeleted, PLRenameKey, PLRenamePrompt, PLRenamed                                                string
 	RemotePLAct, RemotePLOpen, RemotePLPrompt, RemotePLNotSupported, RemotePLNoCookies, PLNoneRemote string
-	UndoKey, UndoAct, UndoHint, UndoDone, UndoNone, UndoStale                                 string
-	HistKey, HistAct, HistLabel, HistEmpty, HistAbsent, PartsKey, PartsAct, PartsOne, InfoAct string
-	RelatedKey, RelatedAct, FeedAct, RelatedNoCap, NoResults, NoResultsFor                    string
-	ChapKey, ChapNone, QKey, QLabel, QPlayNow, QRmKey, QMvKey, QClearKey, QOne, QElsewhere    string
-	QPlayingRow, QRemoved, QCleared, QStale                                                   string
-	PrefAct, PrefPinned, PrefFailed                                                           string
-	BusyHeld, NextSearch                                                                      string
+	UndoKey, UndoAct, UndoHint, UndoDone, UndoNone, UndoStale                                        string
+	HistKey, HistAct, HistLabel, HistEmpty, HistAbsent, PartsKey, PartsAct, PartsOne, InfoAct        string
+	RelatedKey, RelatedAct, FeedAct, RelatedNoCap, NoResults, NoResultsFor                           string
+	ChapKey, ChapNone, QKey, QLabel, QPlayNow, QRmKey, QMvKey, QClearKey, QOne, QElsewhere           string
+	QPlayingRow, QRemoved, QCleared, QStale                                                          string
+	PrefAct, PrefPinned, PrefFailed                                                                  string
+	BusyHeld, NextSearch                                                                             string
+	WorkspaceAct, WorkspaceHint, FeedNotSupported, StageModeBack, NoLyricsAvail                      string
+	InspectorTitle, NavTitle, LyricInterlude                                                         string
+	WsSearchTitle, WsFeedsTitle, WsQueueTitle, WsPlaylistsTitle, WsHistoryTitle                      string
 }
 
 var strsEN = strs{
@@ -63,11 +66,11 @@ var strsEN = strs{
 	PLDelKey: "del-list", PLDeleted: "Deleted playlist", PLRenameKey: "rename",
 	PLRenamePrompt: "New name for playlist (Esc cancels)", PLRenamed: "Renamed to",
 	RemotePLAct: "Online Playlists", RemotePLOpen: "online playlists",
-	RemotePLPrompt: "Open which online playlist (number or name, Esc cancels)",
+	RemotePLPrompt:       "Open which online playlist (number or name, Esc cancels)",
 	RemotePLNotSupported: "this engine does not support online playlists",
-	RemotePLNoCookies: "requires signed-in session (cookies missing)",
-	PLNoneRemote: "no online playlists found under account",
-	UndoKey: "undo", UndoAct: "Undo", UndoHint: "z to undo", UndoDone: "Undone", UndoNone: "nothing to undo",
+	RemotePLNoCookies:    "requires signed-in session (cookies missing)",
+	PLNoneRemote:         "no online playlists found under account",
+	UndoKey:              "undo", UndoAct: "Undo", UndoHint: "z to undo", UndoDone: "Undone", UndoNone: "nothing to undo",
 	UndoStale: "changed elsewhere, not undone",
 	HistKey:   "history", HistAct: "History", HistLabel: "newest first", HistEmpty: "nothing listened to yet",
 	HistAbsent: "ting-history is not installed", PartsKey: "parts", PartsAct: "Parts",
@@ -81,7 +84,13 @@ var strsEN = strs{
 	QCleared: "Cleared the queue", QStale: "the queue moved — reopening it",
 	BusyHeld: "busy — press it again when this finishes", NextSearch: "for the next search",
 	PrefAct: "Config", PrefPinned: "is fixed by the environment — not written to your config",
-	PrefFailed: "could not be written — this session's preferences were not saved",
+	PrefFailed:   "could not be written — this session's preferences were not saved",
+	WorkspaceAct: "Workspace:", WorkspaceHint: "1 search | 2 feeds | 3 queue | 4 playlists | 5 history",
+	FeedNotSupported: "engine does not support feeds",
+	StageModeBack:    "[Esc / F] Back to Workbench",
+	NoLyricsAvail:    "(no synchronized lyrics available)",
+	InspectorTitle:   "NOW PLAYING / LYRIC STREAM", NavTitle: "NAVIGATION", LyricInterlude: "> ... (interlude) <",
+	WsSearchTitle: "Search", WsFeedsTitle: "Feeds", WsQueueTitle: "Queue", WsPlaylistsTitle: "Playlists", WsHistoryTitle: "History",
 }
 
 var strsZH = strs{
@@ -114,11 +123,11 @@ var strsZH = strs{
 	PLDelKey: "删列表", PLDeleted: "已删除列表", PLRenameKey: "重命名",
 	PLRenamePrompt: "重命名列表名称（Esc 取消）", PLRenamed: "已重命名",
 	RemotePLAct: "在线歌单", RemotePLOpen: "在线歌单",
-	RemotePLPrompt: "打开哪个在线歌单（序号或名称，Esc 取消）",
+	RemotePLPrompt:       "打开哪个在线歌单（序号或名称，Esc 取消）",
 	RemotePLNotSupported: "该音源不支持在线歌单",
-	RemotePLNoCookies: "需要有效登录状态（Cookie 缺失）",
-	PLNoneRemote: "账号下尚无在线歌单",
-	UndoKey: "撤销", UndoAct: "撤销", UndoHint: "z 撤销", UndoDone: "已撤销", UndoNone: "无可撤销",
+	RemotePLNoCookies:    "需要有效登录状态（Cookie 缺失）",
+	PLNoneRemote:         "账号下尚无在线歌单",
+	UndoKey:              "撤销", UndoAct: "撤销", UndoHint: "z 撤销", UndoDone: "已撤销", UndoNone: "无可撤销",
 	UndoStale: "已被别处修改，未撤销",
 	HistKey:   "历史", HistAct: "收听历史", HistLabel: "最近收听", HistEmpty: "还没有收听记录",
 	HistAbsent: "未安装 ting-history", PartsKey: "分P", PartsAct: "分P", PartsOne: "这个视频只有一 P",
@@ -132,7 +141,13 @@ var strsZH = strs{
 	QCleared: "已清空待播", QStale: "队列已经变了，重新读一次",
 	BusyHeld: "进行中 —— 完成后再按一次", NextSearch: "用于下一次搜索",
 	PrefAct: "配置", PrefPinned: "由环境变量固定，没有写入配置文件",
-	PrefFailed: "配置文件写不了，这次改的偏好没有存下来",
+	PrefFailed:   "配置文件写不了，这次改的偏好没有存下来",
+	WorkspaceAct: "工作区:", WorkspaceHint: "1 搜索 | 2 推荐 | 3 待播队列 | 4 歌单库 | 5 历史日志",
+	FeedNotSupported: "当前音源不支持推荐流",
+	StageModeBack:    "[Esc / F] 返回工作台",
+	NoLyricsAvail:    "(暂无同步歌词)",
+	InspectorTitle:   "当前播放与同步歌词", NavTitle: "导航", LyricInterlude: "> ... (间奏) <",
+	WsSearchTitle: "搜索", WsFeedsTitle: "推荐", WsQueueTitle: "待播", WsPlaylistsTitle: "歌单", WsHistoryTitle: "历史",
 }
 
 // DetectLang resolves TING_LANG: en|zh wins, else a zh* locale picks Chinese, else English.

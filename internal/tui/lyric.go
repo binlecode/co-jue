@@ -140,3 +140,30 @@ func (m *Model) lyricLine(cols int) (string, bool, bool, bool) {
 	truncated := m.w.trunc(rawText, avail, m.g.Ell)
 	return prefix + truncated, false, isTrans, true
 }
+
+// activeLyricIndex finds the current segment index for pos. Returns (index, isInterlude).
+func (m *Model) activeLyricIndex(pos float64) (int, bool) {
+	lyr := m.currentLyric
+	if lyr == nil && m.playURL != "" {
+		lyr = m.lyricsCache[m.playURL]
+	}
+	if lyr == nil || lyr.status != lyricReady || len(lyr.segments) == 0 {
+		return -1, false
+	}
+	segs := lyr.segments
+	n := len(segs)
+	if pos < segs[0].Start {
+		return -1, true
+	}
+	idx := sort.Search(n, func(j int) bool {
+		return segs[j].Start > pos
+	}) - 1
+	if idx < 0 {
+		idx = 0
+	}
+	cur := segs[idx]
+	if cur.Duration > 0 && pos >= cur.Start+cur.Duration {
+		return idx, true
+	}
+	return idx, false
+}

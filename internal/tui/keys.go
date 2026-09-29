@@ -22,6 +22,48 @@ func (m *Model) updateList(k tea.KeyMsg) tea.Cmd {
 		return m.pasted(string(k.Runes))
 	}
 
+	if m.stageMode {
+		switch key {
+		case "esc", "F", "q", "Q":
+			m.stageMode = false
+			return nil
+		case " ":
+			return m.togglePause()
+		case "s", "S":
+			return m.stop()
+		case "-":
+			return m.adjustVolume(-5)
+		case "=":
+			return m.adjustVolume(5)
+		case "[":
+			return m.verbCmd("", "", func(ctx context.Context, id string) error { return m.suite.Seek(ctx, id, -10) })
+		case "]":
+			return m.verbCmd("", "", func(ctx context.Context, id string) error { return m.suite.Seek(ctx, id, 10) })
+		case "r":
+			return m.cycleLoop()
+		default:
+			return nil
+		}
+	}
+
+	if m.leader == "w" {
+		m.leader = ""
+		switch key {
+		case "1":
+			return m.switchWorkspace(WsSearch)
+		case "2":
+			return m.switchWorkspace(WsFeeds)
+		case "3":
+			return m.switchWorkspace(WsQueue)
+		case "4":
+			return m.switchWorkspace(WsPlaylists)
+		case "5":
+			return m.switchWorkspace(WsHistory)
+		default:
+			return nil
+		}
+	}
+
 	// The jump count dies on any key that neither builds it nor ends it — vim's rule, applied
 	// in one place in front of both blocks rather than once per arm.
 	if !isDigit(key) && key != "j" && key != "J" {
@@ -96,9 +138,12 @@ func (m *Model) updateList(k tea.KeyMsg) tea.Cmd {
 	case "v", "V":
 		m.opt.Play.Mode = next(modeCycle, m.opt.Play.Mode)
 		m.mark("TING_PLAY_MODE")
-	case "f", "F":
+	case "f":
 		m.opt.Play.Quality = next(qualityCycle, m.opt.Play.Quality)
 		m.mark("TING_PLAY_QUALITY")
+	case "F":
+		m.stageMode = true
+		return nil
 	case "l", "L":
 		if m.opt.Lang == "zh" {
 			m.opt.Lang, m.s = "en", strsEN
@@ -138,6 +183,14 @@ func (m *Model) updateList(k tea.KeyMsg) tea.Cmd {
 		m.openHistory()
 	case "g":
 		return m.openRelated()
+	case "w", "W":
+		m.leader = "w"
+		m.notice(m.s.WorkspaceAct, m.s.WorkspaceHint)
+		return nil
+	case "ctrl+n":
+		return m.switchWorkspaceNext()
+	case "ctrl+p":
+		return m.switchWorkspacePrev()
 	case "c", "C":
 		return m.openParts()
 	case "i", "I":
@@ -474,12 +527,12 @@ func (m *Model) applyFilter() {
 type askKind int
 
 const (
-	askSearch askKind = iota // the startup query and n
-	askNew                   // a: the first playlist's name
-	askAdd                   // a: which playlist (number or name)
-	askOpen                  // b: which playlist (number or name)
-	askRemoteOpen            // B: which remote playlist (number or name)
-	askRename                // R: the new name
+	askSearch     askKind = iota // the startup query and n
+	askNew                       // a: the first playlist's name
+	askAdd                       // a: which playlist (number or name)
+	askOpen                      // b: which playlist (number or name)
+	askRemoteOpen                // B: which remote playlist (number or name)
+	askRename                    // R: the new name
 )
 
 // ask opens the prompt. pick is the numbered list a/b choose from, drawn above it.

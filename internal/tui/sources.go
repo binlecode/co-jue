@@ -48,29 +48,185 @@ type info struct {
 	chapters                            []verb.Chapter
 }
 
+// currentWorkspace maps the current row source to its Workspace tab.
+// Subviews (srcParts, srcChapters, srcRelated) are drill-down details of their parent item,
+// returning -1 so they never overwrite top-level workspaces.
+func (m *Model) currentWorkspace() Workspace {
+	switch m.src {
+	case srcPlaylist, srcContainer:
+		return WsPlaylists
+	case srcHistory:
+		return WsHistory
+	case srcQueue:
+		return WsQueue
+	case srcSearch:
+		if m.feed != "" {
+			return WsFeeds
+		}
+		return WsSearch
+	default:
+		return -1
+	}
+}
+
+// saveCurrentWorkspace stores the active view state into stageModel.
+func (m *Model) saveCurrentWorkspace() {
+	ws := m.currentWorkspace()
+	if ws < 0 {
+		return
+	}
+	m.stage.Save(ws, ViewState{
+		Rows:     m.rows,
+		All:      m.all,
+		Cursor:   m.cursor,
+		Top:      m.top,
+		Query:    m.query,
+		Filter:   m.filter,
+		FilterOn: m.filterOn,
+		Total:    m.total,
+		TotalFmt: m.totalFmt,
+		Label:    m.label,
+		PlName:   m.plName,
+		Src:      m.src,
+		Feed:     m.feed,
+	})
+	if ws == WsSearch {
+		m.stash = stash{all: m.all, query: m.query, cursor: m.cursor, top: m.top}
+	}
+}
+
 // openRows puts a stored source on screen, stashing the search first if that is what is
 // being left. Only a search is ever stashed, so the way back always lands on results.
 func (m *Model) openRows(src source, label string, rows []row) {
 	if m.src == srcSearch {
 		m.stash = stash{all: m.all, query: m.query, cursor: m.cursor, top: m.top}
 	}
+	m.saveCurrentWorkspace()
 	m.src, m.label = src, label
 	m.all, m.rows = rows, rows
 	m.cursor, m.top = 0, 0
 	m.filterOn, m.filter = false, ""
+	ws := m.currentWorkspace()
+	if ws >= 0 {
+		m.stage.SwitchTo(ws)
+		m.navbar.SwitchTo(ws)
+	}
 }
 
 func (m *Model) backToSearch() {
-	if m.src == srcSearch {
+	if m.src == srcSearch && m.feed == "" {
 		return
 	}
-	st := m.stash
-	m.src, m.label, m.plName, m.total, m.totalFmt = srcSearch, "", "", 0, ""
-	m.all, m.rows, m.query, m.cursor, m.top = st.all, st.all, st.query, st.cursor, st.top
-	if m.all == nil {
-		m.all, m.rows = []row{}, []row{}
+	// Check if returning to Feeds or Search workspace
+	target := WsSearch
+	if m.stage.Active() == WsFeeds || (m.feed != "" && m.stage.Has(WsFeeds)) {
+		target = WsFeeds
 	}
-	m.filterOn, m.filter = false, ""
+	m.stage.SwitchTo(target)
+	m.navbar.SwitchTo(target)
+	if m.stage.Has(target) {
+		st := m.stage.State(target)
+		m.src, m.label, m.plName, m.total, m.totalFmt = srcSearch, "", "", 0, ""
+		m.feed = st.Feed
+		m.all, m.rows = st.All, st.Rows
+		m.query = st.Query
+		m.cursor, m.top = st.Cursor, st.Top
+		m.filter, m.filterOn = st.Filter, st.FilterOn
+		if m.all == nil {
+			m.all, m.rows = []row{}, []row{}
+		}
+		m.clampCursor()
+	} else {
+		m.feed = ""
+		st := m.stash
+		m.src, m.label, m.plName, m.total, m.totalFmt = srcSearch, "", "", 0, ""
+		m.all, m.rows, m.query, m.cursor, m.top = st.all, st.all, st.query, st.cursor, st.top
+		if m.all == nil {
+			m.all, m.rows = []row{}, []row{}
+		}
+		m.filterOn, m.filter = false, ""
+	}
+}
+
+// switchWorkspace navigates to the target workspace without destroying context.
+func (m *Model) switchWorkspace(target Workspace) tea.Cmd {
+	if target == m.stage.Active() && m.currentWorkspace() == target {
+		return nil
+	}
+	if target == WsFeeds && !m.engine().Has("--feed") {
+		m.notice(m.s.FeedAct+":", m.s.FeedNotSupported)
+		return nil
+	}
+
+	m.saveCurrentWorkspace()
+	m.stage.SwitchTo(target)
+	m.navbar.SwitchTo(target)
+
+	if m.stage.Has(target) {
+		st := m.stage.ActiveState()
+		m.src = st.Src
+		m.feed = st.Feed
+		m.rows = st.Rows
+		m.all = st.All
+		m.cursor = st.Cursor
+		m.top = st.Top
+		m.query = st.Query
+		m.filter = st.Filter
+		m.filterOn = st.FilterOn
+		m.total = st.Total
+		m.totalFmt = st.TotalFmt
+		m.label = st.Label
+		m.plName = st.PlName
+		m.clampCursor()
+
+		// Revalidation on Focus: when returning to Queue, refresh queue asynchronously
+		if target == WsQueue && m.playerID != "" {
+			return m.revalidateQueueCmd()
+		}
+		return nil
+	}
+
+	// Workspace not populated yet: initialize appropriately
+	switch target {
+	case WsSearch:
+		m.backToSearch()
+	case WsFeeds:
+		return m.loadFeed("home")
+	case WsQueue:
+		m.openQueue()
+	case WsPlaylists:
+		return m.browsePlaylists()
+	case WsHistory:
+		m.openHistory()
+	}
+	return nil
+}
+
+func (m *Model) switchWorkspaceNext() tea.Cmd {
+	m.navbar.Next()
+	return m.switchWorkspace(m.navbar.active)
+}
+
+func (m *Model) switchWorkspacePrev() tea.Cmd {
+	m.navbar.Prev()
+	return m.switchWorkspace(m.navbar.active)
+}
+
+type queueRevalidateMsg struct {
+	playerID string
+	list     *verb.ItemList
+	err      error
+}
+
+func (m *Model) revalidateQueueCmd() tea.Cmd {
+	if m.playerID == "" {
+		return nil
+	}
+	s, ctx, id := m.suite, m.ctx, m.playerID
+	return func() tea.Msg {
+		l, err := s.QueueShow(ctx, id)
+		return queueRevalidateMsg{playerID: id, list: l, err: err}
+	}
 }
 
 func (m *Model) searchOnly() bool {
@@ -597,14 +753,15 @@ func (m *Model) feedDone(msg feedMsg) tea.Cmd {
 		return nil
 	}
 	rows := rowsFromSearch(msg.res)
-	if m.src != srcSearch {
-		m.stash = stash{all: rows, query: msg.res.Query, cursor: 0, top: 0}
-	} else {
-		m.all, m.rows = rows, rows
-		m.query = msg.res.Query
-		m.cursor, m.top = 0, 0
-		m.filterOn, m.filter = false, ""
-	}
+	m.feed = "home"
+	m.src = srcSearch
+	m.all, m.rows = rows, rows
+	m.query = msg.res.Query
+	m.cursor, m.top = 0, 0
+	m.filterOn, m.filter = false, ""
+	m.stage.SwitchTo(WsFeeds)
+	m.navbar.SwitchTo(WsFeeds)
+	m.saveCurrentWorkspace()
 	return nil
 }
 
@@ -726,7 +883,7 @@ func (m *Model) openQueue() {
 		m.backToSearch()
 		return
 	}
-	if m.src != srcSearch {
+	if m.src == srcParts || m.src == srcChapters || m.src == srcRelated {
 		m.notice(m.s.QAct+":", m.s.QElsewhere)
 		return
 	}

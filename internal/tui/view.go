@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/binlecode/ting/internal/tui/layout"
 )
 
 // The layout floors, the shell TUI's LAYOUT_* constants: the narrowest frame drawn, the
@@ -274,6 +276,12 @@ func (m *Model) headLead() string {
 // layout spends the terminal's height the way the shell TUI's renderer does: chrome at the
 // two ends, the rows take what is left, and when there is not enough the gaps go first.
 func (m *Model) layout() frame {
+	m.geom = layout.Compute(m.width, m.height)
+	m.dock.SetBounds(m.geom.Dock)
+	m.navbar.SetBounds(m.geom.Navbar)
+	m.stage.SetBounds(m.geom.Stage)
+	m.inspector.SetBounds(m.geom.Inspector)
+
 	f := frame{ambig: m.ambigW(), lyricRow: -1}
 	f.cols = m.width
 	if f.cols < layoutMin {
@@ -536,6 +544,14 @@ func (m *Model) View() string {
 		return m.p.Secondary + m.g.Spin[m.spin%len(m.g.Spin)] + " " + m.busy + m.p.Reset
 	}
 
+	if m.stageMode {
+		v := m.stageModeView()
+		if m.cover.on {
+			v += kittyDel(false)
+		}
+		return v
+	}
+
 	// The page readout reads the page size off the previous frame; the first frame, or one
 	// after a resize, lays out twice so its own count is right.
 	ps := m.psize
@@ -543,6 +559,7 @@ func (m *Model) View() string {
 	if m.psize != ps {
 		f = m.layout()
 	}
+	m.updateInspector()
 
 	// Title line, with the status segment right-aligned when it fits.
 	lead := brand(m.opt.Lang, m.opt.ASCII)
@@ -603,49 +620,64 @@ func (m *Model) View() string {
 		line(p.Secondary + g.Spin[m.spin%len(g.Spin)] + " " + m.w.trunc(b, f.rightEdge-2, g.Ell) + p.Reset)
 	}
 
-	if m.playerID != "" {
-		line(m.banner(f))
-	}
-	if f.barH > 0 {
-		line(m.progressBar(f.cols - 1))
+	if dockStr := m.dock.View(m, f, m.playerClock()); dockStr != "" {
+		for _, dl := range strings.Split(dockStr, "\n") {
+			line(dl)
+		}
 	}
 	line("")
 
-	m.renderRows(&b, f)
-	// The cover rides the line after the rows: a put when this frame draws one, else a
-	// delete. The renderer rewrites a line only when it changed, so each is sent exactly when
-	// the cover changes — and a delete is needed, because erasing text never erases an image.
-	img := m.coverEscape(f)
-	if f.rowGap > 0 {
-		line(img)
-		img = ""
-	}
-	for i, d := range f.details {
-		var l string
-		switch {
-		case i == f.lyricRow:
-			style := p.Accent
-			if f.lyricInter {
-				style = p.Muted
-			} else if f.lyricTrans && p.on && !p.mono {
-				style = p.Bold + p.Accent
+	if m.geom.Mode == layout.Wide && m.geom.Stage.W > 0 {
+		var stageB strings.Builder
+		stageF := f
+		stageF.cols = m.geom.Stage.W
+		stageF.rightEdge = m.geom.Stage.W - f.ambig - 1
+		m.renderRows(&stageB, stageF)
+		navStr := m.navbar.View(m.p, m.s, m.g, m.w)
+		inspStr := m.inspector.View(m.p, m.s, m.g, m.w)
+		contentH := m.geom.Stage.H
+		if contentH <= 0 {
+			contentH = (f.end - f.start) + len(f.details) + 2
+		}
+		colWidths := []int{m.geom.Navbar.W, m.geom.Stage.W, m.geom.Inspector.W}
+		joined := layout.JoinColumns([]string{navStr, strings.TrimSuffix(stageB.String(), "\n"), inspStr}, colWidths, contentH, layout.GutterWidth, m.w.of)
+		for _, l := range strings.Split(joined, "\n") {
+			line(l)
+		}
+	} else {
+		m.renderRows(&b, f)
+		img := m.coverEscape(f)
+		if f.rowGap > 0 {
+			line(img)
+			img = ""
+		}
+		for i, d := range f.details {
+			var l string
+			switch {
+			case i == f.lyricRow:
+				style := p.Accent
+				if f.lyricInter {
+					style = p.Muted
+				} else if f.lyricTrans && p.on && !p.mono {
+					style = p.Bold + p.Accent
+				}
+				l = img + "  " + style + d + p.Reset
+			case i < f.metaH:
+				l = img + "  " + p.Secondary + d + p.Reset
+			default:
+				l = img + "  " + p.Muted + d + p.Reset
 			}
-			l = img + "  " + style + d + p.Reset
-		case i < f.metaH:
-			l = img + "  " + p.Secondary + d + p.Reset
-		default:
-			l = img + "  " + p.Muted + d + p.Reset
+			img = ""
+			if f.coverGate && i == coverRows/2 && m.coverLoading() {
+				t := g.Spin[m.spin%len(g.Spin)] + " loading pic..."
+				pad := f.rightEdge - coverCols + 1 + (coverCols-m.w.of(t))/2 - 2 - m.w.of(d)
+				l += strings.Repeat(" ", max(1, pad)) + p.Muted + t + p.Reset
+			}
+			line(l)
 		}
-		img = ""
-		if f.coverGate && i == coverRows/2 && m.coverLoading() {
-			t := g.Spin[m.spin%len(g.Spin)] + " loading pic..."
-			pad := f.rightEdge - coverCols + 1 + (coverCols-m.w.of(t))/2 - 2 - m.w.of(d)
-			l += strings.Repeat(" ", max(1, pad)) + p.Muted + t + p.Reset
+		if img != "" {
+			line(img)
 		}
-		line(l)
-	}
-	if img != "" {
-		line(img)
 	}
 	if f.navOK {
 		if f.hintGap > 0 {
@@ -776,113 +808,11 @@ func (m *Model) renderRows(b *strings.Builder, f frame) {
 // banner is the Now-Playing line: state, title, and on the right the clock, the footprint,
 // and — only when the hint block has no room — the three keys that act on it.
 func (m *Model) banner(f frame) string {
-	p, g := m.p, m.g
-	icon, label, color := g.Play, m.s.Playing, p.Play
-	switch {
-	case m.starting || m.loading || m.last == nil:
-		icon, label, color = g.Spin[m.spin%len(g.Spin)], m.s.Starting, p.Dim+p.Accent
-	case m.paused():
-		icon, label, color = g.Pause, m.s.Paused, p.PauseC
-	}
-	head := icon + " " + label + ": "
-	tail := ""
-	switch {
-	case m.live:
-		tail = g.TimeL + fmtSec(timeSince(m.startedAt)) + " " + g.Live + g.TimeR
-	default:
-		cur := "--:--"
-		if pos, ok := m.position(); ok {
-			cur = fmtSec(pos)
-		}
-		total := "--:--"
-		if m.last != nil && m.last.Duration != nil {
-			total = fmtSec(*m.last.Duration)
-		}
-		tail = g.TimeL + cur + "/" + total + g.TimeR
-	}
-	res := ""
-	if m.opt.Resource && m.cpu != nil && m.mem != nil {
-		res = fmt.Sprintf(" %s %s %.0f%% %s %.0fM", g.Sep, g.CPU, *m.cpu, g.RAM, *m.mem)
-	}
-	hintS := ""
-	if !f.navOK && m.opt.Keys != "hidden" {
-		hintS = "  [Space " + m.s.Pause + " | s " + m.s.Stop + " | -/= " + m.s.Vol + "]"
-	}
-	gap := 2
-	room := func() int {
-		return f.rightEdge - m.w.of(head) - m.w.of(tail) - m.w.of(res) - m.w.of(hintS) - gap
-	}
-	if room() < layoutMinField {
-		hintS = ""
-	}
-	if room() < layoutMinField {
-		res = ""
-	}
-	if room() < layoutMinBudget {
-		tail, gap = "", 0
-	}
-	title := m.w.trunc(m.playTitle, room(), g.Ell)
-	right := tail + res + hintS
-	out := color + icon + " " + label + ":" + p.Reset + " " + p.Accent + title + p.Reset
-	if right != "" {
-		pad := f.rightEdge - m.w.of(head+title) - m.w.of(right)
-		if pad < 1 {
-			pad = 1
-		}
-		var rightParts strings.Builder
-		if tail != "" {
-			rightParts.WriteString(p.Secondary + tail + p.Reset)
-		}
-		if res != "" {
-			rightParts.WriteString(p.Muted + res + p.Reset)
-		}
-		if hintS != "" {
-			rightParts.WriteString(p.Muted + hintS + p.Reset)
-		}
-		out += strings.Repeat(" ", pad) + rightParts.String()
-	}
-	return out
+	return m.dock.Banner(m, f, m.playerClock())
 }
 
 func (m *Model) progressBar(width int) string {
-	if width < 10 {
-		width = 10
-	}
-	frac, dur := 0.0, 0.0
-	pos, ok := m.position()
-	if ok && m.last.Duration != nil && *m.last.Duration > 0 {
-		dur = *m.last.Duration
-		frac = min(max(pos/dur, 0), 1)
-	}
-	filled, part := barCells(frac, width, len(m.g.Part)+1)
-	// The focused chapter's span, when it is a chapter of what is playing: a blank cell at
-	// each end, so the bar says where that chapter sits in the whole.
-	a, b := -1, -1
-	if st, end := m.chapterSpan(); dur > 0 && end > st {
-		a = min(int(st*float64(width)/dur), width-1)
-		b = min(int(end*float64(width)/dur)-1, width-1)
-		if b <= a+1 {
-			b = -1
-		}
-	}
-	var played, rest strings.Builder
-	for c := 0; c < width; c++ {
-		switch {
-		case c == a || c == b:
-			if c < filled {
-				played.WriteString(" ")
-			} else {
-				rest.WriteString(" ")
-			}
-		case c < filled:
-			played.WriteString(m.g.Fill)
-		case c == filled && part > 0:
-			played.WriteString(m.g.Part[part-1])
-		default:
-			rest.WriteString(m.g.Rest)
-		}
-	}
-	return m.p.Accent + played.String() + m.p.Reset + m.p.Muted + rest.String() + m.p.Reset
+	return m.dock.ProgressBar(m, width, m.playerClock())
 }
 
 // barCells is how much of a width-cell bar frac covers: whole cells, then the steps (of
@@ -986,6 +916,16 @@ func (m *Model) coverEscape(f frame) string {
 	if !m.cover.on {
 		return ""
 	}
+	if m.stageMode {
+		return kittyDel(false)
+	}
+	if m.geom.Mode == layout.Wide && !m.geom.Inspector.Empty() {
+		if row, col, _, _, ok := m.inspector.CoverBox(); ok {
+			if img := m.cover.done[m.inspector.thumbURL]; img != nil {
+				return kittyDel(false) + fmt.Sprintf("\x1b[%d;%dH", row, col) + kittyPut(img.b64)
+			}
+		}
+	}
 	if f.coverGate && len(m.rows) > 0 {
 		if img := m.cover.done[m.rows[m.cursor].Thumb]; img != nil {
 			col := max(1, f.rightEdge-img.cols+1)
@@ -1001,6 +941,35 @@ func (m *Model) coverEscape(f frame) string {
 		}
 	}
 	return kittyDel(false)
+}
+
+func (m *Model) updateInspector() {
+	title := m.playTitle
+	artist := ""
+	album := ""
+	spec := m.dock.MediaSpecs(m, m.playerClock())
+	thumb := ""
+
+	if m.playerID != "" {
+		if m.currentLyric != nil && len(m.currentLyric.segments) > 0 {
+			clock := m.playerClock()
+			idx, inter := m.activeLyricIndex(clock.Pos)
+			m.inspector.UpdateLyrics(m.currentLyric.segments, idx, inter)
+		} else {
+			m.inspector.UpdateLyrics(nil, -1, false)
+		}
+		if len(m.rows) > 0 && m.cursor < len(m.rows) {
+			thumb = m.rows[m.cursor].Thumb
+			artist = m.rows[m.cursor].Engine
+		}
+	} else if len(m.rows) > 0 && m.cursor < len(m.rows) {
+		r := m.rows[m.cursor]
+		title = r.Title
+		thumb = r.Thumb
+		artist = r.Engine
+		m.inspector.UpdateLyrics(nil, -1, false)
+	}
+	m.inspector.UpdateTrack(title, album, artist, spec, thumb)
 }
 
 func (m *Model) coverLoading() bool {

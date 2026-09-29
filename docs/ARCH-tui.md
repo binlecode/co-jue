@@ -21,7 +21,7 @@
 | 演进路线与待办/待决事项 | [`ROADMAP.md`](ROADMAP.md) |
 | 界面设计决定（卡片化/双栏/按键表/真彩/Kitty封面） | 本文「帧」「键与输入」「主题与偏好」「封面」 |
 
-### 一张图：四个包，一条接缝
+### 一张图：架构分形与分层
 
 ```
    用户终端 TTY
@@ -33,16 +33,21 @@
    +---------------------------------+--------------------------------+
                                      v
    +------------------------------------------------------------------+
-   | internal/tui    Model（行源、光标、提示、撤销、播放态）          |
-   |                 keys.go / sources.go   键 -> 状态 -> tea.Cmd     |
-   |                 view.go                layout() -> View()        |
-   |                 style.go / cover.go    主题、kitty 封面          |
-   +---------------+----------------------------------+---------------+
-                   v                                  v
-   +-------------------------------+   +------------------------------+
-   | internal/verb  唯一跑子进程处 |   | internal/config  配置与写回  |
-   |   argv -> 信封 -> 类型化错误  |   |   flag > env > 用户 > 出厂   |
-   +---------------+---------------+   +------------------------------+
+   | internal/tui    Model（分形根模型，单向时钟与状态流调度分发）   |
+   |   navbar.go / stage.go / dock.go / inspector.go / stage_mode.go |
+   |   style.go / cover.go (Kitty 两阶段渲染) / text.go (字符标尺)   |
+   +----------------+-------------------------------+-----------------+
+                   v                               v
+   +-------------------------------+ +--------------------------------+
+   | internal/tui/layout           | | internal/config  配置与写回    |
+   |   断点计算 / 空白空气槽防撕裂 | |   flag > env > 用户 > 出厂     |
+   +-------------------------------+ +--------------------------------+
+                   |
+                   v
+   +-------------------------------+
+   | internal/verb  唯一跑子进程处 |
+   |   argv -> 信封 -> 类型化错误  |
+   +---------------+---------------+
                    v
    ting-play | ting-playlist | ting-history          （bash 3.2）
                    v
@@ -120,36 +125,29 @@ flag 门在前，TTY 门在后，**两道都退 1**，所以只能靠文案分�
 第一次搜索**失败**（非零退出）没有东西可操纵，以 `search failed (<reason>): <advice>` 结束会话；
 **没有结果**（退 0、count 0）不是失败，是一个空列表加提示 —— 修它的 `n`、`e`、`b` 都要菜单在。
 
-## 一个视图，七个行源
+## 多任务平级工作区与无损工作台（Stage & Navbar）
 
-屏上永远是**同一个渲染器**画的那一张列表；搜索之外的七个行源 —— 本地歌单 `b`、在线歌单 `B`、收听日志 `h`、
-分 P `c`、章节 `i`、队列 `u`、单跳关联推荐 `g` —— 各自**换掉那些行**，并由**进入它的那个键退出**：一个键两个方向，
-不用多学一个键，也不在一个量过宽度的提示块里多占一格（那个键在自己的行源开着时自己换词）。
-粘贴一个容器 URL 打开的列表是只读的，由 `b` 或 `B` 退出。
+屏上是**现代化分形组件树**协调绘制的自适应工作台。彻底废除旧时代破坏性的单槽 `stash` 机制，确立 5 大平级独立顶级工作区与下钻层：
 
-- **本地歌单 `b` vs 在线云端歌单 `B`。**
-  `b` 浏览本地 durable 歌单库（`ting-playlist`）；
-  `B` 提取当前音源登录账号下的外部在线歌单（`ting-play --playlists`）。
-  引擎不支持时（如 bili/ne）立即提示该源不支持，账号下无歌单时提示无在线歌单；
-  选中某个云端歌单后，以容器行源展开该单曲目（只读容器），按 `B`（或 `b`）原路退回搜索或 home。
-- **回去走的是暂存的那次搜索，不是重跑那个查询。** 暂存槽只有一个，只在离开搜索时写：
-  一个存储键的往返因此零网络，回来时是离开时的那些行、光标与窗口；重跑同一个查询未必给出同样的结果，
-  "回去"就会变成一次静默的换页。也正因为只有一个槽，`c`、`i`、`g`、`o`、`e` 与列表两端的扩缩只在搜索里可用。
-- **单跳关联推荐 `g`（Related）。** 仅在当前焦点行引擎具备 `--related` 能力且位于搜索行源中可用。
-  按 `g` 展开关联推荐并将当前搜索列表暂存；在关联列表中按 `g` 原路退出并恢复原搜索列表（单键严格可逆，零网络开销），不支持在关联列表中做多级嵌套栈。
-- **推荐流启动（`ting --feed home`）。** 无 query 启动且传入 `--feed home` 时，首屏异步装载当前引擎首页推荐，
-  首帧就绪标记输出 `query='feed:home'`；由于其为算法推荐流而非固定查询，`o` 排序与翻页扩缩不拿 `feed:home` 重搜，`e` 仅变更下一次搜索的目标引擎。若加载失败平滑回退至搜索输入框，保护终端交互会话。
-- **存储行是混源的**，所以每一行自带 `engine`，播放、入队、存歌单都按行路由；状态行报的是这些行的
-  引擎（排序后以 `+` 连接）与条数，不报单一的登录态 —— 一个 token 对其中一半是假话。
-- **单 P 不开视图。** 一个只有一 P 的视频在 `c` 上答提示：屏上那一行本来就是那唯一的一 P。
-- **分 P 的 `total` 只在全部分 P 到手且每一 P 都有时长时才加** —— 半截的和印成 total 就是一个错数。
-- **一个章节行是一次调用。** 偏移写在行自己的句柄里（`t=<秒>`），所以 Enter、`+`、`a` 全是继承来的；
-  Enter 在同一条目已经在放时是 `--seek-to`，否则从那一章起播。章节列表里光标跟着播放头走，
-  **但只在光标还停在上次跟到的那一章时** —— 用户挪开之后不会被拖回去。焦点章节的起止在进度条上
-  画成两处断口，说它在整体里的位置。
-- **队列的编辑按下标加 `--expect-url`。** 播放器自己会往前走，下标只是某一刻的猜测；对不上时
-  （`queue_stale` / `queue_range`）重读一次并说出来，而不是删错一首。在播的那首不能移出，提示说用什么键。
-  队列里没存标题的项，从屏上已知的行里按句柄补上标题。
+- **五大顶级工作区（Top-level Workspaces）**：
+  - `WsSearch`（`w1`）：全局关键词搜索流；
+  - `WsFeeds`（`w2`）：算法推荐首页与订阅流（`--feed home`）；
+  - `WsQueue`（`w3`）：在播播放器待播队列（带 `x` 移除、`>` 置顶、`p/P` 重排）；
+  - `WsPlaylists`（`w4`）：本地歌单库（`b`）与云端外部歌单（`B`）；
+  - `WsHistory`（`w5`）：本地收听历史日志（`h`）。
+- **无损状态栈（`stageModel`）**：
+  每个顶级工作区各自持有独立生命周期的 `ViewState`。按 `w1` ~ `w5` 或 `Ctrl+n` / `Ctrl+p` 在工作区之间任意穿梭，原工作区的所有浏览进度毫发无损地驻留内存，切回即恢复离开时的那一瞬间，彻底消除“看一眼其他数据就要毁掉当前搜索列表”的断崖体验。
+- **单键平权与既有契约完全兼容**：
+  - `b`：在歌单工作区与搜索工作区之间平级双向切换；
+  - `h`：在历史工作区与搜索工作区之间平级双向切换；
+  - `u`：在队列工作区与搜索工作区之间平级双向切换；
+  - `g`：**严格保留为单跳关联推荐（Related）**。仅在当前焦点行引擎具备 `--related` 时可用，单键展开关联推荐，再次单键按 `g` 原路退出并恢复原搜索列表（单键严格可逆，零网络开销，零破坏）。
+- **下钻子视图的状态隔离**：
+  分 P `c`、章节 `i`、单跳关联 `g` 属于特定曲目的下钻详情层，其工作区映射为 `-1`。下钻时不污染顶级工作区状态槽，退出（`backToSearch`）时直接从 `WsSearch` 槽只读恢复，杜绝临时子视图抹杀搜索结果。单 P 不开视图（直接显示行）；分 P 的 `total` 仅全到齐且均有时长时计算；章节行是一次调用，焦点章节在进度条上画断口。
+- **队列焦点激活再核验（Revalidation on Focus）**：
+  切回队列工作区时，若离焦期间收到了 `--watch` 推进事件，后台异步拉取 `ting-play --queue-show -j` 刷新槽位；编辑按下标加 `--expect-url`，对不上时（`queue_stale` / `queue_range`）重读报错；在播行不能移出；没存标题的项按句柄补上。
+- **存储行混源路由**：每一行自带 `engine`，播放、入队、存歌单按行路由；状态行报引擎组合与条数，不报单一登录态。
+- **推荐流启动（`ting --feed home`）**：无 query 启动且传入 `--feed home` 时装载首页推荐；算法推荐流不拿 `feed:home` 重搜，`e` 仅变更目标源。若失败平滑回退至搜索输入框。
 
 ## 帧：上带、行、下带
 
@@ -180,12 +178,6 @@ flag 门在前，TTY 门在后，**两道都退 1**，所以只能靠文案分�
   因此徽章仅覆盖检索信封派生的行（搜索、`--feed`、关联 `g` 与粘贴单曲 URL）；条目记录（`rowsFromItems`
   驱动的 `b`、`B`、`h`、`u`、`c` 与容器 URL）及章节行（`i`）不承载该字段（`ARCH-cli-contract.md`「数据契约」）。
 - **待输入的行号**（`Nj` 的计数）右对齐画在最后一行，像 vim 的 showcmd。
-- **进度条按 1/8 格推进，不按整格跳。** 一格在 60 列下是 4–8 秒，整格步进看起来是卡住再跳；
-  推进格画成对应的左侧八分块，已播是实心块、未播是暗色细线，所以亚格的那一截读得出来。
-  不需要更密的状态流：`position()` 本来就在两次 `--watch` 事件之间按单调钟外推，250 ms 一帧的 tick
-  足以让每一个 1/8 步都被画到。章节断口优先于推进格 —— 推进格落在断口上时断口照旧是空格，
-  它说的是章节在哪儿，比播放头多走的那几分之一格要紧。满条与零条都没有推进格，所以条永远正好是
-  给定宽度；ASCII 字形库没有八分块，只有 `=` 与 `-` 的整格。
 
 **宽度只有一条规则**（`text.go` 的 `width`）：go-runewidth，East-Asian Ambiguous 算一格，
 `TING_AMBIG_WIDE=1` 才算两格。语言环境不决定这个 —— zh 语言环境下的终端照样把它们画成一格，
@@ -193,14 +185,157 @@ flag 门在前，TTY 门在后，**两道都退 1**，所以只能靠文案分�
 dingbat、变体选择符与 ZWJ），屏上每一个字形因此都有一个表能信得过的宽度；chrome 自己的字形库存
 全部是文本呈现，`TING_ASCII`（或非 UTF-8 语言环境）整套换成 ASCII。
 
-**单栏平铺，拒绝卡片化（卡片化 NO）。** 终端界面不做卡片或边框容器，保持纯单栏平铺。
-一个边框盒子要吃掉 4–6 行垂直高度，而这份高度与列表结果行共享同一份预算（`layout()` 计算结果行，
-chrome 每多一行就少一行结果）；在 24 行标准终端上直接损失三成可见条目。重开条件：出现一个不与列表共享垂直预算的独立视图。
+**自适应多栏布局与空白空气槽隔离（Gutter-based Multi-Pane）**。
+在现代化分形组件与布局协调器（`internal/tui/layout`）加持下，建立三档响应式自适应断点：
+- **宽屏旗舰模式（Cols ≥ 125）**：激活完整三栏工作台（导航侧栏 18 列 + 主内容工作台自适应 Grow + 右侧沉浸检查器 34 列 + 底部常驻底座），通过 `layout.JoinColumns` 拼装呈现；
+- **标准工作模式（85 ≤ Cols < 125）**：主工作台单栏平铺展开（保持最大内容宽度与 CJK 对齐），导航栏自适应收敛为顶部工作区标签，底部底座常驻；
+- **紧凑终端模式（Cols < 85，向下兼容 62×20 窄屏）**：优雅折叠为单栏主舞台 + 底部精简发声底座（2 行），右侧检查器与 Kitty 封面自动收起并物理清除，保证在极端窄屏下拥有 8~10 行完整结果可供流畅操作。
 
-**纯单栏对齐，拒绝双栏中轴竖线（双栏中轴竖线 NO）。** 不做双栏布局的中轴分隔竖线，回归纯单栏。
-逐行打印竖线要求每一行左半边的显示宽度绝对精确，而终端环境对非 ASCII / CJK / ZWJ emoji 的宽度度量在不同终端下存在客观分歧；
-单栏基于 `go-runewidth` 测量后通过空格填充（`padRight`/`padLeft`）右贴对齐，具有空气缓冲容错；竖线对齐量多一格就是整行锯齿。
-重开条件：终端提供可查询的真实字符宽度，使宽度层从保守变精确。
+**彻底废黜实心竖线，采用空白空气槽（Whitespace Gutter）物理防撕裂**。
+中轴线锯齿的根源在于不同终端对 EAW 字符宽度的解释差异。因此，栏间全面废除 `|` 或 `│` 实体字符，统一使用宽度恒定为 2 格的纯空格物理空气槽（`GutterWidth = 2`）进行隔离；配合 [`internal/tui/text.go`](text.go) 的 `newWidth` 引擎作为严格中立标尺，并在多栏拼装（`JoinColumns`）时对每一行按目标列宽严格补足空格，彻底杜绝了 CJK 双字宽字符引发的中轴竖线锯齿与右侧栏位漂移。
+
+## 界面各视图实机 ASCII 帧（Real TUI View Frames）
+
+所有帧均由真实运行的 `ting` 实例通过渲染模型录制生成（`TING_ASCII=1` 纯 ASCII 模式），经由 `clean_capture.py` 严格清洗、由 `assert_pane.py` 度量对齐后录入，无任何手绘漂移：
+
+### 1. 宽屏旗舰模式（130×26 视窗实拍：三栏自适应流动工作台）
+
+<!-- pane:wide-130 -->
+
+```
+[ 听 ]  query='lofi hip hop'                                                                 yt | 14 结果 |  | 已登录 |  | 质量
+> 播放中: Best of lofi hip hop 2021 [beats to relax/study to]                                [00:07/06:10:57] | cpu 32% ram 102M
+---------------------------------------------------------------------------------------------------------------------------------
+
+  导航              > Best of lofi hip hop 2021 [beats to relax/study to]            6:10:58 |  当前播放与同步歌词
+                      lofi hip hop radio beats to relax/study to                       --:-- |  Best of lofi hip hop 2021 [beat...
+> w1 搜索             Ｎｉｇｈｔ Ｄｒｉｖｅ ~ lofi hip hop mix ~ beats to chill...  24:37:03 |  yt
+  w2 推荐             90's Chill Lofi Study Music Lofi Rain Chillhop Beats Lofi...  11:53:45 |  139k opus  |  []
+  w3 待播             1 A.M Study Session [lofi hip hop]                             1:01:14 |  ------------------------------
+  w4 歌单             90's Chill Lofi Chill Music Lofi Rain Hip Hop Beats Lofi R...  1:43:55 |    Rain falling on the roof
+  w5 历史             remember when lofi hip-hop was chill like this.                1:00:21 |  > Neon lights blur in mist
+                      Work Lofi - R&B That Sparks a Mood [rnb , lofi hiphop]         3:23:04 |    Coffee aroma in the room
+                      Chill Lofi Mix [chill lo-fi hip hop beats]                     1:44:52 |
+                      Chill Study Beats 4 • jazz & lofi hiphop Mix [2017]            2:01:15 |
+                      remember when lofi hip-hop was smooth like this.               1:02:02 |
+                      Upbeat Lofi Mix Beats to Boost Your Energy & Focus             4:27:53 |
+                      lofi hip hop mix beats to relax/study to (Part 1)              2:50:41 |
+                      𝐏𝐥ａｙｌｉｓｔ Tokyo Lo-fi Hiphop Chill Beats for Study & ...  3:00:08 |
+
+
+
+
+
+
+
+
+
+  Up/Dn 选择   Enter 播放   / 过滤   z 撤销   q 退出   ? 键位
+```
+
+<!-- /pane:wide-130 -->
+
+### 2. 标准工作台与在播底座（100×26 视窗实拍）
+
+<!-- pane:main-dock-100 -->
+
+```
+[ 听 ]  query='lofi hip hop'                                   yt | 14 结果 |  | 已登录 |  | 质量
+> 播放中: Best of lofi hip hop 2021 [beats to relax/study to]  [00:07/06:10:57] | cpu 32% ram 102M
+---------------------------------------------------------------------------------------------------
+
+> Best of lofi hip hop 2021 [beats to relax/study to]                                      6:10:58 |
+  lofi hip hop radio beats to relax/study to                                                 --:-- |
+  Ｎｉｇｈｔ Ｄｒｉｖｅ ~ lofi hip hop mix ~ beats to chill / drive to                    24:37:03 |
+  90's Chill Lofi Study Music Lofi Rain Chillhop Beats Lofi Rain Playlist                 11:53:45 |
+  1 A.M Study Session [lofi hip hop]                                                       1:01:14 |
+  90's Chill Lofi Chill Music Lofi Rain Hip Hop Beats Lofi Rain Playlist                   1:43:55 |
+  remember when lofi hip-hop was chill like this.                                          1:00:21 |
+  Work Lofi - R&B That Sparks a Mood [rnb , lofi hiphop]                                   3:23:04 |
+  Chill Lofi Mix [chill lo-fi hip hop beats]                                               1:44:52 |
+  Chill Study Beats 4 • jazz & lofi hiphop Mix [2017]                                      2:01:15 |
+  remember when lofi hip-hop was smooth like this.                                         1:02:02 |
+  Upbeat Lofi Mix Beats to Boost Your Energy & Focus                                       4:27:53 |
+  lofi hip hop mix beats to relax/study to (Part 1)                                        2:50:41 |
+  𝐏𝐥ａｙｌｉｓｔ Tokyo Lo-fi Hiphop Chill Beats for Study & Relax                          3:00:08 |
+
+  Lofi Girl | 6:10:58 | 57,696,650 views | n61ULEU7CO0
+  opus 139 kbps 48 kHz stereo
+  Listen on Spotify, Apple music and more https://fanlink.tv/BestofLofi2021 The new Lofi Girl
+  compilation “Best of 2021” is out now ...
+
+  Up/Dn 选择   Enter 播放   / 过滤   z 撤销   q 退出   ? 键位
+```
+
+<!-- /pane:main-dock-100 -->
+
+### 3. 全屏纯享舞台模式（`F` 键唤起，100×26 视窗实拍）
+
+<!-- pane:stage-mode-100 -->
+
+```
+[Esc / F] 返回工作台
+
+                        Best of lofi hip hop 2021 [beats to relax/study to]
+                                          139k opus  |  []
+
+                                           (暂无同步歌词)
+
+                    ------------------------------------------------------------
+                                          00:07 / 06:10:57
+```
+
+<!-- /pane:stage-mode-100 -->
+
+### 4. 待播队列工作区视窗（`w3` / `u`，100×26 视窗实拍）
+
+<!-- pane:queue-100 -->
+
+```
+[ 听 ]  queue='待播队列'                                                      yt | 2 项 |  | 质量
+队列: 已加入队列 -> lofi hip hop radio beats to relax/study to | z 撤销
+> 播放中: Best of lofi hip hop 2021 [beats to relax/study to]  [00:07/06:10:57] | cpu 32% ram 102M
+---------------------------------------------------------------------------------------------------
+
+> Best of lofi hip hop 2021 [beats to relax/study to]                                      6:10:57 |
+  lofi hip hop radio beats to relax/study to                                                  0:00 |
+
+  Lofi Girl | 6:10:57 | 57,696,650 views | n61ULEU7CO0
+  opus 139 kbps 48 kHz stereo
+
+  Up/Dn 选择   Enter 立刻播   / 过滤   z 撤销   q 退出   x 移出   pP 上移/下移   u 返回搜索列表
+  ? 键位
+```
+
+<!-- /pane:queue-100 -->
+
+### 5. 极端受限窄屏自适应模式（62×20 视窗实拍）
+
+<!-- pane:compact-62 -->
+
+```
+[ 听 ]  query='lofi hip hop'
+yt | 14 结果 |  | 已登录 |  | 质量
+> 播放中: Best of lof...  [00:07/06:10:57] | cpu 1% ram 116M
+-------------------------------------------------------------
+
+> Best of lofi hip hop 2021 [beats to relax/stud...  6:10:58 #
+  lofi hip hop radio beats to relax/study to           --:-- #
+  Ｎｉｇｈｔ Ｄｒｉｖｅ ~ lofi hip hop mix ~ be...  24:37:03 #
+  90's Chill Lofi Study Music Lofi Rain Chillho...  11:53:45 #
+  1 A.M Study Session [lofi hip hop]                 1:01:14 |
+  90's Chill Lofi Chill Music Lofi Rain Hip Hop ...  1:43:55 |
+  remember when lofi hip-hop was chill like this.    1:00:21 |
+
+  Lofi Girl | 6:10:58 | 57,696,650 views | n61ULEU7CO0
+  opus 139 kbps 48 kHz stereo
+  Listen on Spotify, Apple music and more
+  https://fanlink.tv/BestofLofi2021 The new Lofi Girl
+
+  Up/Dn 选择   Enter 播放   / 过滤   z 撤销   q 退出   ? 键位
+```
+
+<!-- /pane:compact-62 -->
 
 ## 键与输入
 
@@ -224,19 +359,16 @@ chrome 每多一行就少一行结果）；在 24 行标准终端上直接损失
   （如单引擎门控排除 `e`、未装存储门控排除 `a`/`b`/`d`），表驱动增加维护间接层，且本套件无自定义键位映射需求。
   重开条件：确需支持用户自定义键位映射。
 
-## 播放态与横幅
+## 常驻发声底座与单调时钟治理（Player Dock & PlayerClock SSOT）
 
-横幅只由 `ting-play --watch -j` 驱动：每行都是完整状态，读者只留最新一条，中途接上也不缺什么。
-**三个播放态**：`-d` 一返回就是"缓冲中"（spinner），第一次 `ready` 才是"播放中"，暂停另算。
-位置用最后一条事件的位置加单调时钟外推，暂停时停止外推；直播用接入以来的时长。
-队列的长度与位置取自最近说它的那一方 —— 事件，或改了它的那个动词的信封 —— 状态行不落后于按键。
-`--watch` 进程在自己的进程组里，TUI 退出或换播放器时连同它的 nc/jq 一起收走，播放器不受影响。
+底座由 `ting-play --watch -j` 驱动并下沉吸底常驻：每行都是完整状态，读者只留最新一条，中途接上也不缺什么。`--watch` 进程在自己的进程组里，TUI 退出或换播放器时连同它的 nc/jq 一起收走，播放器不受影响。
+**统一单调时钟快照（`PlayerClock` SSOT）**：由根模型集中维护唯一的 250ms 单调外推引擎，向 `dockModel`、`inspectorModel` 等子视窗只读广播同一份毫秒时间戳与状态快照（`Active`、`Playing`、`Paused`、`Buffering`、`Live`、`Pos`、`Dur`），彻底杜绝各组件独立外推导致的时间戳漂移与歌词不同步。
 
-- **音量连按合并**：目标值从最新一次按键算起，同一时刻最多一个 `--set-volume` 在途，在途时的按键
-  只替换它下一次要发的值；起点是 `--watch` 报的当前音量。
-- **`r` 三态而播放器只有两态**：`off`/`one` 是播放器自己的 `--loop`，按下即对在跑的播放器下发；
-  `seq` 不是播放器的状态，是**下一次 Enter 怎么组装**（光标到末尾的行做成一条队列交出去），
-  所以它当场说"下次起播生效"。
+- **三档播放态**：`-d` 一返回就是"缓冲中"（spinner），第一次 `ready` 才是"播放中"，暂停另算；在未起播或闲置时严格静默（`Active == false` 返回空），不占屏幕行高。
+- **1/8 亚格平滑进度条与章节断口**：基于单调时钟外推，进度条按左侧八分块（`▏▎▍▌▋▊▉█`）亚格平滑推进；一格在 60 列下是 4–8 秒，推进格画成对应的左侧八分块，亚格读得出来；当在播曲目属于章节列表时，在 `chapterSpan` 起止点精确留白，说清当前章节在全曲的位置。ASCII 字形库优雅回退为 `=` 与 `-` 的整格。
+- **音量连按合并防抖**：目标值从最新一次按键算起，同一时刻最多一个 `--set-volume` 在途，在途时的按键只替换它下一次要发的值；起点是 `--watch` 报的当前音量。底座整合呈现媒体规格（`128k aac · stereo · Vol: 85% [Seq]`）。
+- **窄屏时间优先保全**：在极端狭窄屏幕下，底座优先截断曲名文本（带省略号），确保右侧的在播时间进度（`01:23 / 04:15`）始终清晰可见，杜绝折行撕裂。
+- **`r` 三态而播放器只有两态**：`off`/`one` 是播放器自己的 `--loop`，按下即对在跑的播放器下发；`seq` 不是播放器的状态，是**下一次 Enter 怎么组装**（光标到末尾的行做成一条队列交出去），所以它当场说"下次起播生效"。
 - **Enter 是切换，不是叠加**：先停横幅上的播放器（接管来的也一样），再起新的 —— 两首歌不会同时进扬声器。
 
 ## 存储键与可撤销
@@ -287,26 +419,26 @@ TUI 这一侧的三件事：置脏点都在成功路径之后（换源、换排�
 不向 terminfo 探针查询 `RGB` 或 `Tc` 能力位。主流复用器（tmux）与现代终端均可靠透传 `COLORTERM`；
 而宿主自带的旧版 ncurses 对能力位探测存在假阴性，查能力位反遭误伤。重开条件：宿主环境更新至原生支持真彩能力位，或出现支持真彩却不设 `COLORTERM` 的主流终端。
 
-## 焦点行歌词窥探 —— details 空间的同步歌词（Lyric Peeking）
+## 沉浸式同步滚动歌词流与全屏纯享舞台模式（Synced Lyrics & Stage Mode）
 
-**为什么是窥探而不是独立视图（卡片化/双栏 NO）**：不开独立全屏歌词或分栏窗格。全屏模态打断搜索与队列心流，分栏窗格破坏 80×24 标准终端行预算与 CJK 双字宽对齐。焦点行下方的 details 空间先量后画，聚焦在播行即来，移开即隐。
+在现代分形架构下，歌词从旧时代的“非聚焦即失明”升级为三层渐进式沉浸体系：
 
-- **行预算严格守恒（`Δrows = 0`）**：
-  - 普通 / 非在播行 / 无歌词：Meta 一行 + Description 最多两行；
-  - 在播 且 歌词就绪：Meta 一行 + Media 解码行（若有） + 当前歌词一行（置换 Description，绝不上浮多占行）。
-- **色彩层级与微动效**：
-  - Meta 与 Media 解码行用次要中灰阶（`p.Secondary`），歌词正文使用当前主题的强调色（`p.Accent`）；
-  - 行首标识为 `♪ `，`TING_ASCII` 下回退为 `> `；
-  - 换句平滑过渡：新一句出现时提供 150ms 亮度微过渡（`p.Bold + p.Accent`），消除 1Hz 机械顿挫；`mono` 或无颜色模式下无过渡；
-  - 前奏与长间奏：未到首句或段落间隙时显示弱化 `♪  · · ·`（ASCII 回退为 `>  ...`），间奏判定严格依据 segment 的 `start + duration` 与下一句 `start` 的时间跨度；
-  - 宽度安全：单行内通过 `go-runewidth` 严格按单元格度量截断，超长补 `…`，绝不折行破坏单栏。
+- **侧栏沉浸窗（Inspector 歌词流）**：
+  在宽屏（≥125 列）与标准屏（85~124 列）下，右侧 Inspector 窗格常驻流淌垂直多行卡拉 OK 歌词，确立严格的**三阶视觉呼吸层级**：
+  - *当前焦点句（Active Focus）*：使用当前主题强调色加粗（`p.Bold + p.Accent`），行首带标志性高亮前缀 `> `；
+  - *过去已唱句（Past / Dimmed）*：使用暗灰阶弱化（`p.Muted`），已唱完退出主视觉；
+  - *未来未唱句（Future / Preview）*：使用次要中灰阶呈现（`p.Secondary`），提供清晰的读句决策预判；
+  - *间奏跳动指示（Interlude Breathing）*：间奏期平滑保留已唱完的文本行，下方紧跟弱化跳动符（`> ... (interlude)`），彻底杜绝文本闪烁与突兀被抹去的问题。
+- **全屏纯享舞台模式（`stage_mode.go`）**：
+  - 按 `F`（Shift+f）一键唤起全屏剧场级大字居中卡拉 OK 动效与完整曲目元数据；
+  - 按 `Esc` / `F` / `q` / `Q` 瞬退回多栏工作台，**工作台的所有上下文（光标、搜索词、过滤条件、工作区栈）零损耗保全**；
+  - 舞台模式下发声控制（`Space` 播放/暂停、`-`/`=` 音量、`[`/`]` seek ±10s、`r` 循环轮转）完整可用，其余按键全面静默拦截，杜绝误触破坏工作台列表。
+- **紧凑单行内联窥探退避（Lyric Peeking）**：
+  在窄终端（<85 列）折叠状态下，焦点行 details 空间以当前一句歌词等额置换 Description 空间（`Δrows = 0`），守住紧凑环境下的行预算底线。
 - **纯公开契约与零落盘**：
-  - 只消费底层公开动词 `ting-play --transcript -j --segments` 与 `ting-play --watch -j`；
-  - 能力由 `ting-play --engines -j` 的 `flags[]` 动态门控（仓外引擎带 `--transcript` 即自动生效）；
-  - 纯内存切片与会话级按 URL 缓存，不写临时文件；
-  - 纯音乐（`no_subtitles_available`）与无字幕引擎退避为 Description，不抛瞬态错误。
+  只消费底层公开动词 `ting-play --transcript -j --segments` 与 `ting-play --watch -j`；能力由 `ting-play --engines -j` 的 `flags[]` 动态门控；纯内存切片与会话级按 URL 缓存，不写临时文件；纯音乐与无字幕引擎优雅退避，不抛瞬态错误。
 
-## 封面 —— 焦点行的一张图，走自己发的 kitty 协议
+## 封面 —— Kitty 协议两阶段安全直通与防残影治理
 
 能力是可选的：`TING_IMAGE` 关着或终端不支持，一个字节都不发。
 
@@ -314,6 +446,11 @@ TUI 这一侧的三件事：置脏点都在成功路径之后（换源、换排�
 终端图片显示（封面等）严禁使用 mpv 的视频输出驱动（VO）。mpv VO 的语义为独占全屏终端而非局部嵌入组件（附带清屏与夺取输入控制的副作用）；
 全量未压缩重传带宽开销过大；且拒绝引入外部图形库依赖。封面由 TUI 自身按需拉取、纯 Go 解码（支持 JPEG/PNG/WebP）、按单元格计算几何后直接发射 Kitty 图形协议。
 重开条件：mpv 原生支持不接管终端屏幕与输入的局部嵌入模式。
+
+**两阶段安全直通规约（Two-Pass Rendering）与防残影治理**：
+- **第一阶段（子模型留白隔离）**：`inspectorModel.View()` 内部绝不输出任何原始转义序列，仅在文本网格中预留纯空格填充块（Blank Cells Padding），由布局层安全拼接，杜绝多栏字符处理截断 Base64 载荷导致乱码；
+- **第二阶段（绝对坐标打点）**：通过 `CoverBox()` 暴露物理行列绝对坐标（`Row/Col`），在整屏字符流拼接完成后，于最末端追加绝对定位的 Kitty 放置指令（`kittyPut`）；
+- **物理显存残影擦除**：当终端宽度缩至 `< 85` 列进入单栏紧凑模式、或用户按下 `F` 进入全屏舞台模式时，调度层强制送出 `kittyDel(false)` 物理擦除图层，彻底消除幽灵残影。
 
 **为什么是 details 右栏**：一行文本放不下一张图；details 本来就是"要多少占多少、太矮就整块丢掉"的
 变高 chrome，把图挂在它身上是延用一条既有规则。**闸门问列表还剩几行（4）、文字还剩几列（50），

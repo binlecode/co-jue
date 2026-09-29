@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/binlecode/ting/internal/config"
+	"github.com/binlecode/ting/internal/tui/layout"
 	"github.com/binlecode/ting/internal/verb"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -114,15 +115,15 @@ type Model struct {
 	filterOn bool
 	filter   string
 
-	prompting bool
-	askKind   askKind
-	askLabel  string
-	askHead   string
+	prompting  bool
+	askKind    askKind
+	askLabel   string
+	askHead    string
 	pick       []verb.Playlist
 	pickCursor int
 	remotePick []verb.RemotePlaylist
 	payload    verb.QueueItem
-	input     textinput.Model
+	input      textinput.Model
 
 	undoStore string // playlist | queue: the store holding this session's copy
 	undoEnd   time.Time
@@ -180,6 +181,13 @@ type Model struct {
 	ticking bool
 
 	width, height int
+	geom          layout.Geometry
+	dock          dockModel
+	navbar        navbarModel
+	stage         stageModel
+	inspector     inspectorModel
+	leader        string
+	stageMode     bool
 }
 
 // New builds the model. ctx bounds every verb call and the watch process.
@@ -218,6 +226,18 @@ func New(ctx context.Context, suite *verb.Suite, opt Options) *Model {
 	if m.opt.Pinned == nil {
 		m.opt.Pinned = func(string) bool { return false }
 	}
+	m.dock = newDock()
+	m.navbar = newNavbar()
+	if len(opt.Engines) > 0 && opt.Engine < len(opt.Engines) {
+		m.navbar.SetSupportsFeeds(opt.Engines[opt.Engine].Has("--feed"))
+	}
+	m.stage = newStage()
+	m.inspector = newInspector()
+	m.geom = layout.Compute(m.width, m.height)
+	m.dock.SetBounds(m.geom.Dock)
+	m.navbar.SetBounds(m.geom.Navbar)
+	m.stage.SetBounds(m.geom.Stage)
+	m.inspector.SetBounds(m.geom.Inspector)
 	if m.query == "" {
 		m.ask(askSearch, "", "", nil)
 	}
@@ -541,6 +561,48 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		m.geom = layout.Compute(m.width, m.height)
+		m.dock.SetBounds(m.geom.Dock)
+		m.navbar.SetBounds(m.geom.Navbar)
+		m.stage.SetBounds(m.geom.Stage)
+		m.inspector.SetBounds(m.geom.Inspector)
+		return m, nil
+
+	case queueRevalidateMsg:
+		if msg.err == nil && msg.list != nil && msg.playerID != "" && msg.playerID == m.playerID {
+			rows := m.queueRows(msg.list)
+			if m.src == srcQueue {
+				m.all = rows
+				if m.filterOn && m.filter != "" {
+					m.applyFilter()
+				} else {
+					m.rows = rows
+				}
+				m.clampCursor()
+				m.saveCurrentWorkspace()
+			} else {
+				cursor := msg.list.Pos
+				top := 0
+				filter := ""
+				filterOn := false
+				if m.stage.Has(WsQueue) {
+					old := m.stage.State(WsQueue)
+					filter = old.Filter
+					filterOn = old.FilterOn
+					top = old.Top
+				}
+				m.stage.Save(WsQueue, ViewState{
+					Rows:     rows,
+					All:      rows,
+					Cursor:   cursor,
+					Top:      top,
+					Filter:   filter,
+					FilterOn: filterOn,
+					Src:      srcQueue,
+					Label:    m.s.QLabel,
+				})
+			}
+		}
 		return m, nil
 
 	case authMsg:
@@ -759,6 +821,7 @@ func (m *Model) searchDone(msg searchDoneMsg) tea.Cmd {
 		return nil
 	case fetchEngine:
 		m.opt.Engine = req.engine
+		m.navbar.SetSupportsFeeds(m.engine().Has("--feed"))
 		m.auth = ""
 		cmd = m.authCmd()
 		m.mark("TING_DEFAULT_ENGINE")
@@ -932,6 +995,26 @@ func (m *Model) position() (float64, bool) {
 		p = *m.last.Duration
 	}
 	return p, true
+}
+
+// playerClock captures the unified monotonic clock snapshot for sub-models.
+func (m *Model) playerClock() PlayerClock {
+	c := PlayerClock{
+		Active:    m.playerID != "",
+		Playing:   m.playing(),
+		Paused:    m.paused(),
+		Buffering: m.starting || m.loading || (m.playerID != "" && m.last == nil),
+		Live:      m.live,
+		StartedAt: m.startedAt,
+		Pos:       -1.0,
+	}
+	if pos, ok := m.position(); ok {
+		c.Pos = pos
+	}
+	if m.last != nil && m.last.Duration != nil {
+		c.Dur = *m.last.Duration
+	}
+	return c
 }
 
 // errText is a verb error as one line for the frame.
