@@ -1465,13 +1465,14 @@ def lrc_segments:
   [ (. // "") | split("\n")[]
     | capture("^[[:space:]]*\\[(?<m>[0-9]+):(?<s>[0-9]+([.:][0-9]+)?)\\](?<t>.*)$")?
     | { start: ((.m | tonumber) * 60 + (.s | sub(":"; ".") | tonumber)),
-        text:  (.t | lrc_clean) }
-    | select(.text != "") ]
-  | . as $segs
-  | [ range(0; $segs | length) as $i
-      | $segs[$i]
-      + { duration: (if ($i + 1) < ($segs | length)
-                     then ($segs[$i + 1].start - $segs[$i].start) else 0 end) } ];
+        text:  (.t | lrc_clean) } ]
+  | . as $raw
+  | [ range(0; $raw | length) as $i
+      | select($raw[$i].text != "")
+      | ($raw[$i+1] // null) as $next
+      | (if $next != null then ($next.start - $raw[$i].start) else 0 end) as $gap
+      | (if $gap > 8.0 then 6.0 elif $gap > 0 then $gap else 0 end) as $dur
+      | $raw[$i] + { duration: $dur } ];
 '
 
 # `no_subtitles_available` is the member the YouTube engine already publishes for a missing

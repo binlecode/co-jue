@@ -98,6 +98,57 @@ func (n *navbarModel) Prev() {
 	}
 }
 
+// HeaderTabs renders the workspace navigation tabs for the top header.
+func (n *navbarModel) HeaderTabs(p palette, s strs) string {
+	items := []struct {
+		ws  Workspace
+		key string
+	}{
+		{WsSearch, "w1"},
+		{WsFeeds, "w2"},
+		{WsQueue, "w3"},
+		{WsPlaylists, "w4"},
+		{WsHistory, "w5"},
+	}
+	var tabs []string
+	for _, item := range items {
+		label := item.key + " " + item.ws.Label(s)
+		switch {
+		case item.ws == n.active:
+			tabs = append(tabs, p.Bold+p.Accent+"["+label+"*]"+p.Reset)
+		case item.ws == WsFeeds && !n.supportsFeeds:
+			tabs = append(tabs, p.Muted+" "+label+" "+p.Reset)
+		default:
+			tabs = append(tabs, p.Secondary+" "+label+" "+p.Reset)
+		}
+	}
+	return strings.Join(tabs, " ")
+}
+
+// PlainHeaderTabs returns the unstyled string representation of header tabs for layout width calculations.
+func (n *navbarModel) PlainHeaderTabs(s strs) string {
+	items := []struct {
+		ws  Workspace
+		key string
+	}{
+		{WsSearch, "w1"},
+		{WsFeeds, "w2"},
+		{WsQueue, "w3"},
+		{WsPlaylists, "w4"},
+		{WsHistory, "w5"},
+	}
+	var tabs []string
+	for _, item := range items {
+		label := item.key + " " + item.ws.Label(s)
+		if item.ws == n.active {
+			tabs = append(tabs, "["+label+"*]")
+		} else {
+			tabs = append(tabs, " "+label+" ")
+		}
+	}
+	return strings.Join(tabs, " ")
+}
+
 // View renders the navbar into its allocated bounding box.
 func (n *navbarModel) View(p palette, s strs, g glyphs, w width) string {
 	if n.bounds.Empty() {

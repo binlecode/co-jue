@@ -14,8 +14,11 @@ func TestBreakpoints(t *testing.T) {
 		{80, 24, Compact},
 		{84, 24, Compact},
 		{85, 24, Standard},
-		{100, 30, Standard},
-		{124, 30, Standard},
+		{90, 24, Standard},
+		{95, 30, Standard},
+		{96, 30, Wide},
+		{100, 30, Wide},
+		{124, 30, Wide},
 		{125, 40, Wide},
 		{160, 50, Wide},
 	}
@@ -54,8 +57,8 @@ func TestCompactMode(t *testing.T) {
 }
 
 func TestStandardMode(t *testing.T) {
-	// Standard screen: 100x30
-	g := Compute(100, 30)
+	// Standard screen: 90x24 (85 <= cols < 96)
+	g := Compute(90, 24)
 
 	if g.Mode != Standard {
 		t.Fatalf("want Standard, got %v", g.Mode)
@@ -66,32 +69,35 @@ func TestStandardMode(t *testing.T) {
 	if !g.Inspector.Empty() {
 		t.Errorf("Inspector in standard mode should be empty, got %+v", g.Inspector)
 	}
-	if g.Stage.W != 100 {
-		t.Errorf("Stage width in standard mode should be full cols (100), got %d", g.Stage.W)
+	if g.Stage.W != 90 {
+		t.Errorf("Stage width in standard mode should be full cols (90), got %d", g.Stage.W)
 	}
-	if g.Stage.H+g.Header.H+g.Dock.H != 30 {
+	if g.Stage.H+g.Header.H+g.Dock.H != 24 {
 		t.Errorf("Vertical heights do not sum to rows: header=%d, stage=%d, dock=%d, total=%d",
 			g.Header.H, g.Stage.H, g.Dock.H, g.Stage.H+g.Header.H+g.Dock.H)
 	}
 }
 
 func TestWideMode(t *testing.T) {
-	// Wide screen: 140x40
+	// Wide screen: 140x40 (cols >= 96, dual-column Stage + Inspector)
 	g := Compute(140, 40)
 
 	if g.Mode != Wide {
 		t.Fatalf("want Wide, got %v", g.Mode)
 	}
-	if g.Navbar.Empty() {
-		t.Errorf("Navbar in wide mode should not be empty, got %+v", g.Navbar)
+	if !g.Navbar.Empty() {
+		t.Errorf("Navbar in wide mode should be empty (moved to header tabs), got %+v", g.Navbar)
 	}
 	if g.Inspector.Empty() {
 		t.Errorf("Inspector in wide mode should not be empty, got %+v", g.Inspector)
 	}
-	totalW := g.Navbar.W + GutterWidth + g.Stage.W + GutterWidth + g.Inspector.W
+	if g.Stage.X != 0 {
+		t.Errorf("Stage in wide mode should start at X=0, got %d", g.Stage.X)
+	}
+	totalW := g.Stage.W + GutterWidth + g.Inspector.W
 	if totalW != 140 {
-		t.Errorf("3 columns do not sum to cols: nav=%d, stage=%d, insp=%d, sum=%d",
-			g.Navbar.W, g.Stage.W, g.Inspector.W, totalW)
+		t.Errorf("Dual columns do not sum to cols: stage=%d, insp=%d, sum=%d",
+			g.Stage.W, g.Inspector.W, totalW)
 	}
 	if g.Stage.H+g.Header.H+g.Dock.H != 40 {
 		t.Errorf("Vertical heights do not sum to rows: header=%d, stage=%d, dock=%d, total=%d",

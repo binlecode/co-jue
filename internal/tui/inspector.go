@@ -13,6 +13,7 @@ type inspectorModel struct {
 	lyrics      []verb.Segment
 	activeLyric int
 	interlude   bool
+	loading     bool
 	trackTitle  string
 	albumName   string
 	artistName  string
@@ -38,10 +39,11 @@ func (ins *inspectorModel) UpdateTrack(title, album, artist, audioSpec, thumbURL
 	ins.thumbURL = thumbURL
 }
 
-func (ins *inspectorModel) UpdateLyrics(segments []verb.Segment, activeIdx int, interlude bool) {
+func (ins *inspectorModel) UpdateLyrics(segments []verb.Segment, activeIdx int, interlude bool, loading bool) {
 	ins.lyrics = segments
 	ins.activeLyric = activeIdx
 	ins.interlude = interlude
+	ins.loading = loading
 }
 
 // CoverBox returns the absolute screen coordinates (1-based row and col) for two-pass Kitty placement.
@@ -113,6 +115,10 @@ func (ins *inspectorModel) View(p palette, s strs, g glyphs, w width) string {
 				sb.WriteString(p.Secondary + "  " + w.trunc(lineText, ins.bounds.W-2, g.Ell) + p.Reset + "\n")
 			}
 		}
+	} else if ins.loading {
+		sb.WriteString(p.Muted + "  " + s.LyricLoading + p.Reset + "\n")
+	} else if ins.trackTitle != "" {
+		sb.WriteString(p.Muted + "  " + s.NoLyricsAvail + p.Reset + "\n")
 	}
 
 	return sb.String()

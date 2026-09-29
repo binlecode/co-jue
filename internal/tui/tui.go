@@ -442,7 +442,7 @@ func (m *Model) ensureTick() tea.Cmd {
 
 func (m *Model) moving() bool {
 	return m.playerID != "" && (m.loading || m.playing()) || m.starting || m.busy != "" ||
-		!m.undoEnd.IsZero() || m.cover.inFlight != ""
+		!m.undoEnd.IsZero() || m.cover.inFlight != "" || m.lyricInFlight != ""
 }
 
 // ── update ──────────────────────────────────────────────────────────────────────────────
@@ -707,7 +707,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.currentLyric = t
 			m.lyricActiveIdx = -1
 		}
-		return m, nil
+		return m, m.ensureTick()
 
 	case volDoneMsg:
 		m.volInFlight = false

@@ -187,8 +187,8 @@ dingbat、变体选择符与 ZWJ），屏上每一个字形因此都有一个表
 
 **自适应多栏布局与空白空气槽隔离（Gutter-based Multi-Pane）**。
 在现代化分形组件与布局协调器（`internal/tui/layout`）加持下，建立三档响应式自适应断点：
-- **宽屏旗舰模式（Cols ≥ 125）**：激活完整三栏工作台（导航侧栏 18 列 + 主内容工作台自适应 Grow + 右侧沉浸检查器 34 列 + 底部常驻底座），通过 `layout.JoinColumns` 拼装呈现；
-- **标准工作模式（85 ≤ Cols < 125）**：主工作台单栏平铺展开（保持最大内容宽度与 CJK 对齐），导航栏自适应收敛为顶部工作区标签，底部底座常驻；
+- **宽屏旗舰模式（Cols ≥ 96）**：激活双列自适应工作台（主工作台 Stage 从 X=0 充分展开 flex-grow + 右侧沉浸检查器 Inspector 34 列 + 底部常驻底座），`w1~w5` 工作区导航深度融合入全局顶栏，通过 `layout.JoinColumns` 双列拼装呈现；
+- **标准工作模式（85 ≤ Cols < 96）**：主工作台单栏平铺展开（保持最大内容宽度与 CJK 对齐），底部底座常驻；
 - **紧凑终端模式（Cols < 85，向下兼容 62×20 窄屏）**：优雅折叠为单栏主舞台 + 底部精简发声底座（2 行），右侧检查器与 Kitty 封面自动收起并物理清除，保证在极端窄屏下拥有 8~10 行完整结果可供流畅操作。
 
 **彻底废黜实心竖线，采用空白空气槽（Whitespace Gutter）物理防撕裂**。
@@ -198,29 +198,29 @@ dingbat、变体选择符与 ZWJ），屏上每一个字形因此都有一个表
 
 所有帧均由真实运行的 `ting` 实例通过渲染模型录制生成（`TING_ASCII=1` 纯 ASCII 模式），经由 `clean_capture.py` 严格清洗、由 `assert_pane.py` 度量对齐后录入，无任何手绘漂移：
 
-### 1. 宽屏旗舰模式（130×26 视窗实拍：三栏自适应流动工作台）
+### 1. 宽屏旗舰模式（130×26 视窗实拍：双列自适应工作台，顶栏工作区集成）
 
 <!-- pane:wide-130 -->
 
 ```
-[ 听 ]  query='lofi hip hop'                                                                 yt | 14 结果 |  | 已登录 |  | 质量
+[ 听 ]  [w1 搜索*]  w2 推荐   w3 待播   w4 歌单   w5 历史   query='lofi hip hop'             yt | 14 结果 |  | 已登录 |  | 质量
 > 播放中: Best of lofi hip hop 2021 [beats to relax/study to]                                [00:07/06:10:57] | cpu 32% ram 102M
 ---------------------------------------------------------------------------------------------------------------------------------
 
-  导航              > Best of lofi hip hop 2021 [beats to relax/study to]            6:10:58 |  当前播放与同步歌词
-                      lofi hip hop radio beats to relax/study to                       --:-- |  Best of lofi hip hop 2021 [beat...
-> w1 搜索             Ｎｉｇｈｔ Ｄｒｉｖｅ ~ lofi hip hop mix ~ beats to chill...  24:37:03 |  yt
-  w2 推荐             90's Chill Lofi Study Music Lofi Rain Chillhop Beats Lofi...  11:53:45 |  139k opus  |  []
-  w3 待播             1 A.M Study Session [lofi hip hop]                             1:01:14 |  ------------------------------
-  w4 歌单             90's Chill Lofi Chill Music Lofi Rain Hip Hop Beats Lofi R...  1:43:55 |    Rain falling on the roof
-  w5 历史             remember when lofi hip-hop was chill like this.                1:00:21 |  > Neon lights blur in mist
-                      Work Lofi - R&B That Sparks a Mood [rnb , lofi hiphop]         3:23:04 |    Coffee aroma in the room
-                      Chill Lofi Mix [chill lo-fi hip hop beats]                     1:44:52 |
-                      Chill Study Beats 4 • jazz & lofi hiphop Mix [2017]            2:01:15 |
-                      remember when lofi hip-hop was smooth like this.               1:02:02 |
-                      Upbeat Lofi Mix Beats to Boost Your Energy & Focus             4:27:53 |
-                      lofi hip hop mix beats to relax/study to (Part 1)              2:50:41 |
-                      𝐏𝐥ａｙｌｉｓｔ Tokyo Lo-fi Hiphop Chill Beats for Study & ...  3:00:08 |
+> Best of lofi hip hop 2021 [beats to relax/study to]                                6:10:58 |  当前播放与同步歌词
+  lofi hip hop radio beats to relax/study to                                           --:-- |  Best of lofi hip hop 2021 [beat...
+  Ｎｉｇｈｔ Ｄｒｉｖｅ ~ lofi hip hop mix ~ beats to chill / drive to              24:37:03 |  yt
+  90's Chill Lofi Study Music Lofi Rain Chillhop Beats Lofi Rain Playlist           11:53:45 |  139k opus  |  []
+  1 A.M Study Session [lofi hip hop]                                                 1:01:14 |  ------------------------------
+  90's Chill Lofi Chill Music Lofi Rain Hip Hop Beats Lofi Rain Playlist             1:43:55 |    Rain falling on the roof
+  remember when lofi hip-hop was chill like this.                                    1:00:21 |  > Neon lights blur in mist
+  Work Lofi - R&B That Sparks a Mood [rnb , lofi hiphop]                             3:23:04 |    Coffee aroma in the room
+  Chill Lofi Mix [chill lo-fi hip hop beats]                                         1:44:52 |
+  Chill Study Beats 4 • jazz & lofi hiphop Mix [2017]                                2:01:15 |
+  remember when lofi hip-hop was smooth like this.                                   1:02:02 |
+  Upbeat Lofi Mix Beats to Boost Your Energy & Focus                                 4:27:53 |
+  lofi hip hop mix beats to relax/study to (Part 1)                                  2:50:41 |
+  𝐏𝐥ａｙｌｉｓｔ Tokyo Lo-fi Hiphop Chill Beats for Study & Relax                    3:00:08 |
 
 
 
@@ -428,7 +428,8 @@ TUI 这一侧的三件事：置脏点都在成功路径之后（换源、换排�
   - *当前焦点句（Active Focus）*：使用当前主题强调色加粗（`p.Bold + p.Accent`），行首带标志性高亮前缀 `> `；
   - *过去已唱句（Past / Dimmed）*：使用暗灰阶弱化（`p.Muted`），已唱完退出主视觉；
   - *未来未唱句（Future / Preview）*：使用次要中灰阶呈现（`p.Secondary`），提供清晰的读句决策预判；
-  - *间奏跳动指示（Interlude Breathing）*：间奏期平滑保留已唱完的文本行，下方紧跟弱化跳动符（`> ... (interlude)`），彻底杜绝文本闪烁与突兀被抹去的问题。
+  - *间奏跳动指示（Interlude Breathing）*：间奏期平滑保留已唱完的文本行，下方紧跟弱化跳动符（`> ... (interlude)`），彻底杜绝文本闪烁与突兀被抹去的问题；
+  - *状态感知与优雅退避（Status Awareness）*：歌词加载期间显式指示 `(歌词加载中...)` / `(loading lyrics...)`；对纯音乐、无外挂字幕视频（如未提供 CC 字幕轨的 YouTube 视频）或无字幕引擎优雅退避展示 `(暂无同步歌词)`，与全屏舞台模式视觉语言严格对齐，彻底消除白屏与无响应感。
 - **全屏纯享舞台模式（`stage_mode.go`）**：
   - 按 `F`（Shift+f）一键唤起全屏剧场级大字居中卡拉 OK 动效与完整曲目元数据；
   - 按 `Esc` / `F` / `q` / `Q` 瞬退回多栏工作台，**工作台的所有上下文（光标、搜索词、过滤条件、工作区栈）零损耗保全**；

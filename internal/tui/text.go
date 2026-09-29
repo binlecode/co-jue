@@ -31,7 +31,7 @@ type strs struct {
 	QPlayingRow, QRemoved, QCleared, QStale                                                          string
 	PrefAct, PrefPinned, PrefFailed                                                                  string
 	BusyHeld, NextSearch                                                                             string
-	WorkspaceAct, WorkspaceHint, FeedNotSupported, StageModeBack, NoLyricsAvail                      string
+	WorkspaceAct, WorkspaceHint, FeedNotSupported, StageModeBack, NoLyricsAvail, LyricLoading string
 	InspectorTitle, NavTitle, LyricInterlude                                                         string
 	WsSearchTitle, WsFeedsTitle, WsQueueTitle, WsPlaylistsTitle, WsHistoryTitle                      string
 }
@@ -89,6 +89,7 @@ var strsEN = strs{
 	FeedNotSupported: "engine does not support feeds",
 	StageModeBack:    "[Esc / F] Back to Workbench",
 	NoLyricsAvail:    "(no synchronized lyrics available)",
+	LyricLoading:     "(loading lyrics...)",
 	InspectorTitle:   "NOW PLAYING / LYRIC STREAM", NavTitle: "NAVIGATION", LyricInterlude: "> ... (interlude) <",
 	WsSearchTitle: "Search", WsFeedsTitle: "Feeds", WsQueueTitle: "Queue", WsPlaylistsTitle: "Playlists", WsHistoryTitle: "History",
 }
@@ -146,6 +147,7 @@ var strsZH = strs{
 	FeedNotSupported: "当前音源不支持推荐流",
 	StageModeBack:    "[Esc / F] 返回工作台",
 	NoLyricsAvail:    "(暂无同步歌词)",
+	LyricLoading:     "(歌词加载中...)",
 	InspectorTitle:   "当前播放与同步歌词", NavTitle: "导航", LyricInterlude: "> ... (间奏) <",
 	WsSearchTitle: "搜索", WsFeedsTitle: "推荐", WsQueueTitle: "待播", WsPlaylistsTitle: "歌单", WsHistoryTitle: "历史",
 }

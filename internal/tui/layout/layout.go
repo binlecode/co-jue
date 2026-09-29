@@ -14,9 +14,9 @@ type Breakpoint int
 const (
 	// Compact is for narrow terminals (< 85 cols, e.g. 62x20). Single-column focused.
 	Compact Breakpoint = iota
-	// Standard is for medium terminals (85 <= cols < 125). 2 columns (Stage + Inspector).
+	// Standard is for medium terminals (85 <= cols < 96). Single-column focused.
 	Standard
-	// Wide is for wide terminals (cols >= 125). 3 columns (Navbar + Stage + Inspector).
+	// Wide is for wide terminals (cols >= 96). Dual-column (Stage + Inspector), workspace tabs in top header.
 	Wide
 )
 
@@ -73,7 +73,7 @@ func Compute(cols, rows int) Geometry {
 
 	var mode Breakpoint
 	switch {
-	case cols >= 125:
+	case cols >= 96:
 		mode = Wide
 	case cols >= 85:
 		mode = Standard
@@ -116,27 +116,25 @@ func Compute(cols, rows int) Geometry {
 		g.Stage = Rect{X: 0, Y: contentY, W: cols, H: contentH}
 
 	case Standard:
-		// Standard mode (85 <= cols < 125):
-		// Stage occupies full width for optimal CJK readability and strict scrollbar edge alignment;
-		// Navbar is collapsed into top tabs in header.
+		// Standard mode (85 <= cols < 96):
+		// Stage occupies full width for optimal CJK readability
 		g.Navbar = Rect{0, 0, 0, 0}
 		g.Inspector = Rect{0, 0, 0, 0}
 		g.Stage = Rect{X: 0, Y: contentY, W: cols, H: contentH}
 
 	case Wide:
-		// Three columns: Navbar (18) + Stage (flex-grow) + Inspector (34)
-		navW := 18
+		// Dual columns: Stage (flex-grow) + Inspector (34)
+		// Navbar is integrated into the global top header tabs.
+		g.Navbar = Rect{0, 0, 0, 0}
 		inspW := 34
-		stageW := cols - navW - GutterWidth - inspW - GutterWidth
+		stageW := cols - GutterWidth - inspW
 		if stageW < 45 {
-			// If stage is too tight, trim inspector then navbar
-			inspW = max(28, cols-navW-GutterWidth-45-GutterWidth)
-			stageW = cols - navW - GutterWidth - inspW - GutterWidth
+			inspW = max(28, cols-GutterWidth-45)
+			stageW = cols - GutterWidth - inspW
 		}
 
-		g.Navbar = Rect{X: 0, Y: contentY, W: navW, H: contentH}
-		g.Stage = Rect{X: navW + GutterWidth, Y: contentY, W: stageW, H: contentH}
-		g.Inspector = Rect{X: navW + GutterWidth + stageW + GutterWidth, Y: contentY, W: cols - (navW + GutterWidth + stageW + GutterWidth), H: contentH}
+		g.Stage = Rect{X: 0, Y: contentY, W: stageW, H: contentH}
+		g.Inspector = Rect{X: stageW + GutterWidth, Y: contentY, W: cols - (stageW + GutterWidth), H: contentH}
 	}
 
 	return g

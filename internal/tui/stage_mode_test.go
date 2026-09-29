@@ -147,7 +147,7 @@ func TestInspectorSyncedLyrics(t *testing.T) {
 		{Start: 5, Duration: 5, Text: "Second line active"},
 		{Start: 10, Duration: 5, Text: "Third line future"},
 	}
-	ins.UpdateLyrics(segs, 1, false)
+	ins.UpdateLyrics(segs, 1, false, false)
 
 	p := paletteFor(true, "kanagawa", Background{Light: false}, true)
 	s := strsEN
@@ -166,6 +166,20 @@ func TestInspectorSyncedLyrics(t *testing.T) {
 	}
 	if !strings.Contains(v, "> Second line active") {
 		t.Errorf("Active lyric line should have '> ' indicator, got: %s", v)
+	}
+
+	// Loading state test
+	ins.UpdateLyrics(nil, -1, false, true)
+	vLoading := ins.View(p, s, g, w)
+	if !strings.Contains(vLoading, "(loading lyrics...)") {
+		t.Errorf("Inspector loading view should contain loading indicator, got: %s", vLoading)
+	}
+
+	// No lyrics available test
+	ins.UpdateLyrics(nil, -1, false, false)
+	vNone := ins.View(p, s, g, w)
+	if !strings.Contains(vNone, "(no synchronized lyrics available)") {
+		t.Errorf("Inspector no-lyrics view should contain no lyrics indicator, got: %s", vNone)
 	}
 }
 

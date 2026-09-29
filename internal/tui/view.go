@@ -298,7 +298,11 @@ func (m *Model) layout() frame {
 		f.status = append(f.status, fmt.Sprintf("%s %d/%d", m.s.UPage, m.cursor/ps+1, (n+ps-1)/ps))
 	}
 	stW := m.w.of(strings.Join(f.status, " "+m.g.Sep+" "))
-	qRoom := f.rightEdge - m.w.of(m.headLead())
+	tabsW := 0
+	if f.cols >= 96 {
+		tabsW = m.w.of(m.navbar.PlainHeaderTabs(m.s)) + 2
+	}
+	qRoom := f.rightEdge - m.w.of(m.headLead()) - tabsW
 	f.statusInline = qRoom-stW-2 >= layoutMinField
 	f.chromeH = 1
 	if !f.statusInline {
@@ -566,8 +570,14 @@ func (m *Model) View() string {
 	if g.Note != "" {
 		lead = g.Note + " " + lead
 	}
+	tabs := ""
+	tabsW := 0
+	if f.cols >= 96 {
+		tabs = m.navbar.HeaderTabs(p, m.s) + "  "
+		tabsW = m.w.of(m.navbar.PlainHeaderTabs(m.s)) + 2
+	}
 	stPlain := strings.Join(f.status, " "+g.Sep+" ")
-	qRoom := f.rightEdge - m.w.of(m.headLead())
+	qRoom := f.rightEdge - m.w.of(m.headLead()) - tabsW
 	if f.statusInline {
 		qRoom -= m.w.of(stPlain) + 2
 	}
@@ -582,9 +592,9 @@ func (m *Model) View() string {
 		// row's ground.
 		shown = strings.Replace(lead, "【 听 】", "【"+p.RowEnd+p.Bold+p.Accent+p.RowHL+" 听 "+p.RowEnd+p.Bold+p.Accent+"】", 1)
 	}
-	head := p.Bold + p.Accent + shown + p.Reset + "  " + m.src.field() + "=" + q
+	head := p.Bold + p.Accent + shown + p.Reset + "  " + tabs + m.src.field() + "=" + q
 	if f.statusInline {
-		gap := f.rightEdge - m.w.of(m.headLead()+q) - m.w.of(stPlain)
+		gap := f.rightEdge - m.w.of(m.headLead()+q) - tabsW - m.w.of(stPlain)
 		if gap < 1 {
 			gap = 1
 		}
@@ -633,14 +643,13 @@ func (m *Model) View() string {
 		stageF.cols = m.geom.Stage.W
 		stageF.rightEdge = m.geom.Stage.W - f.ambig - 1
 		m.renderRows(&stageB, stageF)
-		navStr := m.navbar.View(m.p, m.s, m.g, m.w)
 		inspStr := m.inspector.View(m.p, m.s, m.g, m.w)
 		contentH := m.geom.Stage.H
 		if contentH <= 0 {
 			contentH = (f.end - f.start) + len(f.details) + 2
 		}
-		colWidths := []int{m.geom.Navbar.W, m.geom.Stage.W, m.geom.Inspector.W}
-		joined := layout.JoinColumns([]string{navStr, strings.TrimSuffix(stageB.String(), "\n"), inspStr}, colWidths, contentH, layout.GutterWidth, m.w.of)
+		colWidths := []int{m.geom.Stage.W, m.geom.Inspector.W}
+		joined := layout.JoinColumns([]string{strings.TrimSuffix(stageB.String(), "\n"), inspStr}, colWidths, contentH, layout.GutterWidth, m.w.of)
 		for _, l := range strings.Split(joined, "\n") {
 			line(l)
 		}
@@ -951,12 +960,19 @@ func (m *Model) updateInspector() {
 	thumb := ""
 
 	if m.playerID != "" {
-		if m.currentLyric != nil && len(m.currentLyric.segments) > 0 {
+		lyr := m.currentLyric
+		if lyr == nil && m.playURL != "" {
+			lyr = m.lyricsCache[m.playURL]
+		}
+
+		if lyr != nil && lyr.status == lyricReady && len(lyr.segments) > 0 {
 			clock := m.playerClock()
 			idx, inter := m.activeLyricIndex(clock.Pos)
-			m.inspector.UpdateLyrics(m.currentLyric.segments, idx, inter)
+			m.inspector.UpdateLyrics(lyr.segments, idx, inter, false)
+		} else if (lyr != nil && lyr.status == lyricLoading) || (m.lyricInFlight != "" && m.lyricInFlight == m.playURL) {
+			m.inspector.UpdateLyrics(nil, -1, false, true)
 		} else {
-			m.inspector.UpdateLyrics(nil, -1, false)
+			m.inspector.UpdateLyrics(nil, -1, false, false)
 		}
 		if len(m.rows) > 0 && m.cursor < len(m.rows) {
 			thumb = m.rows[m.cursor].Thumb
@@ -967,7 +983,7 @@ func (m *Model) updateInspector() {
 		title = r.Title
 		thumb = r.Thumb
 		artist = r.Engine
-		m.inspector.UpdateLyrics(nil, -1, false)
+		m.inspector.UpdateLyrics(nil, -1, false, false)
 	}
 	m.inspector.UpdateTrack(title, album, artist, spec, thumb)
 }
