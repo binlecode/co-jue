@@ -911,24 +911,27 @@ func (m *Model) chapterSpan() (float64, float64) {
 	return 0, 0
 }
 
+const pickMaxVisible = 8
+
 // pickLines is the height of the playlist picker drawn above a/b's prompt.
 func (m *Model) pickLines() int {
 	if len(m.pick) == 0 {
 		return 0
 	}
-	return len(m.pick) + 1
+	return min(len(m.pick), pickMaxVisible) + 1
 }
 
 // renderPick is the picker: a numbered list, so an answer is one keystroke rather than a
 // recollection, with the names in a column measured in cells (a CJK name does not line up
 // in a column counted in bytes). A narrow pane drops the date first, then cuts the names.
 func (m *Model) renderPick(b *strings.Builder) {
-	if len(m.pick) == 0 {
+	n := len(m.pick)
+	if n == 0 {
 		return
 	}
 	cols := max(m.width, layoutMin)
-	numW := len(strconv.Itoa(len(m.pick)))
-	metas := make([]string, len(m.pick))
+	numW := len(strconv.Itoa(n))
+	metas := make([]string, n)
 	nameW, metaW := 0, 0
 	for i, pl := range m.pick {
 		unit := m.s.PLItems
@@ -943,9 +946,37 @@ func (m *Model) renderPick(b *strings.Builder) {
 		metaW = max(metaW, m.w.of(metas[i]))
 	}
 	nameW = min(nameW, max(cols-3-numW-1-2-metaW, layoutMinBudget))
-	b.WriteString("  " + m.p.Bold + m.askHead + m.p.Reset + "\n")
-	for i, pl := range m.pick {
-		b.WriteString(fmt.Sprintf("  %*d. %s  %s\n", numW, i+1, m.w.pad(m.w.trunc(pl.Name, nameW, m.g.Ell), nameW), metas[i]))
+
+	if n > pickMaxVisible {
+		b.WriteString(fmt.Sprintf("  %s%s%s  %s(%d/%d)%s\n", m.p.Bold, m.askHead, m.p.Reset, m.p.Muted, m.pickCursor+1, n, m.p.Reset))
+	} else {
+		b.WriteString("  " + m.p.Bold + m.askHead + m.p.Reset + "\n")
+	}
+
+	start := 0
+	end := n
+	if n > pickMaxVisible {
+		start = m.pickCursor - pickMaxVisible/2
+		if start < 0 {
+			start = 0
+		}
+		if start+pickMaxVisible > n {
+			start = n - pickMaxVisible
+		}
+		end = start + pickMaxVisible
+	}
+
+	for i := start; i < end; i++ {
+		pl := m.pick[i]
+		prefix := "  "
+		highlight := ""
+		reset := ""
+		if i == m.pickCursor {
+			prefix = m.p.Accent + m.g.Arrow + " " + m.p.Reset
+			highlight = m.p.Bold
+			reset = m.p.Reset
+		}
+		b.WriteString(fmt.Sprintf("%s%*d. %s%s%s  %s\n", prefix, numW, i+1, highlight, m.w.pad(m.w.trunc(pl.Name, nameW, m.g.Ell), nameW), reset, metas[i]))
 	}
 }
 

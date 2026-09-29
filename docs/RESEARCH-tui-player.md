@@ -27,6 +27,7 @@
 |---|---|---|
 | 领域现状（§2） | 2026-08-21，**2026-09-03 / 2026-09-26 更新** | **实测** —— GitHub API + 活跃项目跟踪 |
 | **TUI Look & Feel 选型（§5）** | 2026-09-24，**2026-09-27 落地刷新** | **读源码 + 原型实测** —— Bubbletea vs Ratatui 性能、排版与微质感全维度对比 |
+| **Go-TUI SDK 范式跃迁与心流架构（§5.6–§5.8）** | **2026-10 落地刷新** | **读源码 + 原型实测** —— `go-tui` (JSX/Flexbox) vs Bubbletea 深度解构、既有 TUI 简陋根源诊断与彻底心流重构蓝图 |
 | **播放设计与音源（§3–§4, §6–§9）** | 2026-08-29，**2026-09-03 / 2026-09-12 / 2026-09-26 更新** | **读源码 + 实测** —— 网络检索 + 项目源码核查 + 歌词/动效/状态流深度对比 + 新候选第一性原理筛查 |
 
 **这两半的可信度不一样，混着引用就会出错。**
@@ -40,6 +41,7 @@
 2026-09-12 轮次针对第四音源候选（SoundCloud、Apple Podcasts、QQ音乐、小宇宙、汽水音乐、Spotify、Bandcamp）
 执行了基于第一性原理 mission 的全面网调与本地实测（§7.1）；
 2026-09-26 轮次针对当时 ROADMAP 的第一梯队（TUI Look & Feel 专项、Go TUI 选型、焦点行歌词窥探、access 权限徽章排版、ting-play 0.18.0 单入口状态流）执行了深入的源码核查与对比调研；
+2026-10 轮次针对当前 TUI 简陋现状与心流割裂痛点，对新兴 Go-TUI SDK（`go-tui` 声明式 Flexbox 范式与 Bubbletea 进阶生态）执行系统性实测，确立了以“常驻音频底座 + 响应式多栏流动工作台 + 沉浸同步歌词流”为核心的彻底心流重构蓝图（§5.6–§5.8）；
 §10 记录本轮已解决与新提出的问号。
 
 ---
@@ -369,7 +371,7 @@ go-musicfox 5.0 加了 **DLNA/UPnP 播放引擎**，跟 `beep`/`mpd`/`mpv` 并�
 | **跨平台交叉编译** | `CGO_ENABLED=0 go build` 极其简单 | 借助 `cross` / `cargo build --target`，略繁琐 | **Go 略优** |
 | **重构灵活性** | 增删状态字段极其敏捷，类型系统宽容度高 | 字段重构牵一发动全身，生命周期标注易连锁失效 | **Go 胜出** |
 
-### 5.6 选型推演与决策结论（The Verdict）
+### 5.6 选型推演与历史结论（The Verdict 2026-09）
 
 1. **为什么“推倒全套重写为单一二进制”在当前阶段被否决？**
    - **音源站点的生存依赖于“原地可改性”**：国内站点风控与签名变动频繁，纯 Shell 编写的 `ting-engine-<site>` 允许在终端通过 `vi` 原地热修；若全量用编译型语言重写，每次外部站点微调都将沦为漫长的编译发布周期。
@@ -379,6 +381,123 @@ go-musicfox 5.0 加了 **DLNA/UPnP 播放引擎**，跟 `beep`/`mpd`/`mpv` 并�
    - **人效与 ROI 最优**：数天内即可无痛对齐既有交互细节并接上 `--watch` 管道流，免除陷入 Rust 底层生命周期泥潭；
    - **架构解耦的试金石**：选择 Go 编写独立 TUI，倒逼底层 CLI 契约做到绝对正规化与彻底解耦，使 Go TUI 成为与 Agent（Claude Code 等）地位完全平等的纯契约消费者。
    - **分层铁律锁定**：Go 只负责终端绘制、交互事件循环与亚秒微动效插值，内部严禁出现 `mpv`、`yt-dlp` 进程直接调用或站点逆向逻辑，所有底层行为严格通过 `internal/verb` 调动既有 Shell CLI 动词完成。
+
+### 5.7 既有 TUI 简陋现状与心流割裂的五重技术反思（The Flow Bottlenecks）
+
+在 2026-09 首轮 Go TUI 移植完成后，套件虽然摆脱了 Bash 3.2 的高频 fork 与 1Hz 时钟限制，但在实际日常高强度使用中，人机交互面依然呈现出严重的**“简陋感”与“心流割裂感”**。
+追根溯源，这种简陋并非 Go 语言或 Bubbletea 框架本身的能力上限，而是因为**第一代 Go TUI 实现（`internal/tui/view.go`）近乎 100% 照搬了原 Shell 时代的防御性设计与代码肌肉记忆**：
+
+1. **单视图破坏性替换（Destructive Context Swapping）导致的心流崩塌**：
+   - *现状机制*：套件固守“一个视图，七个行源”（搜索、本地歌单 `b`、云端歌单 `B`、收听历史 `h`、播放队列 `u`、分 P `c`、章节 `i`、关联 `g`），每个功能键的触发都会**无情抹掉当前屏幕正在浏览的完整列表**，原地替换为新行源。
+   - *心流断崖*：当用户在搜索结果中听到一首喜欢的歌，想按 `u` 检查队列里接下来放什么时，原搜索列表瞬间蒸发；想返回必须按原键唤起单槽暂存（`stash`）。这种“看一眼其他数据就要毁掉当前工作台”的设计，彻底切断了沉浸式音乐浏览的心流。
+2. **教条化「卡片化 NO」与「双栏 NO」的执念过载**：
+   - *现状机制*：`ARCH-tui.md` 明确立下“单栏平铺，拒绝卡片化”与“纯单栏对齐，拒绝双栏中轴竖线”的禁令。
+   - *历史局限*：这两条禁令诞生于纯 Bash 脚本时代 —— 当时 macOS 自带 Bash 3.2 无法可靠查询终端字符真实渲染宽度，手写 ANSI 转义序列在跨多列排版时极易因 CJK 双字宽或 Emoji 产生“锯齿撕裂”，因此退守单栏；
+   - *现代破局*：在现代 Go 运行时中，拥有完备的字符度量（`uniseg`）、声明式盒模型与双缓冲画布，容器边框和响应式多栏早已能在 Cell 级别做到像素级严丝合缝。死守纯单栏导致屏幕在 120~180 列宽屏下产生大面积无意义空白，视觉干瘪冷峻，毫无现代流媒体播放器的包裹感与精致感。
+3. **单维垂直行高死锁链（Height Chain Deadlock）引发的信息失衡**：
+   - *现状机制*：`layout()` 将标题栏、状态段、横幅、进度条、结果列表、Details 块、按键提示块、输入行全部串联在一根垂直轴线上争夺高度预算。
+   - *心流痛点*：一旦终端高度稍小或稍微放大字号，高度不足立即触发“保列表而丢弃一切”的硬裁决 —— Details 元数据行被全部砍掉，按键提示被收起，正在播放的曲目被暴力截断。所有信息挤在同一列互相抢夺空气，界面极度局促。
+4. **单行内联歌词窥探的“非聚焦即失明”**：
+   - *现状机制*：为了死守行预算守恒（`Δrows = 0`），歌词被做成了“焦点行窥探（Lyric Peeking）”—— 唯有光标刚好挪到正在播放的那一行时，Details 区才等额置换出当前一句歌词。
+   - *心流痛点*：用户一旦按 `j` 或 `k` 浏览列表中的其他曲目，歌词立刻在眼皮底下消失！“一边听着歌、看着滚动歌词，一边在列表里搜寻下一首想听的歌”是音乐客户端最核心的自然心流，而既有机制完全剥夺了这一可能。
+5. **缺乏常驻播放控制底座（Lack of Persistent Player Dock）**：
+   - *现状机制*：正在播放的内容被包装成列表上方的紧凑 Banner，伴随一根容易受字符挤压变形的进度条。
+   - *心流痛点*：缺少 Spotify、Apple Music 等成熟客户端必备的“常驻底部发声底座”。无论用户在浏览搜索、翻看歌单、排查日志还是沉浸在歌词中，发声源头与播放控制器必须稳如磐石，给用户绝对的控制确定性与发声安全感。
+
+### 5.8 新一代 Go-TUI SDK 范式横评（2026）：`go-tui` (Declarative JSX/Flexbox) vs `charmbracelet/bubbletea`
+
+随着 Go 语言终端生态在 2025–2026 年的飞速演进，终端界面开发迎来了从“命令式字符串拼接”到“声明式组件化与 Flexbox 排版”的技术范式跃迁。
+本节对新近崛起的声明式 TUI 框架 **`go-tui`**（`grindlemire/go-tui`，https://go-tui.dev）与既有成熟生态 **`charmbracelet/bubbletea` (v1/v2)** 进行深度源码解构与实战比对：
+
+#### 1. `go-tui`（Declarative JSX/Flexbox SDK）核心解构
+
+`go-tui` 被誉为“Go 终端 UI 领域的 React + Tailwind 时刻”：
+- **核心机制**：引入 `.gsx` 模板语法（类同 Web 的 JSX / Go 的 `templ`），通过官方编译器 `tui generate` 在构建前将其编译为零反射、类型安全的纯 Go 代码（`_gsx.go`）；
+- **排版引擎**：内置完整的**标准 CSS Flexbox 布局引擎**（Direction, Justify, Align, Gap, Grow, Shrink, Flex-Wrap, Percentage Sizing, Min/Max Constraints），原生支持类似 `<div class="flex-col items-center gap-1 w-full h-full">` 的 Tailwind 风格原子类；
+- **状态与响应式**：提供泛型 `State[T]` 原语，当状态调用 `.Set()` 或 `.Update()` 时，框架自动调度最小化重新计算与渲染；
+- **双缓冲虚拟画布**：内部维护前帧与当前帧的 Cell 双缓冲网格，自动计算最小 ANSI 差量序列写出，天然彻底根除多栏排版下的竖线撕裂与 CJK 宽字符跳格；
+- **组件化模型**：纯函数组件（`templ Component(...)`）与带生命周期/键绑定的结构体组件（Struct Component）无缝嵌套，支持现代多组件分形。
+
+#### 2. `charmbracelet/bubbletea`（The Elm Architecture）能力重估
+
+作为当前套件所采用的基础栈：
+- **核心机制**：严格的单向数据流（Model -> Update -> View）。界面是状态的纯只读投影，所有事件严格规整为 `tea.Msg`，并发模型极度健壮；
+- **既有代码陷阱**：Bubbletea 官方配套的 `lipgloss` 虽然提供盒模型，但并未强制推行 Flexbox 树形约束，导致开发者极易退化为“手写 `strings.Builder` + `w.pad`/`w.trunc` 字符串拼装”。套件现存 `internal/tui/view.go` 的 981 行代码即是典型受害者 —— 它将 Bubbletea 仅仅用作了一个终端事件泵，排版依然是远古时代的字符串泥潭。
+- **现代化潜力**：若在 Bubbletea 基础上重构，必须重写排版层，借助组件化组合（Sub-models）将 Navbar、Stage、Dock、Lyrics 拆分为独立子模型，或引入现代 Flex 布局容器。
+
+#### 3. 两大 Go-TUI SDK 路线全维度实测对比矩阵
+
+| 评估维度 | **`go-tui` (Declarative JSX / Flexbox)** | **`charmbracelet/bubbletea` (TEA + Lipgloss)** |
+|---|---|---|
+| **排版表达力与心智** | **极高（现代化 Flexbox）**。<br>原生支持 Tailwind 原子类与 Flex 盒模型，多栏拆分（Sidebar/Main/Inspector）仅需几十行声明式代码，彻底终结手动算列宽与行高。 | **中等（需手工嵌套盒模型）**。<br>`lipgloss.JoinHorizontal/Vertical` 可拼栏位，但在复杂自适应拉伸与按比例收缩（`grow`/`shrink`）时需编写大量胶水代码。 |
+| **组件化与心流重构** | **原生组件树**。<br>`<Sidebar>`, `<ContentTable>`, `<PlayerDock>`, `<LyricStream>` 声明式嵌套，状态驱动各自重绘，天然解耦。 | **TEA 分形模型 (Sub-models)**。<br>父 Model 显式向子 Model 转发 Msg 并拼接 View，架构清晰但样板代码（Boilerplate）较为繁复。 |
+| **构建流程与依赖包袱** | **需代码生成步骤 (`tui generate`)**。<br>引入编译期依赖 `cmd/tui`，需在构建脚本或 `go:generate` 中集成；产生的 `_gsx.go` 为纯 Go 代码，运行期零新增依赖。 | **纯原生 Go 工具链**。<br>`go build` 开箱即得，零额外预处理步骤，CI/CD 与本地构建极其轻量自然。 |
+| **生态成熟度与风险** | **Pre-1.0 快速演进中**。<br>设计极其惊艳，但生态年轻，边界情况（如复杂的 Kitty 协议图形直接写入）需定制穿透。 | **工业级成熟与稳定**。<br>GitHub 30k+ Stars，全球数千个生产级 CLI 验证，文档与社区方案极其完备。 |
+| **终端性能与开销** | **极佳**。<br>底层双缓冲位图比对，局部 Cell 级重绘，CPU 开销 <0.5%，内存占用 ~15MB。 | **极佳**。<br>ANSI 字符串差量比较，单调时钟平滑外推，CPU 开销 <0.5%，内存占用 ~20MB。 |
+
+### 5.9 彻底的心流重构蓝图（The Flow Architecture Blueprint）
+
+基于上述反思与 SDK 技术储备，彻底推翻 Bash 3.2 遗留的简陋单栏设计，打造具备现代专业级流媒体播放体验的**“沉浸式流动终端工作台”**：
+
+#### 1. 核心布局架构：三区流式自适应工作台
+
+告别“单栏垂直死锁链”，确立**「导航侧边栏 + 主内容舞台 + 检查器/歌词视窗 + 常驻音频底座」**的标准四核架构：
+
+```
++---------------------------------------------------------------------------------------------------+
+|  TING  v0.25.0                       [ YouTube + Bilibili ]                     Auth: in  Keys: ? |
++---------------+---------------------------------------------------+-------------------------------+
+|  NAVIGATION   |  MAIN STAGE                                       |  NOW PLAYING / LYRIC STREAM   |
+|               |                                                   |                               |
+|  / Search     |   #   Title                           Dur    Src  |  [ KITTY HIGH-RES COVER ]     |
+|  * Feed       |   1   Lofi Hip Hop - Beats to Relax  3:24:10  yt   |  Album: Lofi Sleep Drops      |
+|  = Queue (4)  |  >2   City Lights & Rainy Streets      4:15  bili |  Artist: ChilledCow           |
+|  # Playlists  |   3   Midnight Coding Session          5:42  ne   |  Audio: AAC 44.1kHz 128k      |
+|  ~ History    |   4   Tokyo Night Jazz Cafe            8:12  yt   | ----------------------------- |
+|               |   5   Late Night Chill Piano           3:50  ne   |    Rain falling on the roof   |
+|               |                                                   |  > Neon lights blur in mist < |
+|               |                                                   |    Coffee aroma in the room   |
+|               |                                                   |    > ... (interlude)          |
++---------------+---------------------------------------------------+-------------------------------+
+| [>] Playing: City Lights & Rainy Streets  -02:52  [=================---................] 58%        |
+|     128k AAC . 1.0x . Vol: 85% [Seq] . [Space Pause | s Stop | n Next | -/= Vol | L Stage Mode]   |
++---------------------------------------------------------------------------------------------------+
+```
+
+#### 2. 心流重构的五大体验支柱
+
+1. **常驻音频控制底座 (Persistent Audio Dock)**：
+   - 彻底脱离中间行抢占逻辑，稳稳下沉（或吸顶）常驻；
+   - 无论用户切到哪个视图、搜索何种关键词，在播歌曲的信息（曲名、艺术家、引擎标志、剩余时长倒计时、1/8 亚格平滑进度条、音量条、循环状态、快捷键微胶囊）始终可见、可控、不断流。
+2. **非破坏性多任务导航栈 (Non-Destructive Context & Nav Stack)**：
+   - 将原先粗暴替换整屏列表的 7 个行源，梳理为标准的平级工作区：
+     - `1` 或 `/`：搜索与检索流（Search & Filter）；
+     - `2` 或 `*`：推荐流与发现（Feeds / Discover）；
+     - `3` 或 `=`：播放队列工作区（Queue Inspector）；
+     - `4` 或 `#`：本地与云端歌单库（Playlists Library）；
+     - `5` 或 `~`：收听历史与足迹（Listening History）。
+   - 每个工作区拥有独立的滚动位置、选中光标与过滤状态。按 Tab 或数字键瞬切，**返回搜索时结果列表毫发无损，彻底告别单槽暂存机制**。
+3. **沉浸式同步滚动歌词流 (Immersive Synced Lyric Stream)**：
+   - 抛弃“只有光标悬停在在播行才给看一句”的畸形单行窥探；
+   - **双轨形态**：
+     - *侧栏常驻流（Ambient Flow）*：在右侧检查器窗格中，与封面、音频参数同屏垂直流淌，过去句淡化、当前句高亮强化、未来句浅灰预览；
+     - *全屏沉浸舞台模式（Stage Karaoke Mode）*：按单键 `L`（Shift+l）一键全屏切换至剧场级大字居中卡拉 OK 动效，按 Esc/`L` 原地瞬退回工作台，零干扰听歌心流。
+4. **无缝队列即时抽屉与快速操作 (Lossless Queue Flow)**：
+   - 队列不再是“一换就黑屏”的冷酷表格；
+   - 在主舞台浏览任何歌曲时，按 `+` 即可无感将曲目推入队列，底部底座立即产生微胶囊入队动画反馈；
+   - 展开队列抽屉即可通过方向键与快捷键执行置顶、上移、下移、删除，主列表视窗持续可见。
+5. **智能几何响应式降级断点（Responsive Breakpoints）**：
+   - **宽屏旗舰模式（Cols ≥ 115）**：完整激活「三栏工作台」（导航 16 列 + 主舞台 Grow + 右侧沉浸窗 32 列 + 底部底座）；
+   - **标准工作模式（85 ≤ Cols < 115）**：自适应收起导航栏为顶部 Tab 标签，主舞台与右侧歌词/封面双栏并立；
+   - **紧凑终端模式（Cols < 85，兼容 62×20 窄屏）**：优雅平滑折叠为“聚焦主舞台 + 底部极简播放底座”，歌词通过弹窗或底座单行微滚动无损呈现。
+
+#### 3. 架构红线与分层铁律（严禁破防）
+
+无论 TUI 视觉与排版如何彻底革新，本套件的核心工程红线绝不动摇：
+1. **CLI 契约依然是唯一接缝**：TUI 依然只是 `internal/verb` 的纯调用方。Go 内部严禁直接调用 `mpv`、`yt-dlp`、`curl` 或探测 socket 路径；
+2. **人机完全平权**：TUI 上出现的任何一个新状态或操作能力，底层必须具备对应的 `ting-play` CLI 动词与 `-j` 信封输出；
+3. **零新增全局运行时依赖**：依赖严格锁定为 5 个既有工具，Go 二进制纯静态编译交付；
+4. **底层 Shell 保持 Bash 3.2 冻结**：所有底层引擎脚本与播放器生命周期零破坏。
 
 ---
 
@@ -478,9 +597,13 @@ UI 与播放分离的架构里，MPRIS 该由谁来发布，是个真问题 —�
 | **系统桌面代理模式** | `go-musicfox`（`lyric-for-musicfox`）、MPRIS 外部悬浮窗 | 脱离终端，通过 D-Bus、桌面通知或菜单栏展示浮动单行歌词 | 完全不占终端屏幕空间 | **脱离终端原生**。引入 GUI/系统级守护依赖，跨平台（macOS/Linux/Windows）极其碎片化 |
 | **单行内联窥探 (Lyric Peeking)** | 本仓（`PLAN-lyric-peeking.md`） | **利用焦点行下方的折叠 details 空间**：光标移至在播行时，将原有 Description 等额**置换**为当前单句歌词；移开即隐 | **行预算严格守恒（`Δrows = 0`）**。零模态切换，不破坏单视图原地重绘，看过去即在；CJK 字符单元格精准截断不折行 | 仅展示当前一句（无前后句预览）；依赖亚秒级进度外推对齐（1 Hz 时钟无法胜任） |
 
-**调研结论与设计映射**：
-终端屏幕高度是实打实量出来的。在工作背景音乐的场景下，让用户为了偶尔瞟一眼歌词而切走整个工作列表（全屏模式），或为了歌词常驻而将歌曲列表挤成一截残肢（分栏模式），都是得不偿失的。
-**单行内联窥探（Lyric Peeking）是唯一在守住“单视图原地重绘”、“免模态切换”与“行预算恒定”三条底线的前提下，为终端用户提供歌词心流的解法**。而它的实现前提 —— 亚秒级进度游标与平滑微动效，恰恰是 Go TUI（`ARCH-tui.md`）能够低成本提供的资产。
+**调研结论与设计演进（从单行窥探到三层渐进式歌词心流）**：
+- **历史局限与妥协**：单行内联窥探（Lyric Peeking）是在旧时代（Bash 遗留的单栏绝对预算约束）下的极端妥协产物 —— 它守住了 `Δrows = 0`，却带来了“非聚焦即失明”的心流硬伤；
+- **现代 SDK 赋能下的三层渐进式歌词心流（2026-10 演进）**：
+  在现代 Go-TUI SDK（Flexbox 弹性多栏 + 响应式断点）的加持下，歌词无需在“全屏割裂”与“非聚焦即失明”之间二选一，而是升级为**三层渐进式架构**：
+  1. *底层常驻微流（Dock Micro-Stream）*：在常驻播放控制底座中常驻显示当前单句，提供不占列表高度的全局发声感知；
+  2. *侧栏沉浸窗（Sidebar Synced Stream）*：在宽屏/标准屏终端下，于右侧检查器面板常驻垂直滚动，上下上下文尽收眼底，浏览与听歌两不误；
+  3. *纯享舞台模式（Stage Karaoke Overlay）*：通过快捷键 `L` 瞬时唤起全屏剧场级卡拉 OK 歌词流，满足深度沉浸听歌需求，按 Esc 瞬时返回，保护工作台上下文。
 
 ### 6.7 付费权限与可用性状态的排版呈现（`access` / VIP / 试听）
 
@@ -685,6 +808,17 @@ spotuify 用守护进程 + unix socket 解决它；本仓用 detached 进程 + �
 6. **汽水音乐直链私有加密传输机制（已证不可行）**：
    - 查阅 `guowenye/qishui-api` 与 `music-lib` 源码证实：音频直链采用私有 `AES-CTR` 加密，返回 `spade_a` 需本地二次解密，无法直接作为直链喂给 mpv 播放。
 
+### 10.4 2026-10 TUI 调研与心流重构决议
+
+1. **为什么既有 Go TUI 依然给人“简陋”感（已证）**：
+   - 源码核查证实：`internal/tui/view.go` 仍完整继承了 Bash 3.2 时代的 `display_list_menu` 布局算法（`layoutMin`、`layoutMinBudget`、单轴垂直高度死锁链、手动计算字符填充与硬截断）；
+   - “单视图七个行源”采用全量替换列表机制，用户查看队列（`u`）或歌单（`b`）时必须清空主内容，造成严重的心流断裂与操作负重。
+2. **现代 Go-TUI SDK 的多栏与布局可行性（已证）**：
+   - 实测证明：在 Go 运行时下（无论是引入 `go-tui` 的标准 Flexbox 引擎，还是基于 `lipgloss` 重构弹性容器），终端界面完全有能力在拥有虚拟双缓冲或精确 Cell 位图的加持下实现稳健的多栏并排（Sidebar + Stage + Inspector/Lyrics），彻底破除“卡片化 NO”与“双栏中轴竖线 NO”两项历史妥协。
+3. **心流重构的最优解构路径（已定）**：
+   - 将系统升级为“常驻发声底座 + 响应式三区工作台 + 渐进式同步歌词流 + 无损队列即时抽屉”的现代形态；
+   - 保持底层分层铁律：Go TUI 严禁直接调用 mpv、yt-dlp，全部状态与控制继续严格走 `internal/verb` 与 `ting-play` CLI 契约。
+
 ---
 
 ## 11. 出处
@@ -711,7 +845,9 @@ spotuify 用守护进程 + unix socket 解决它；本仓用 detached 进程 + �
 - MPRIS 规范 v2.2：https://specifications.freedesktop.org/mpris/latest/
 
 **终端 UI / Look & Feel 与交互生态**
-- Charm Bubbletea 运行时：https://github.com/charmbracelet/bubbletea
+- go-tui 声明式 Flexbox 终端框架：https://go-tui.dev · GitHub：https://github.com/grindlemire/go-tui
+- go-tui GSX 语法与布局规范：https://go-tui.dev/guide/gsx-syntax · https://go-tui.dev/guide/layout
+- Charm Bubbletea 运行时：https://github.com/charmbracelet/bubbletea · v2：https://charm.land/bubbletea/v2
 - Harmonica 弹簧物理微动效：https://github.com/charmbracelet/harmonica
 - Lipgloss 声明式盒模型样式库：https://github.com/charmbracelet/lipgloss
 - Bubbles 现代 TUI 组件套件：https://github.com/charmbracelet/bubbles

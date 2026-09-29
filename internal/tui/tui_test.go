@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -532,5 +533,36 @@ func TestRemotePlaylistsKey(t *testing.T) {
 	})
 	if cmd == nil || !m4.prompting || m4.askKind != askRemoteOpen || len(m4.pick) != 2 {
 		t.Fatalf("remotePlaylistsDone with 2 playlists should prompt askRemoteOpen, got prompting=%v kind=%v pick=%d", m4.prompting, m4.askKind, len(m4.pick))
+	}
+	if m4.pickCursor != 0 {
+		t.Fatalf("pickCursor should start at 0, got %d", m4.pickCursor)
+	}
+
+	// Move cursor down with j
+	key(m4, "j")
+	if m4.pickCursor != 1 {
+		t.Fatalf("j should move pickCursor to 1, got %d", m4.pickCursor)
+	}
+
+	// Move cursor up with k
+	key(m4, "k")
+	if m4.pickCursor != 0 {
+		t.Fatalf("k should move pickCursor to 0, got %d", m4.pickCursor)
+	}
+
+	// Move cursor down with down arrow
+	key(m4, "down")
+	if m4.pickCursor != 1 {
+		t.Fatalf("down should move pickCursor to 1, got %d", m4.pickCursor)
+	}
+
+	// Test 22-item window bound
+	m22 := model(t, Options{})
+	m22.pick = make([]verb.Playlist, 22)
+	for i := range m22.pick {
+		m22.pick[i] = verb.Playlist{Name: fmt.Sprintf("PL %d", i+1)}
+	}
+	if pl := m22.pickLines(); pl > 9 {
+		t.Fatalf("pickLines for 22 items should be capped at 9, got %d", pl)
 	}
 }

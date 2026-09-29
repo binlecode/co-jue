@@ -20,6 +20,12 @@
 
 ### 🔴 第一梯队：媒体源生态扩展与契约完整性（最高优先级）
 
+- **【高 ROI · 待决 · 人机面】TUI 心流彻底重构 —— 基于现代 Go-TUI SDK 破除 Bash 遗留牢笼。**
+  - **收益**：极高。彻底根除第一代 Go TUI 照搬 Bash 3.2 导致的“单视图破坏性替换”、“垂直高度死锁”与“非聚焦歌词失明”；建立“常驻音频底座 + 响应式多栏工作台 + 渐进式同步歌词流 + 无损队列交互”的现代沉浸心流。
+  - **成本**：中高。需重构 `internal/tui/view.go` 的 981 行单轴字符串拼接逻辑，升级为支持响应式断点的多栏弹性布局与多任务导航栈。
+  - **待决核心**：技术路线裁决 —— 是采纳声明式 JSX/Flexbox 框架（`go-tui`，组件力极强但需构建期 `tui generate` 代码生成工具），还是在既有 Bubbletea 栈内引入现代弹性盒容器并重构分形组件树（零新增构建依赖）？
+  - **调研依据**：详见 [`docs/RESEARCH-tui-player.md`](RESEARCH-tui-player.md)「§5.7–§5.9」。
+
 - **【中高 ROI · 待决】第四媒体源选型 —— SoundCloud (`sc`) vs 开放播客 (`pod`)。**
   - **收益**：中高。扩展纯音频生态位（独立音乐/混音 DJ 电台 或 开放播客长音频），进一步验证引擎解耦架构。
   - **成本**：中。SoundCloud 的搜索、单曲解析与播放已实测贯通，但 Set 的 yt-dlp flat 条目缺时长，尚未闭合 `--items` 契约与请求预算；开放播客另有去中心化 host、Apple 200 集上限与 RSS 身份问题。
@@ -59,7 +65,7 @@
   - **待决核心**：这枚键省下的一次无用按键，值不值得在公开契约里多一个词。
 
 - **【低 ROI · 待决 · 架构冲突】MCP 官方包装层（stdio server）。**
-  - **收益**：低。最新调研（[`docs/RESEARCH-tui-player.md`](RESEARCH-tui-player.md)「8. agent 面：2026 年它不再是加分项」）证实外部 MCP 工具均无法托管播放生命周期（依赖全量守护进程的 spotuify 除外）；而本仓裸 CLI 契约天然可被 Coding Agent（Claude Code / Codex）无损驱动。
+  - **收益**：低。最新调研（[`docs/RESEARCH-tui-player.md`](RESEARCH-tui-player.md)「8. agent 面：2026 年它不再是加分项」）证实外部 MCP 工具均无法托管播放生命周期（依赖常驻守护进程的 spotuify 除外）；而本仓裸 CLI 契约天然可被 Coding Agent（Claude Code / Codex）无损驱动。
   - **成本**：高。需引入长连接 JSON-RPC 通信与额外运行时封装，是引入第三张脸（`ting` 之外第二个 Go 二进制）的唯一业务前置（见 [`docs/ARCHITECTURE.md`](ARCHITECTURE.md)「人机面 —— `ting`」重开条件）。
   - **待决核心**：是否需要官方封装一层 MCP stdio server，还是保持由 Agent 直接调用通用 CLI 动词？
 

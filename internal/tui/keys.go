@@ -484,7 +484,7 @@ const (
 
 // ask opens the prompt. pick is the numbered list a/b choose from, drawn above it.
 func (m *Model) ask(kind askKind, label, head string, pick []verb.Playlist) tea.Cmd {
-	m.prompting, m.askKind, m.askLabel, m.askHead, m.pick = true, kind, label, head, pick
+	m.prompting, m.askKind, m.askLabel, m.askHead, m.pick, m.pickCursor = true, kind, label, head, pick, 0
 	m.input.SetValue("")
 	m.input.Focus()
 	return textinput.Blink
@@ -505,8 +505,32 @@ func (m *Model) updatePrompt(k tea.KeyMsg) tea.Cmd {
 		return tea.Quit
 	case tea.KeyEsc:
 		return m.cancelPrompt()
+	case tea.KeyUp:
+		if len(m.pick) > 0 {
+			m.pickCursor = (m.pickCursor - 1 + len(m.pick)) % len(m.pick)
+			return nil
+		}
+	case tea.KeyDown:
+		if len(m.pick) > 0 {
+			m.pickCursor = (m.pickCursor + 1) % len(m.pick)
+			return nil
+		}
+	case tea.KeyRunes:
+		if len(m.pick) > 0 && m.input.Value() == "" {
+			if string(k.Runes) == "j" || string(k.Runes) == "J" {
+				m.pickCursor = (m.pickCursor + 1) % len(m.pick)
+				return nil
+			}
+			if string(k.Runes) == "k" || string(k.Runes) == "K" {
+				m.pickCursor = (m.pickCursor - 1 + len(m.pick)) % len(m.pick)
+				return nil
+			}
+		}
 	case tea.KeyEnter:
 		v := strings.TrimSpace(m.input.Value())
+		if v == "" && len(m.pick) > 0 {
+			v = strconv.Itoa(m.pickCursor + 1)
+		}
 		if v == "" {
 			return m.cancelPrompt()
 		}
@@ -516,7 +540,7 @@ func (m *Model) updatePrompt(k tea.KeyMsg) tea.Cmd {
 		if kind == askSearch && m.hold() {
 			return nil
 		}
-		m.prompting, m.pick = false, nil
+		m.prompting, m.pick, m.pickCursor = false, nil, 0
 		m.input.Blur()
 		switch kind {
 		case askSearch:
@@ -581,7 +605,7 @@ func pickName(v string, pick []verb.Playlist) string {
 }
 
 func (m *Model) cancelPrompt() tea.Cmd {
-	m.prompting, m.pick, m.remotePick = false, nil, nil
+	m.prompting, m.pick, m.remotePick, m.pickCursor = false, nil, nil, 0
 	m.input.Blur()
 	if m.all == nil && m.pending == nil && m.busy == "" {
 		return tea.Quit
