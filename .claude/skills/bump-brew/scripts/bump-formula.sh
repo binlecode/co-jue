@@ -13,6 +13,7 @@ fi
 cd "$ROOT"
 
 VERSION="${1:-$(cat VERSION 2>/dev/null | tr -d '[:space:]')}"
+VERSION="${VERSION#v}"
 if [ -z "$VERSION" ]; then
   echo "FAIL: Version could not be determined from argument or VERSION file." >&2
   exit 1
@@ -57,6 +58,12 @@ echo "Tarball SHA-256: ${SHA256}"
 
 echo
 echo "=== 4. Locate and Update Tap Repository ==="
+# Check and clean up legacy tap if co-existing locally
+if brew tap 2>/dev/null | grep -qx "binlecode/ting"; then
+  echo "Untapping legacy 'binlecode/ting' to prevent duplicate formula ambiguity..."
+  brew untap binlecode/ting 2>/dev/null || true
+fi
+
 TAP_DIR="$(brew --repository binlecode/tap 2>/dev/null || true)"
 if [ -z "$TAP_DIR" ] || [ ! -d "$TAP_DIR" ]; then
   TAP_DIR="/opt/homebrew/Library/Taps/binlecode/homebrew-tap"
@@ -73,8 +80,8 @@ if [ ! -f "$FORMULA_FILE" ]; then
 fi
 
 echo "Updating ${FORMULA_FILE}..."
-# Replace url line
-sed -i '' -E "s|url \"https://github.com/binlecode/ting/archive/refs/tags/v[0-9.]+\.tar\.gz\"|url \"${TARBALL_URL}\"|g" "$FORMULA_FILE"
+# Replace url line (matching any scheme: https, file, etc.)
+sed -i '' -E "s|url \".*\"|url \"${TARBALL_URL}\"|g" "$FORMULA_FILE"
 # Replace sha256 line
 sed -i '' -E "s|sha256 \"[a-f0-9]{64}\"|sha256 \"${SHA256}\"|g" "$FORMULA_FILE"
 
@@ -89,9 +96,12 @@ else
   git -C "$TAP_DIR" add Formula/ting.rb
   git -C "$TAP_DIR" commit -m "ting ${VERSION}"
   git -C "$TAP_DIR" push origin main
-  # Sync developer workspace checkout if present
-  if [ -d "/Users/binle/workspace_fullstack/homebrew-tap" ]; then
-    git -C /Users/binle/workspace_fullstack/homebrew-tap pull --ff-only 2>/dev/null || true
+
+  # Sync developer workspace checkout if present (dynamically located at ../homebrew-tap)
+  WORKSPACE_TAP="$(cd "$ROOT/.." && pwd)/homebrew-tap"
+  if [ -d "$WORKSPACE_TAP" ] && [ "$WORKSPACE_TAP" != "$TAP_DIR" ]; then
+    echo "Syncing workspace clone at ${WORKSPACE_TAP}..."
+    git -C "$WORKSPACE_TAP" pull --ff-only 2>/dev/null || true
   fi
   echo "PASS: Tap repository updated and pushed to GitHub."
 fi

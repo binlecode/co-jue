@@ -62,6 +62,14 @@ open tmp/cover-dist/index.html
 
 ## 2. Deploy to Cloudflare Pages
 
+### Automated One-Click Deploy Script
+Run the automated deployment script which runs the audit gates, validates authentication, deploys to Cloudflare Pages, and verifies the live edge network:
+
+```bash
+.claude/skills/cf-cover/scripts/deploy-cover.sh
+```
+
+### Manual Execution & Requirements
 Run wrangler via `npx` (no global install required). Direct upload grants Cloudflare zero repository access.
 
 ### 🔴 Drop `CLOUDFLARE_API_TOKEN` — `env -u` on EVERY wrangler call

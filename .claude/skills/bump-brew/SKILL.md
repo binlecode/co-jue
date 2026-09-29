@@ -7,10 +7,11 @@ description: Bump Homebrew formula in binlecode/homebrew-ting, commit and push t
 
 Automates the Homebrew tap release cycle for **ting (听)**. A release is never done until the tap formula is bumped, pushed to GitHub, and the local Homebrew installation is upgraded and tested against the formula contract.
 
-- **Tap Repository**: `github.com/binlecode/homebrew-ting` (`binlecode/ting`)
+- **Tap Repository**: `github.com/binlecode/homebrew-tap` (`binlecode/tap`)
 - **Formula Path**: `Formula/ting.rb`
-- **Installation Commands**: `brew install binlecode/ting/ting` or `brew tap binlecode/ting && brew install ting`
-- **Local Tap Path**: `$(brew --repository binlecode/ting)` (`/opt/homebrew/Library/Taps/binlecode/homebrew-ting`)
+- **Installation Commands**: `brew install binlecode/tap/ting` or `brew tap binlecode/tap && brew install ting`
+- **Local Tap Path**: `$(brew --repository binlecode/tap)` (`/opt/homebrew/Library/Taps/binlecode/homebrew-tap`)
+- **Workspace Clone Path**: `../homebrew-tap` (`/Users/binle/workspace_fullstack/homebrew-tap`)
 
 ---
 
@@ -20,8 +21,8 @@ Automates the Homebrew tap release cycle for **ting (听)**. A release is never 
 2. **Active playback guard**: Checks `pgrep -fl 'Cellar/ting/'` to warn if an active `ting` session is playing. (Homebrew removes the old Cellar upon upgrade; an active player resolving its binaries into the old Cellar could become disrupted).
 3. **Deterministic checksumming**: Fetches the GitHub tag tarball (`https://github.com/binlecode/ting/archive/refs/tags/v${VERSION}.tar.gz`) and computes its exact SHA-256.
 4. **Formula bump**: Updates `url` and `sha256` in `Formula/ting.rb` inside the local tap repository.
-5. **Tap sync**: Commits (`ting ${VERSION}`) and pushes to `binlecode/homebrew-ting` on GitHub.
-6. **Local upgrade & verification**: Runs `brew upgrade binlecode/ting/ting` (or reinstall), executes `brew test binlecode/ting/ting`, and validates `ting --version`.
+5. **Tap sync**: Commits (`ting ${VERSION}`) and pushes to `binlecode/homebrew-tap` on GitHub, then fast-forwards the workspace clone `../homebrew-tap`.
+6. **Local upgrade & verification**: Runs `brew upgrade binlecode/tap/ting` (or reinstall), executes `brew test binlecode/tap/ting`, and validates `ting --version`.
 
 ---
 
@@ -57,17 +58,17 @@ PASS: Tap repository updated and pushed to GitHub.
 === 6. Local Brew Upgrade & Contract Test ===
 Upgrading ting...
 Running brew test...
-==> Testing binlecode/ting/ting
-==> /opt/homebrew/Cellar/ting/0.23.0/bin/ting --version
-==> /opt/homebrew/Cellar/ting/0.23.0/bin/ting-play --version
-==> /opt/homebrew/Cellar/ting/0.23.0/bin/ting-play --status -j
-==> /opt/homebrew/Cellar/ting/0.23.0/bin/ting q </dev/null 2>&1 || true
-==> /opt/homebrew/Cellar/ting/0.23.0/bin/ting-play --engines -j
+==> Testing binlecode/tap/ting
+==> /opt/homebrew/Cellar/ting/0.25.3/bin/ting --version
+==> /opt/homebrew/Cellar/ting/0.25.3/bin/ting-play --version
+==> /opt/homebrew/Cellar/ting/0.25.3/bin/ting-play --status -j
+==> /opt/homebrew/Cellar/ting/0.25.3/bin/ting q </dev/null 2>&1 || true
+==> /opt/homebrew/Cellar/ting/0.25.3/bin/ting-play --engines -j
 
 ========================================================
 ✨ Homebrew Formula Release Complete!
-   Installed: ting 0.23.0
-   Tap Formula: binlecode/ting/ting (0.23.0)
+   Installed: ting 0.25.3
+   Tap Formula: binlecode/tap/ting (0.25.3)
 ========================================================
 ```
 
