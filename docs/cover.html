@@ -271,7 +271,7 @@
   <main class="wrap">
     <section class="hero">
       <div class="hero-badges">
-        <span class="badge">v0.25.1</span>
+        <span class="badge">v0.25.2</span>
         <span class="badge green">bash 3.2 + Go</span>
         <span class="badge purple">3 engines · 0 new deps</span>
       </div>
@@ -332,17 +332,18 @@
         <div class="card">
           <div class="card-head">
             <span class="card-title">Human Face (Bubbletea TUI)</span>
-            <span class="badge green">Single-View</span>
+            <span class="badge green">Dual-Column Workspaces</span>
           </div>
           <p>
-            A high-craft Go terminal UI with East-Asian ambiguous width handling, Kitty cover art, and 13 curated themes.
+            A high-craft Go terminal UI with responsive dual-column workspaces, synchronized lyrics, Kitty cover art, and 13 curated themes.
           </p>
           <ul>
-            <li>Single-view architecture: 6 row sources seamlessly hot-swap into one list</li>
-            <li>Incremental fuzzy filter (<code>/</code>) and row jump navigation (<code>Nj</code>)</li>
-            <li>Destructive actions execute instantly; <code>z</code> undoes without annoying "are you sure" dialogs</li>
-            <li>In-terminal album cover art over Kitty graphics protocol</li>
-            <li>13 built-in themes (Catppuccin, Tokyo Night, Nord, Rose Pine, Everforest...)</li>
+            <li>Five top-level workspaces (Search, Feeds, Queue, Playlists, History) with non-destructive state retention</li>
+            <li>Responsive dual-column layout: Stage list paired with an Inspector for synchronized lyrics stream</li>
+            <li>Full-screen Theater stage mode (<code>F</code>) with centered lyrics and ambient typography</li>
+            <li>Sub-cell progress bar, incremental filter (<code>/</code>), row jump (<code>Nj</code>), and 3-second <code>z</code> undo</li>
+            <li>In-terminal album cover art over Kitty graphics protocol with clean fallback</li>
+            <li>13 built-in truecolor/ANSI themes (Catppuccin, Tokyo Night, Nord, Rose Pine, Everforest...)</li>
           </ul>
 
           <div class="terminal-window">
@@ -350,15 +351,23 @@
               <span class="term-dot red"></span>
               <span class="term-dot yellow"></span>
               <span class="term-dot green"></span>
-              <span class="term-title">ting (interactive face)</span>
+              <span class="term-title">ting — dual-column workspace &amp; synced lyrics</span>
             </div>
-            <div class="term-body">
-              【 听 】 query='lofi hip hop' · yt · 25 tracks · 48k · 80%<br>
-              ▶ 01. lofi hip hop radio - beats to relax/study to   [03:45]<br>
-              &nbsp;&nbsp;02. coffee shop radio // 24/7 lofi hip hop beats    [04:12]<br>
-              &nbsp;&nbsp;03. 1 A.M Study Session 📚 - [lofi hip hop]         [23:10]<br>
-              ──────────────────────────────────────────────────────────<br>
-              <span class="code-comment">Enter 播放 · Space 暂停 · / 过滤 · e 切换源 · z 撤销 · ? 帮助</span>
+            <div class="term-body" style="white-space: pre; line-height: 1.45;">
+<span class="code-str">【 听 】</span>  <span class="code-key">[w1 搜索*]</span>  w2 推荐   w3 待播   w4 歌单   w5 历史   query='lofi hip hop'             yt · 14 结果 · 已登录
+<span class="code-str">▶ 播放中:</span> Best of lofi hip hop 2021 [beats to relax/study to]                                <span class="code-comment">【00:07/06:10:57】</span>
+<span class="code-key">████████████████████▏</span>─────────────────────────────────────────────────────────────────────────────
+
+<span class="code-key">▎  1. Best of lofi hip hop 2021 [beats to relax/study to]</span>                                6:10:58 │  <span class="code-str">当前播放与同步歌词</span>
+   2. lofi hip hop radio beats to relax/study to                                           --:-- │  Best of lofi hip hop 2021 [beats...
+   3. Ｎｉｇｈｔ Ｄｒｉｖｅ ~ lofi hip hop mix ~ beats to chill / drive to              24:37:03 │  yt
+   4. 90's Chill Lofi Study Music Lofi Rain Chillhop Beats Lofi Rain Playlist           11:53:45 │  139k opus · stereo · 音量 100%
+   5. 1 A.M Study Session [lofi hip hop]                                                 1:01:14 │  ------------------------------
+   6. 90's Chill Lofi Chill Music Lofi Rain Hip Hop Beats Lofi Rain Playlist             1:43:55 │    Rain falling on the roof
+   7. remember when lofi hip-hop was chill like this.                                    1:00:21 │  <span class="code-key">> Neon lights blur in mist</span>
+   8. Work Lofi - R&B That Sparks a Mood [rnb , lofi hiphop]                             3:23:04 │    Coffee aroma in the room
+──────────────────────────────────────────────────────────────────────────────────────────────────
+  <span class="code-comment">↑↓ 选择   ⏎ 播放   / 过滤   z 撤销   F 舞台模式   w1~w5 工作区   q 退出   ? 键位</span>
             </div>
           </div>
         </div>
@@ -474,20 +483,24 @@
           <span class="key-label">Navigate up / down</span>
         </div>
         <div class="key-item">
+          <span class="key-badge">w1 ~ w5</span>
+          <span class="key-label">Five Workspaces</span>
+        </div>
+        <div class="key-item">
+          <span class="key-badge">F</span>
+          <span class="key-label">Theater Stage Mode</span>
+        </div>
+        <div class="key-item">
           <span class="key-badge">/</span>
           <span class="key-label">Fuzzy filter rows</span>
         </div>
         <div class="key-item">
-          <span class="key-badge">e</span>
-          <span class="key-label">Cycle source engine</span>
+          <span class="key-badge">b</span>
+          <span class="key-label">Playlists library</span>
         </div>
         <div class="key-item">
           <span class="key-badge">u</span>
           <span class="key-label">Inspect player queue</span>
-        </div>
-        <div class="key-item">
-          <span class="key-badge">b</span>
-          <span class="key-label">Open playlists store</span>
         </div>
         <div class="key-item">
           <span class="key-badge">h</span>
@@ -517,7 +530,7 @@
   <footer>
     <div class="wrap">
       <div class="footer-badges">
-        <span class="badge">v0.25.1</span>
+        <span class="badge">v0.25.2</span>
         <span class="badge green">MIT License</span>
         <span class="badge purple">Open Source</span>
       </div>
