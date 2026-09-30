@@ -211,15 +211,46 @@ var glyphsASCII = glyphs{
 	Rest: "-", Lyric: "> ", LyricInter: ">  ...", Spin: []string{"|", "/", "-", "\\"},
 }
 
-// brand is the header wordmark, which is a language string too.
-func brand(lang string, ascii bool) string {
-	switch {
-	case lang == "zh" && ascii:
-		return "[ 听 ]"
-	case lang == "zh":
-		return "【 听 】"
+// brandMark holds the two-line header wordmark.
+type brandMark struct {
+	Top    string
+	Bottom string
+	Single string
+}
+
+// brand is the header wordmark, which is a two-line language-tailored pixel art.
+// In UTF-8 mode:
+//   - zh: Monoline flowing Chinese '听' (Option C, 11 cells wide).
+//   - other (en): Heavy block Chinese '听' (Option H1, 11 cells wide).
+// In ASCII mode:
+//   - Falls back to plain text wordmark.
+func brand(lang string, ascii bool) brandMark {
+	if ascii {
+		if lang == "zh" {
+			return brandMark{
+				Top:    "[ 听 ]",
+				Bottom: "      ",
+				Single: "[ 听 ]",
+			}
+		}
+		return brandMark{
+			Top:    "ting",
+			Bottom: "    ",
+			Single: "ting",
+		}
 	}
-	return "ting"
+	if lang == "zh" {
+		return brandMark{
+			Top:    "╭──╮   ╱──╮",
+			Bottom: "╰──╯   ╯  │",
+			Single: "[ 听 ]",
+		}
+	}
+	return brandMark{
+		Top:    "█▀▀█   ▄▄██",
+		Bottom: "█▄▄█   ▀  █",
+		Single: "ting",
+	}
 }
 
 // width measures display cells with ONE rule for the whole frame: East-Asian Ambiguous is one

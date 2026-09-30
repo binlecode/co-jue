@@ -286,12 +286,27 @@ func (m *Model) wrapHints(items []hint, width int, indent, sep string) [][]hint 
 	return lines
 }
 
-func (m *Model) headLead() string {
-	lead := brand(m.opt.Lang, m.opt.ASCII)
-	if m.g.Note != "" {
-		lead = m.g.Note + " " + lead
+func (m *Model) shortTerminal() bool {
+	return m.height < 12
+}
+
+func (m *Model) narrowHeader(rightEdge int, bm brandMark) bool {
+	if m.shortTerminal() {
+		return true
 	}
-	return lead + "  " + m.src.field() + "="
+	prefixW := m.w.of("  " + bm.Bottom + "  " + m.src.field() + "=")
+	return prefixW > rightEdge-layoutMinBudget
+}
+
+func (m *Model) headLead(rightEdge int) string {
+	bm := brand(m.opt.Lang, m.opt.ASCII)
+	if m.shortTerminal() {
+		return "  " + bm.Single + "  " + m.src.field() + "="
+	}
+	if m.narrowHeader(rightEdge, bm) {
+		return "  " + m.src.field() + "="
+	}
+	return "  " + bm.Bottom + "  " + m.src.field() + "="
 }
 
 // layout spends the terminal's height the way the shell TUI's renderer does: chrome at the
@@ -323,9 +338,13 @@ func (m *Model) layout() frame {
 	if f.cols >= 96 {
 		tabsW = m.w.of(m.navbar.PlainHeaderTabs(m.s)) + 2
 	}
-	qRoom := f.rightEdge - m.w.of(m.headLead()) - tabsW
+	_ = tabsW
+	qRoom := f.rightEdge - m.w.of(m.headLead(f.rightEdge))
 	f.statusInline = qRoom-stW-2 >= layoutMinField
-	f.chromeH = 1
+	f.chromeH = 2
+	if m.shortTerminal() {
+		f.chromeH = 1
+	}
 	if !f.statusInline {
 		f.statusLines = m.statusBlock(f.status, f.cols)
 		f.chromeH += len(f.statusLines)
@@ -596,19 +615,16 @@ func (m *Model) View() string {
 	}
 	m.updateInspector()
 
-	// Title line, with the status segment right-aligned when it fits.
-	lead := brand(m.opt.Lang, m.opt.ASCII)
-	if g.Note != "" {
-		lead = g.Note + " " + lead
-	}
+	// Title lines (2 lines):
+	// Line 1: Brand top mark + navbar workspace tabs (wide mode)
+	// Line 2: Brand bottom mark + row source / query + inline status
+	bm := brand(m.opt.Lang, m.opt.ASCII)
 	tabs := ""
-	tabsW := 0
 	if f.cols >= 96 {
-		tabs = m.navbar.HeaderTabs(p, m.s) + "  "
-		tabsW = m.w.of(m.navbar.PlainHeaderTabs(m.s)) + 2
+		tabs = m.navbar.HeaderTabs(p, m.s)
 	}
 	stPlain := strings.Join(f.status, " "+g.Sep+" ")
-	qRoom := f.rightEdge - m.w.of(m.headLead()) - tabsW
+	qRoom := f.rightEdge - m.w.of(m.headLead(f.rightEdge))
 	if f.statusInline {
 		qRoom -= m.w.of(stPlain) + 2
 	}
@@ -617,21 +633,61 @@ func (m *Model) View() string {
 		label = m.label
 	}
 	q := m.w.trunc("'"+label+"'", qRoom, g.Ell)
-	shown := lead
-	if m.opt.Lang == "zh" && p.on && !m.opt.ASCII && m.playing() {
-		// The zh wordmark lights while sound is coming out: its character on the playing
-		// row's ground.
-		shown = strings.Replace(lead, "【 听 】", "【"+p.RowEnd+p.Bold+p.Accent+p.RowHL+" 听 "+p.RowEnd+p.Bold+p.Accent+"】", 1)
-	}
-	head := p.Bold + p.Accent + shown + p.Reset + "  " + tabs + m.src.field() + "=" + q
-	if f.statusInline {
-		gap := f.rightEdge - m.w.of(m.headLead()+q) - tabsW - m.w.of(stPlain)
-		if gap < 1 {
-			gap = 1
+
+	if m.shortTerminal() {
+		// Degraded 1-line header on very short terminals (< 12 rows).
+		head := "  " + p.Bold + p.Accent + bm.Single + p.Reset + "  " + m.src.field() + "=" + q
+		if f.statusInline {
+			gap := f.rightEdge - m.w.of(m.headLead(f.rightEdge)+q) - m.w.of(stPlain)
+			if gap < 1 {
+				gap = 1
+			}
+			head += strings.Repeat(" ", gap) + m.statusLine(f.status)
 		}
-		head += strings.Repeat(" ", gap) + m.statusLine(f.status)
+		line(head)
+	} else if m.narrowHeader(f.rightEdge, bm) {
+		// Under extreme narrow constraints (e.g. 24 cols with ambiguous-wide),
+		// fall back to a compact single-line wordmark on line 1, query on line 2.
+		head1 := "  " + p.Bold + p.Accent + bm.Single + p.Reset
+		line(head1)
+		head2 := "  " + m.src.field() + "=" + q
+		if f.statusInline {
+			gap := f.rightEdge - m.w.of(m.headLead(f.rightEdge)+q) - m.w.of(stPlain)
+			if gap < 1 {
+				gap = 1
+			}
+			head2 += strings.Repeat(" ", gap) + m.statusLine(f.status)
+		}
+		line(head2)
+	} else {
+		topBrand := bm.Top
+		botBrand := bm.Bottom
+		if p.on && !m.opt.ASCII && m.playing() {
+			// When sound is playing, light the wordmark with the playing row's highlight.
+			topBrand = p.RowHL + topBrand + p.RowEnd + p.Bold + p.Accent
+			botBrand = p.RowHL + botBrand + p.RowEnd + p.Bold + p.Accent
+		}
+
+		leadPrefix := "  "
+		if g.Note != "" && m.playing() {
+			leadPrefix = g.Note
+		}
+		head1 := leadPrefix + p.Bold + p.Accent + topBrand + p.Reset
+		if tabs != "" {
+			head1 += "  " + tabs
+		}
+		line(head1)
+
+		head2 := "  " + p.Bold + p.Accent + botBrand + p.Reset + "  " + m.src.field() + "=" + q
+		if f.statusInline {
+			gap := f.rightEdge - m.w.of(m.headLead(f.rightEdge)+q) - m.w.of(stPlain)
+			if gap < 1 {
+				gap = 1
+			}
+			head2 += strings.Repeat(" ", gap) + m.statusLine(f.status)
+		}
+		line(head2)
 	}
-	line(head)
 	for _, l := range f.statusLines {
 		line(m.statusLine(l))
 	}

@@ -94,9 +94,9 @@ ROW = re.compile(r"^(▎ |▶ |> |  )( *\d+\. )?(?=\S)")
 # its group is what lets the rail's own end column be measured without it.
 RAIL = re.compile(r"(LIVE|--:--|\d+:\d\d(?::\d\d)?)( [█│#|])?$")
 CSI = re.compile(r"\x1b\[([0-9;]*)([@-~])")
-# Every spelling of the wordmark. en is `ting`; zh is the seal 【 听 】, which ASCII mode
-# narrows to `[ 听 ]` — both carry 听, so the bare glyph covers the pair.
-BRAND = re.compile(r"ting|听")
+# Every spelling of the wordmark. en is `ting` or `█▀▀█`; zh is the monoline `╭──╮` or seal `【 听 】`,
+# which ASCII mode narrows to `[ 听 ]`.
+BRAND = re.compile(r"ting|听|╭──╮|█▀▀█")
 
 
 def reverse_span(line, ambig_wide=False):

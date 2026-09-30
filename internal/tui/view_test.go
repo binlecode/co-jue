@@ -215,3 +215,116 @@ func TestDetailLinesChapterPrefixWithChannel(t *testing.T) {
 		t.Errorf("meta line should contain channel 'Artist Name', got %q", meta)
 	}
 }
+
+func TestBrandWordmarkZhMonoline(t *testing.T) {
+	m := &Model{
+		suite: &verb.Suite{},
+		opt: Options{
+			Lang:    "zh",
+			Query:   "lofi",
+			Engines: []verb.Engine{{Name: "yt"}},
+		},
+		query: "lofi",
+		src:   srcSearch,
+		all:   []row{{Title: "Test"}},
+		rows:  []row{{Title: "Test"}},
+		s:     strsZH,
+		g:     glyphsUTF,
+		w:     newWidth(false),
+		width: 100, height: 24,
+		navbar:    newNavbar(),
+		dock:      newDock(),
+		stage:     newStage(),
+		inspector: newInspector(),
+	}
+	f := m.View()
+	lines := strings.Split(f, "\n")
+	if len(lines) < 2 {
+		t.Fatalf("expected at least 2 header lines, got %d", len(lines))
+	}
+	if !strings.Contains(lines[0], "╭──╮   ╱──╮") {
+		t.Errorf("line 0 should contain Monoline top mark, got: %q", lines[0])
+	}
+	if !strings.Contains(lines[1], "╰──╯   ╯  │") {
+		t.Errorf("line 1 should contain Monoline bottom mark, got: %q", lines[1])
+	}
+	if !strings.Contains(lines[1], "query='lofi'") {
+		t.Errorf("line 1 should contain query, got: %q", lines[1])
+	}
+}
+
+func TestBrandWordmarkEnHeavyBlock(t *testing.T) {
+	m := &Model{
+		suite: &verb.Suite{},
+		opt: Options{
+			Lang:    "en",
+			Query:   "lofi",
+			Engines: []verb.Engine{{Name: "yt"}},
+		},
+		query: "lofi",
+		src:   srcSearch,
+		all:   []row{{Title: "Test"}},
+		rows:  []row{{Title: "Test"}},
+		s:     strsEN,
+		g:     glyphsUTF,
+		w:     newWidth(false),
+		width: 100, height: 24,
+		navbar:    newNavbar(),
+		dock:      newDock(),
+		stage:     newStage(),
+		inspector: newInspector(),
+	}
+	f := m.View()
+	lines := strings.Split(f, "\n")
+	if len(lines) < 2 {
+		t.Fatalf("expected at least 2 header lines, got %d", len(lines))
+	}
+	if !strings.Contains(lines[0], "█▀▀█   ▄▄██") {
+		t.Errorf("line 0 should contain Heavy Block top mark, got: %q", lines[0])
+	}
+	if !strings.Contains(lines[1], "█▄▄█   ▀  █") {
+		t.Errorf("line 1 should contain Heavy Block bottom mark, got: %q", lines[1])
+	}
+	if !strings.Contains(lines[1], "query='lofi'") {
+		t.Errorf("line 1 should contain query, got: %q", lines[1])
+	}
+}
+
+func TestBrandWordmarkAsciiFallback(t *testing.T) {
+	bmZh := brand("zh", true)
+	if bmZh.Top != "[ 听 ]" || bmZh.Bottom != "      " {
+		t.Errorf("unexpected zh ascii brand: %+v", bmZh)
+	}
+	bmEn := brand("en", true)
+	if bmEn.Top != "ting" || bmEn.Bottom != "    " {
+		t.Errorf("unexpected en ascii brand: %+v", bmEn)
+	}
+}
+
+func TestNarrowAndWideTerminalHeaderBounds(t *testing.T) {
+	for _, lang := range []string{"en", "zh"} {
+		for _, ascii := range []bool{false, true} {
+			for _, ambig := range []bool{false, true} {
+				for cols := 24; cols <= 120; cols += 4 {
+					for rows := 10; rows <= 30; rows += 5 {
+						m := makeTestLofiModel(cols, rows, lang, ascii)
+						m.opt.AmbigWide = ambig
+						m.w = newWidth(ambig)
+						v := m.View()
+						lines := strings.Split(v, "\n")
+						if len(lines) >= 2 {
+							for lineIdx := 0; lineIdx < 2; lineIdx++ {
+								l := lines[lineIdx]
+								w := m.w.of(stripANSI(l))
+								if w > cols {
+									t.Fatalf("[%s ascii=%t ambig=%t %dx%d] header line %d width %d > cols %d: %q",
+										lang, ascii, ambig, cols, rows, lineIdx+1, w, cols, l)
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}

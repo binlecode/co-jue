@@ -87,8 +87,12 @@ func Compute(cols, rows int) Geometry {
 		Mode: mode,
 	}
 
-	// 1. Header is 1 line at the top
-	g.Header = Rect{X: 0, Y: 0, W: cols, H: 1}
+	// 1. Header is 2 lines at the top, or 1 line on short terminals (< 12 rows)
+	headerH := 2
+	if rows < 12 {
+		headerH = 1
+	}
+	g.Header = Rect{X: 0, Y: 0, W: cols, H: headerH}
 
 	// 2. Dock at the bottom
 	dockH := 3

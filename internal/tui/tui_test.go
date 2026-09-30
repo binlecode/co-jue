@@ -377,8 +377,8 @@ func TestWideFrameFitsTheTerminal(t *testing.T) {
 			if len(lines) > sz[1] {
 				t.Errorf("%dx%d: the frame is %d lines", sz[0], sz[1], len(lines))
 			}
-			if !strings.Contains(lines[0], "query='") {
-				t.Errorf("%dx%d: line 1 is not the title: %q", sz[0], sz[1], lines[0])
+			if !strings.Contains(lines[0], "query='") && !strings.Contains(lines[1], "query='") {
+				t.Errorf("%dx%d: header does not contain query: %q / %q", sz[0], sz[1], lines[0], lines[1])
 			}
 		}
 	}
