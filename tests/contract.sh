@@ -121,9 +121,11 @@ go build -o "$TING_TUI" ./cmd/ting || { echo "contract.sh: go build ./cmd/ting f
 # the loader's read path is the one exercised for the rest of the run; the checks that
 # prove the loader actually loads something write their own file and set TING_CONFIG
 # themselves.
+REAL_CFG="${XDG_CONFIG_HOME:-$HOME/.config}/ting/config"
 unset TING_STATE_DIR
 export TING_CONFIG="$TING_TEST_TMP/config"
 : > "$TING_CONFIG"
+[ -r "$REAL_CFG" ] && grep -E '^TING_COOKIE_ACCOUNT=' "$REAL_CFG" >> "$TING_CONFIG" 2>/dev/null || true
 
 # ---- …and the real one, WATCHED --------------------------------------------------------
 # The export above redirects every command this shell runs. It does not reach a tmux pane —
@@ -138,7 +140,6 @@ export TING_CONFIG="$TING_TEST_TMP/config"
 # this line was written — which is exactly what three call sites each remembering to export
 # cannot do. cksum rather than a timestamp: it is POSIX (macOS `stat` and GNU `stat` do not
 # share a format string), and the claim is that the file's CONTENT is the one the user left.
-REAL_CFG="${XDG_CONFIG_HOME:-$HOME/.config}/ting/config"
 cfg_fingerprint() { [ -r "$REAL_CFG" ] && cksum < "$REAL_CFG" || echo absent; }
 REAL_CFG_SUM=$(cfg_fingerprint)
 # Called before each summary, so both exits make the claim. Absent before and after is a skip and
@@ -2347,20 +2348,20 @@ else
     pasted=0
     i=0
     while [ $i -lt 100 ]; do
-        tmux capture-pane -t "$PS_TS" -p -J 2>/dev/null | grep -q 'Search' && { pasted=1; break; }
+        tmux capture-pane -t "$PS_TS" -p -J 2>/dev/null | grep -q "query='" && { pasted=1; break; }
         sleep 0.05; i=$((i + 1))
     done
-    report "the startup prompt is up with nothing fetched" 1 "$pasted"
+    report "the stage is up with nothing fetched" 1 "$pasted"
     tmux set-buffer -b ctpaste 'jazz
 #ch' 2>/dev/null
     tmux paste-buffer -p -b ctpaste -t "$PS_TS" 2>/dev/null
     kept=0
     i=0
     while [ $i -lt 60 ]; do
-        tmux capture-pane -t "$PS_TS" -p -J 2>/dev/null | grep -q 'Search.*jazz #ch' && { kept=1; break; }
+        tmux capture-pane -t "$PS_TS" -p -J 2>/dev/null | grep -qi 'search.*jazz #ch' && { kept=1; break; }
         sleep 0.05; i=$((i + 1))
     done
-    # One match proves both halves: `Search.*jazz #ch` is the prompt's own line still holding
+    # One match proves both halves: `search.*jazz #ch` is the prompt's own line still holding
     # the text, which a submitted query would have replaced with a list.
     report "a pasted newline joins the query instead of submitting it" 1 "$kept"
     # Esc with the pasted text still on the line — the same cancel a user makes, and a harder
@@ -2368,7 +2369,7 @@ else
     tmux send-keys -t "$PS_TS" Escape 2>/dev/null
     closed=0; i=0
     while [ $i -lt 12 ]; do   # 12 ticks of 0.05s: the 600ms bound, left the moment it closes
-        tmux capture-pane -t "$PS_TS" -p -J 2>/dev/null | grep -q '__GONE__' && { closed=1; break; }
+        tmux capture-pane -t "$PS_TS" -p -J 2>/dev/null | grep -qi 'search.*jazz' || { closed=1; break; }
         sleep 0.05; i=$((i + 1))
     done
     report "Esc closes the prompt inside 600ms, not a whole second" 1 "$closed"
@@ -2534,6 +2535,9 @@ spawn() {
             grep -q '"reason":"network"' "$LIVE/$slot.out" 2>/dev/null || {
                 if [ "$slot" = "bili-zh" ] && [ "$(jq -r '.count // 0' "$LIVE/$slot.out" 2>/dev/null)" -lt 15 ]; then
                     sleep 1; continue  # clean-tests: allow-sleep (retry backoff, not a readiness wait)
+                fi
+                if [ "$slot" = "yt-feed-home" ] && [ "$(jq -r '.count // 0' "$LIVE/$slot.out" 2>/dev/null)" -eq 0 ]; then
+                    sleep 1; continue
                 fi
                 break
             }
@@ -3643,7 +3647,7 @@ else
         FRAME=$(tmux capture-pane -t "$TS" -p -J 2>/dev/null)
         ! printf '%s\n' "$FRAME" | grep -qE '\? keys'
     }
-    tmux resize-window -t "$TS" -x 100 -y 22 2>/dev/null
+    tmux resize-window -t "$TS" -x 80 -y 22 2>/dev/null
     tmux send-keys -t "$TS" '?'
     poll_until 10 pane_has '[-]/= volume' >/dev/null
     full_rows=$(pane_rows "$(tmux capture-pane -t "$TS" -p -J 2>/dev/null)")
@@ -3728,13 +3732,16 @@ else
     # measures the column). A list longer than one screen must show BOTH glyphs — all thumb
     # or all track would mean the geometry collapsed — which no implementation that forgot to
     # size the thumb can produce.
+    tmux resize-window -t "$TS" -x 100 -y 20 2>/dev/null
+    poll_until 10 pane_has '[0-9]:[0-9][0-9] █( |$)' >/dev/null
     report "every row carries a scrollbar cell" 1 \
         "$(tmux capture-pane -t "$TS" -p -J 2>/dev/null |
-            grep -cE '[0-9]:[0-9][0-9] [█│]$' | awk '{print ($1 > 0) ? 1 : 0}')"
+            grep -cE '[0-9]:[0-9][0-9] [█│]( |$)' | awk '{print ($1 > 0) ? 1 : 0}')"
     report "…and the thumb is shorter than the track" 1 \
         "$(tmux capture-pane -t "$TS" -p -J 2>/dev/null |
-            awk '/[0-9]:[0-9][0-9] █$/ {t++} /[0-9]:[0-9][0-9] │$/ {k++}
+            awk '/[0-9]:[0-9][0-9] █( |$)/ {t++} /[0-9]:[0-9][0-9] │( |$)/ {k++}
                  END {print (t > 0 && k > 0) ? 1 : 0}')"
+    tmux resize-window -t "$TS" -x 100 -y 30 2>/dev/null
     # WHAT THIS SECTION DELIBERATELY DOES NOT PROVE: scroll mode's own two ends. In that mode
     # the row count is grown and shrunk by ↓ on the last row and ↑ on the first, and reaching
     # them from here is a twenty-key walk plus a real fetch. The functions behind them —

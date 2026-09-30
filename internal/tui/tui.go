@@ -238,8 +238,12 @@ func New(ctx context.Context, suite *verb.Suite, opt Options) *Model {
 	m.navbar.SetBounds(m.geom.Navbar)
 	m.stage.SetBounds(m.geom.Stage)
 	m.inspector.SetBounds(m.geom.Inspector)
-	if m.query == "" {
-		m.ask(askSearch, "", "", nil)
+	if opt.Feed != "" && opt.Query == "" {
+		m.stage.SwitchTo(WsFeeds)
+		m.navbar.SwitchTo(WsFeeds)
+	} else if opt.Query == "" {
+		m.all = []row{}
+		m.rows = []row{}
 	}
 	return m
 }
@@ -457,9 +461,11 @@ func (m *Model) Init() tea.Cmd {
 	case urlTarget(m.query) != "":
 		m.query = urlTarget(m.query)
 		cmds = append(cmds, m.loadURL(m.query))
-	default:
+	case m.query != "":
 		cmds = append(cmds, m.fetch(fetchNew, m.query, m.opt.Engine, m.opt.Search,
 			m.s.Searching+` "`+m.query+`"`+m.g.Ell))
+	default:
+		// No query, no feed: start on an empty stage with no fetch in flight.
 	}
 	// Adoption is a startup verdict with the core's own 0/1/many rule: exactly one live
 	// player is unambiguous; several is a notice and an empty banner, so the next Enter is

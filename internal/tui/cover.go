@@ -146,6 +146,9 @@ type coverState struct {
 	done     map[string]*coverImg
 	failed   map[string]time.Time // when it may be asked again; zero is never
 	inFlight string
+	lastURL  string
+	lastRow  int
+	lastCol  int
 }
 
 func (c *coverState) fetch(ctx context.Context, url string) tea.Cmd {

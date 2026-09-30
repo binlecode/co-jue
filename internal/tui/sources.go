@@ -871,6 +871,21 @@ type feedMsg struct {
 	err error
 }
 
+func (m *Model) feedEmpty() {
+	if m.stage.Has(WsSearch) {
+		m.backToSearch()
+		return
+	}
+	if m.all == nil {
+		m.all, m.rows = []row{}, []row{}
+	}
+	m.feed = ""
+	m.query = ""
+	m.stage.SwitchTo(WsSearch)
+	m.navbar.SwitchTo(WsSearch)
+	m.saveCurrentWorkspace()
+}
+
 func (m *Model) feedDone(msg feedMsg) tea.Cmd {
 	eng := m.opt.Engines[m.opt.Engine].Name
 	if msg.err != nil {
@@ -886,9 +901,7 @@ func (m *Model) feedDone(msg feedMsg) tea.Cmd {
 		} else {
 			m.notice(m.s.FeedAct+":", storeMsg(msg.err, m.s.Failed))
 		}
-		if !m.prompting {
-			return m.ask(askSearch, "", "", nil)
-		}
+		m.feedEmpty()
 		return nil
 	}
 	if msg.res.Note != "" {
@@ -896,9 +909,7 @@ func (m *Model) feedDone(msg feedMsg) tea.Cmd {
 	}
 	if len(msg.res.Results) == 0 {
 		m.notice(m.s.FeedAct+":", m.s.NoResults)
-		if !m.prompting {
-			return m.ask(askSearch, "", "", nil)
-		}
+		m.feedEmpty()
 		return nil
 	}
 	rows := rowsFromSearch(msg.res)

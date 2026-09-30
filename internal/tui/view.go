@@ -586,8 +586,6 @@ func (m *Model) View() string {
 	line := func(s string) { b.WriteString(s + "\n") }
 
 	if m.prompting && m.all == nil {
-		// The first prompt: nothing to draw yet but the question, which names the engine and
-		// not a site.
 		b.WriteString(g.Caret + " " + m.s.PromptSearch + " " + m.engine().Name + ": " + m.input.View())
 		return b.String()
 	}
@@ -601,6 +599,7 @@ func (m *Model) View() string {
 	if m.stageMode {
 		v := m.stageModeView()
 		if m.cover.on {
+			m.cover.lastURL = ""
 			v += kittyDel(false)
 		}
 		return v
@@ -1023,21 +1022,37 @@ func (m *Model) coverEscape(f frame) string {
 		return ""
 	}
 	if m.stageMode {
+		m.cover.lastURL = ""
 		return kittyDel(false)
 	}
 	if m.geom.Mode == layout.Wide && !m.geom.Inspector.Empty() {
 		// Placed by absolute position, so the cursor the renderer is tracking is saved
 		// around it and put back.
 		if row, col, _, _, ok := m.inspector.CoverBox(); ok {
-			if img := m.cover.done[m.inspector.thumbURL]; img != nil {
+			url := m.inspector.thumbURL
+			if img := m.cover.done[url]; img != nil {
+				if url == m.cover.lastURL && row == m.cover.lastRow && col == m.cover.lastCol {
+					return ""
+				}
+				m.cover.lastURL, m.cover.lastRow, m.cover.lastCol = url, row, col
 				return kittyDel(false) + "\x1b7" + fmt.Sprintf("\x1b[%d;%dH", row, col) + kittyPut(img.b64) + "\x1b8"
 			}
 		}
-		return kittyDel(false)
+		if m.cover.lastURL != "" {
+			m.cover.lastURL = ""
+			return kittyDel(false)
+		}
+		return ""
 	}
 	if f.coverGate && len(m.rows) > 0 && m.cursor < len(m.rows) {
-		if img := m.cover.done[m.rows[m.cursor].Thumb]; img != nil {
+		url := m.rows[m.cursor].Thumb
+		if img := m.cover.done[url]; img != nil {
 			col := max(1, f.rightEdge-img.cols+1)
+			row := f.chromeH + f.end - f.start + f.rowGap
+			if url == m.cover.lastURL && row == m.cover.lastRow && col == m.cover.lastCol {
+				return ""
+			}
+			m.cover.lastURL, m.cover.lastRow, m.cover.lastCol = url, row, col
 			down := ""
 			if f.rowGap > 0 {
 				down = "\x1b[1B"
@@ -1049,7 +1064,11 @@ func (m *Model) coverEscape(f frame) string {
 			return kittyDel(false) + down + fmt.Sprintf("\x1b[%dG", col) + kittyPut(img.b64) + up + "\x1b[1G"
 		}
 	}
-	return kittyDel(false)
+	if m.cover.lastURL != "" {
+		m.cover.lastURL = ""
+		return kittyDel(false)
+	}
+	return ""
 }
 
 func (m *Model) updateInspector() {

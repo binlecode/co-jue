@@ -577,9 +577,9 @@ ting -V
 
 ## 9. 常见问题与排错（FAQ）
 
-### Q1: 运行 `ting` 提示 `--feed home requires a signed-in browser session` 并退回到搜索框？
+### Q1: 运行 `ting` 提示 `--feed home requires a signed-in browser session`？
 **解答**：
-YouTube 现代网页端对未登录访客不提供个性化首页推荐流。只要在 `~/.config/ting/config` 中配置已登录 YouTube 的浏览器名称（例如 `TING_COOKIE_BROWSER=chrome`），再次启动即可秒开专属推荐流！未登录状态下依然可以随时按 `n` 正常搜索全网曲目。
+YouTube 现代网页端对未登录访客不提供个性化首页推荐流，主舞台状态栏会显示此提示。只要在 `~/.config/ting/config` 中配置已登录 YouTube 的浏览器名称（例如 `TING_COOKIE_BROWSER=chrome`），再次启动即可秒开专属推荐流！未登录状态下依然可以随时按 `n` 正常搜索全网曲目，或按 `b` 打开本地歌单、按 `h` 查阅收听历史。
 
 ### Q2: 播放开始后扬声器没有声音？
 **解答**：

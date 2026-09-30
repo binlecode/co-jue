@@ -548,7 +548,7 @@ func TestFeedStartupSearchedFalse(t *testing.T) {
 	}
 }
 
-func TestFeedStartupFailsToSearchPrompt(t *testing.T) {
+func TestFeedStartupFailsWithoutSearchPrompt(t *testing.T) {
 	t.Setenv("TING_COOKIE_BROWSER", "none")
 	shell, err := filepath.Abs("../../shell")
 	if err != nil {
@@ -559,12 +559,62 @@ func TestFeedStartupFailsToSearchPrompt(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := New(context.Background(), s, Options{
-		Engines: []verb.Engine{{Name: "yt", Flags: []string{"--feed"}}},
-		Feed:    "home",
+		Engines: []verb.Engine{
+			{Name: "yt", Flags: []string{"--feed", "--search"}},
+			{Name: "bili", Flags: []string{"--search"}},
+		},
+		Feed: "home",
 	})
 	run(m, m.Init())
-	if !m.prompting || m.askKind != askSearch {
-		t.Fatalf("feed without cookies should fall back to search prompt, got prompting=%v kind=%v", m.prompting, m.askKind)
+	if m.prompting {
+		t.Fatalf("feed without cookies should not prompt for search, got prompting=true")
+	}
+	if m.noticeL != m.s.FeedAct+":" {
+		t.Errorf("notice label is %q, want %q", m.noticeL, m.s.FeedAct+":")
+	}
+	if m.stage.Active() != WsSearch {
+		t.Errorf("active workspace after failed feed should land on WsSearch, got %v", m.stage.Active())
+	}
+	if m.query != "" || m.feed != "" {
+		t.Errorf("failed feed should clear query and feed, got query=%q feed=%q", m.query, m.feed)
+	}
+	if m.searched() {
+		t.Errorf("searched() after failed feed should be false")
+	}
+	if m.all == nil || m.rows == nil {
+		t.Errorf("m.all and m.rows should be non-nil empty slices")
+	}
+}
+
+func TestStartupWithoutQueryNoPrompt(t *testing.T) {
+	shell, err := filepath.Abs("../../shell")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := verb.LocateIn(shell)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Engine without --feed (bili)
+	m := New(context.Background(), s, Options{
+		Engines: []verb.Engine{{Name: "bili", Flags: []string{"--search"}}},
+		Engine:  0,
+	})
+	run(m, m.Init())
+	if m.prompting {
+		t.Fatalf("startup on non-feed engine should not prompt for search, got prompting=true")
+	}
+	if m.pending != nil {
+		t.Fatalf("startup on non-feed engine with empty query should not initiate fetch, got pending=%v", m.pending)
+	}
+	if m.stage.Active() != WsSearch {
+		t.Errorf("active workspace is %v, want WsSearch", m.stage.Active())
+	}
+	if m.all == nil || m.rows == nil {
+		t.Errorf("m.all and m.rows should be non-nil empty slices")
+	}
+	if strings.Contains(m.noticeT, "--search needs a query") {
+		t.Errorf("startup triggered empty search: %q", m.noticeT)
 	}
 }
 

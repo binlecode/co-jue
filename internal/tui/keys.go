@@ -224,6 +224,10 @@ func (m *Model) updateList(k tea.KeyMsg) tea.Cmd {
 	case "i", "I":
 		return m.openChapters()
 	case "u", "U":
+		if m.src != srcSearch && m.src != srcQueue {
+			m.notice(m.s.QAct+":", m.s.QElsewhere)
+			return nil
+		}
 		m.openQueue()
 	case "x", "X":
 		// Queue-position keys act only with the queue on screen: an unguarded x would be a

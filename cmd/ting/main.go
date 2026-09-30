@@ -223,7 +223,7 @@ func main() {
 		feedOpt = f.feed
 	} else if len(f.query) == 0 && engines[idx].Has("--feed") {
 		// Default startup mode: with no query, default to --feed home if the engine supports it.
-		// If loading the feed fails (e.g. no cookies or network error), it smoothly falls back to askSearch.
+		// If loading the feed fails (e.g. no cookies or network error), it keeps the stage open with the failure notice.
 		feedOpt = "home"
 	}
 
