@@ -665,6 +665,48 @@ func TestRemotePlaylistsKey(t *testing.T) {
 		t.Fatalf("B in srcRemotePlaylists should return to search, got src=%v rows=%d", m4.src, len(m4.rows))
 	}
 
+	// Remote playlists with thumbnail populated
+	thumbPL := "https://i.ytimg.com/vi/pl1/hqdefault.jpg"
+	m4.remotePlaylistsDone(remotePlaylistsMsg{
+		res: &verb.RemotePlaylistsResult{
+			Status: "ok",
+			Engine: "yt",
+			Count:  1,
+			Playlists: []verb.RemotePlaylist{
+				{ID: "PL1", Title: "My Playlist", URL: "https://www.youtube.com/playlist?list=PL1", Thumbnail: thumbPL},
+			},
+		},
+	})
+	if len(m4.rows) != 1 || m4.rows[0].Thumb != thumbPL {
+		t.Fatalf("remote playlist row should have Thumb=%q, got %+v", thumbPL, m4.rows)
+	}
+
+	// Entering a playlist from remote playlists: urlDone sets rows with Thumb
+	itemTitle := "Track in playlist"
+	thumbItem := "https://i.ytimg.com/vi/item1/hqdefault.jpg"
+	m4.urlDone(urlMsg{
+		url: "https://www.youtube.com/playlist?list=PL1",
+		l: &verb.ItemList{
+			Status: "ok",
+			Engine: "yt",
+			Title:  "My Playlist",
+			Count:  1,
+			Items: []verb.Item{
+				{Title: &itemTitle, URL: "https://www.youtube.com/watch?v=item1", Thumbnail: thumbItem},
+			},
+		},
+	})
+	if m4.src != srcContainer || len(m4.rows) != 1 {
+		t.Fatalf("urlDone should open srcContainer with 1 row, got src=%v rows=%d", m4.src, len(m4.rows))
+	}
+	if m4.rows[0].Thumb != thumbItem {
+		t.Fatalf("item in container should have Thumb=%q, got %q", thumbItem, m4.rows[0].Thumb)
+	}
+	m4.updateInspector()
+	if m4.inspector.thumbURL != thumbItem {
+		t.Fatalf("inspector should receive selected item's thumbURL=%q, got %q", thumbItem, m4.inspector.thumbURL)
+	}
+
 	// Test 22-item window bound
 	m22 := model(t, Options{})
 	m22.pick = make([]verb.Playlist, 22)

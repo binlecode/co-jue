@@ -304,10 +304,11 @@ func (s *Suite) Related(ctx context.Context, engine, target string, n int) (*Sea
 
 // RemotePlaylist is one user online playlist entry.
 type RemotePlaylist struct {
-	ID    string `json:"id"`
-	Title string `json:"title"`
-	URL   string `json:"url"`
-	Count *int   `json:"count,omitempty"`
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	URL       string `json:"url"`
+	Count     *int   `json:"count,omitempty"`
+	Thumbnail string `json:"thumbnail,omitempty"`
 }
 
 // RemotePlaylistsResult is the envelope returned by ting-play --playlists -j.
@@ -382,10 +383,11 @@ func (s *Suite) Play(ctx context.Context, engine, url string, o PlayOpts) (*Star
 
 // QueueItem is one entry of a queue: engine per item, so one queue can mix sources.
 type QueueItem struct {
-	Engine   string   `json:"engine"`
-	URL      string   `json:"url"`
-	Title    string   `json:"title,omitempty"`
-	Duration *float64 `json:"duration,omitempty"`
+	Engine    string   `json:"engine"`
+	URL       string   `json:"url"`
+	Title     string   `json:"title,omitempty"`
+	Duration  *float64 `json:"duration,omitempty"`
+	Thumbnail string   `json:"thumbnail,omitempty"`
 }
 
 // PlayQueue starts a detached player on a queue: the first item plays, the rest wait.

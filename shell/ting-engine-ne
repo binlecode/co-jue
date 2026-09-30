@@ -427,7 +427,7 @@ def ne_secs:
 # engine acts on that — an aspect ratio is a rendering fact and belongs to whoever draws —
 # but it is why the field is a URL and not a promised shape.
 def pick_thumb:
-  (.al.picUrl // "") as $p
+  (.al.picUrl // .album.picUrl // "") as $p
   | if ($p | type) != "string" or $p == "" then null
     elif ($p | startswith("http://")) then ($p | sub("^http://"; "https://"))
     elif ($p | startswith("https://")) then $p
@@ -1546,7 +1546,7 @@ transcript_run() {
 # A CONTAINER IS NOT A ROW. An album or a playlist holds tens to over a thousand tracks and has
 # no duration of its own; what it has is a track count and a cursor. ARCH-engine.md「容器（--items）」.
 #
-# EVERY ITEM IS AN ITEM RECORD: `{engine, id, url, title, duration}` is what ting-playlist stores
+# EVERY ITEM IS AN ITEM RECORD: `{engine, id, url, title, duration, thumbnail}` is what ting-playlist stores
 # and what ting-play --queue consumes, so `--items -j` pipes into either with nothing renamed.
 #
 # THE ROWS ARE FILTERED BY `fee` THE WAY SEARCH ROWS ARE, same table and same config key
@@ -1598,7 +1598,8 @@ JQ_ITEMS='
              url: ("https://music.163.com/song?id=" + $sid),
              title: ($r.name // null),
              duration: ($r.dt | ne_secs),
-             duration_fmt: (($r.dt | ne_secs) | fmt_dur)} ]}
+             duration_fmt: (($r.dt | ne_secs) | fmt_dur),
+             thumbnail: ($r | pick_thumb)} ]}
 '
 
 ITEMS_TITLE=""

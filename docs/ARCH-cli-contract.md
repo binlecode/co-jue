@@ -269,7 +269,7 @@ detached 播放器）、生命周期与控制动词附带未被消费的 positio
   非本站 host 或畸形/非视频句柄退 1；上游网络超时或 5xx 归 `network`，403 归 `forbidden`，4xx 或解析失败归 `unavailable`，
   退出码 2。
 - **`--playlists` 获取当前引擎登录账号下的外部在线歌单列表。** 支持 `-n N` 截取上限（默认 50）。
-  信封为 `{status: "ok", engine, count, playlists: [{id, title, url, count}]}`。
+  信封为 `{status: "ok", engine, count, playlists: [{id, title, url, count, thumbnail?}]}`。
   未配置 Cookie 或登录态不可读时在网络前快速失败，退 2，`reason: "cookies"`。
   若账号下无在线歌单，返回 `count: 0, playlists: []`，退 0。带位置参数退 1。不支持该动词的引擎退 1。
 - **`--info` 印的是一条搜索行，外加章节。** 同一套行字段、同一套 `kind`/`access` 判断：一个手里只有
@@ -480,13 +480,15 @@ JSON 开关只有一个：`-j` / `--json`。不存在第二种"更全的"JSON �
  "title":"新曲推荐","count":16,"total":16,"has_more":false,"next_cursor":null,
  "items":[{"n":1,"engine":"bili","id":"2478206",
            "url":"https://www.bilibili.com/audio/au2478206","title":"…",
-           "duration":112,"duration_fmt":"00h:01m:52s"}]}
+           "duration":112,"duration_fmt":"00h:01m:52s",
+           "thumbnail":"https://…"}]}
 ```
 
 - **`items[]` 的元素就是条目记录** —— 正是
-  `ting-playlist` 存的、`ting-play --queue` 吃的那份 `{engine, url, id?, title?, duration?}`。
+  `ting-playlist` 存的、`ting-play --queue` 吃的那份 `{engine, url, id?, title?, duration?, thumbnail?}`。
   每条自带 `engine` 与完整可播 `url`：**一条记录是一次调用，不是一个引用**。键名叫 `items`
-  是接缝设计而不是口味 —— 那是两个消费方本来就认的键，所以这条管道两边零改动。
+  是接缝设计而不是口味 —— 那是两个消费方本来就认的键，所以这条管道两边零改动。条目携带的 `thumbnail`（HTTPS URL 或 `null`）
+  为可选元数据只读透传；`ting-playlist` 在 `schema: 1` 下只存储该可选键，读取方均以 `null` 兜底，即便 CDN 签名随时间失效，播放逻辑也只依赖 `url` 与 `engine`，不影响可播性。
 - **不放 `artist` / `channel` / `uploader`**：`ting-playlist` 刻意不存会过期的作者类字段（见下），
   而这个信封的去处就是存储与队列。要作者名，对单条问 `--info -j`（`channel`）。
 - **`count` 是这次返回的条数，`total` 是站方声明的总数**（站方不声明时为 `null`）。两者的差同时
@@ -673,7 +675,7 @@ YouTube 的限流器），但播放与搜索一直都够得到它，只是报成
 一条搜索结果不带 `engine`（那个字段在**信封**上），所以只有接下整个信封才能给一个条目
 打上它来自哪个来源的标签。`--queue -` 与 `--enqueue -` 接受一个裸的条目数组、
 一个 `ting-playlist --show -j` 信封（`.items`），或一个搜索信封（`.results`）；
-一个条目是 `{engine, url, title?, duration?}`，而 `--engine` 只是给一个自己没有 engine 的条目
+一个条目是 `{engine, url, title?, duration?, thumbnail?}`，而 `--engine` 只是给一个自己没有 engine 的条目
 兜底的，所以**一个**队列可以混来源。关于这份 payload 的其它一切都是用法错误（**1**），
 并且是在调用方自己的 shell 里、在寻址到任何播放器之前就抛出来的：解析不了的 JSON、
 三种形状都不是、零个条目、一个 url 里带空白、一个不匹配 `[a-z0-9][a-z0-9_-]*` 的引擎名。

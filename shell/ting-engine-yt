@@ -1179,7 +1179,8 @@ playlists_run() {
     if ((rc == 0)) && [[ -n "$html" ]]; then
         data=$(printf '%s' "$html" | sed -n 's/.*var ytInitialData = \({.*}\);<\/script>.*/\1/p')
         if [[ -n "$data" ]]; then
-            playlists_json=$(printf '%s' "$data" | jq -c --arg authuser "${YT_AUTHUSER:-}" '
+            playlists_json=$(printf '%s' "$data" | jq -c --arg authuser "${YT_AUTHUSER:-}" \
+                "$JQ_PRELUDE"'
                 [ .contents.twoColumnBrowseResultsRenderer.tabs[0].tabRenderer.content.richGridRenderer.contents[]?
                   | .richItemRenderer.content.lockupViewModel // empty
                   | {
@@ -1189,8 +1190,11 @@ playlists_run() {
                             | if $authuser != "" and (contains("authuser=") | not) then
                                 (if contains("?") then . + "&authuser=" + $authuser else . + "?authuser=" + $authuser end)
                               else . end),
-                      count: null
+                      count: null,
+                      thumbnails: ([.contentImage | .. | .sources? // empty][0] // [])
                     }
+                  | . + {thumbnail: pick_thumb}
+                  | del(.thumbnails)
                   | select(.id != "" and .title != "")
                 ] // []' 2>/dev/null) || playlists_json="[]"
         fi
@@ -1227,7 +1231,8 @@ playlists_run() {
             fi
             exit $((rc <= 1 ? 2 : rc))
         fi
-        playlists_json=$(printf '%s' "$result_json" | jq -c --arg authuser "${YT_AUTHUSER:-}" '
+        playlists_json=$(printf '%s' "$result_json" | jq -c --arg authuser "${YT_AUTHUSER:-}" \
+            "$JQ_PRELUDE"'
             [ (.entries // [])[]
               | {
                   id: (.id // ""),
@@ -1236,7 +1241,8 @@ playlists_run() {
                         | if $authuser != "" and (contains("authuser=") | not) then
                             (if contains("?") then . + "&authuser=" + $authuser else . + "?authuser=" + $authuser end)
                           else . end),
-                  count: (.playlist_count // null)
+                  count: (.playlist_count // null),
+                  thumbnail: pick_thumb
                 }
               | select(.id != "" and .title != "")
             ]')
@@ -1962,13 +1968,14 @@ def item_url: if (.url | type) == "string" and (.url | startswith("http"))
                url: ($r | item_url),
                title: ($r.title // null),
                duration: ($r.duration // null),
-               duration_fmt: (($r.duration | fmt_dur) // null)} ]}
+               duration_fmt: (($r.duration | fmt_dur) // null),
+               thumbnail: (($r | pick_thumb) // (if $r.id then ("https://i.ytimg.com/vi/" + $r.id + "/hqdefault.jpg") else null end))} ]}
 '
 
 # A CONTAINER IS NOT A ROW. A playlist holds tens to thousands of videos and has no duration
 # of its own; what it has is a track count and a cursor. ARCH-engine.md「容器（--items）」.
 #
-# EVERY ITEM IS AN ITEM RECORD: `{engine, id, url, title, duration}` is what ting-playlist stores
+# EVERY ITEM IS AN ITEM RECORD: `{engine, id, url, title, duration, thumbnail}` is what ting-playlist stores
 # and what ting-play --queue consumes, so `--items -j` pipes into either with nothing renamed.
 #
 # A URL IS STILL NOT A QUEUE. `dump_once` keeps --no-playlist, so a `list=` riding along on a

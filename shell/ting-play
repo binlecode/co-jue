@@ -258,7 +258,7 @@ Options:
   -j          JSON output: one-line status JSON for play/lifecycle (prose is the default)
   --queue -   Start a detached player on a QUEUE read from stdin, which is any of: a JSON
               array of items, a \`ting-playlist --show -j\` envelope, or a search envelope. An
-              item is {engine, url, title?, duration?} — engine PER ITEM, so one queue can
+              item is {engine, url, title?, duration?, thumbnail?} — engine PER ITEM, so one queue can
               mix sources; --engine is only the fallback for an item without one. The first
               item starts playing and the rest wait. Each is resolved when it is reached,
               never up front: a stream URL expires (hours), so a queue resolved at enqueue
@@ -2073,7 +2073,8 @@ read_queue_items() {
             | {engine: (.engine // $env // ""),
                url: (.url // ""),
                title: (.title // null),
-               duration: (.duration // null)} ]' 2>/dev/null) ||
+               duration: (.duration // null),
+               thumbnail: (.thumbnail // null)} ]' 2>/dev/null) ||
         die "$flag: stdin is not a JSON item array, a --show envelope or a search envelope"
     printf '%s' "$QUEUE_ITEMS_JSON" | jq -e 'length > 0' >/dev/null 2>&1 ||
         die "$flag: no items on stdin"
@@ -2393,7 +2394,7 @@ detach_play() {
     # lets --enqueue and --next address any of them without a special case.
     if [[ "$QUEUE_ITEMS_JSON" == "[]" ]]; then
         QUEUE_ITEMS_JSON=$(jq -nc --arg e "$ENGINE" --arg u "$url" \
-            '[{engine: $e, url: $u, title: null, duration: null}]')
+            '[{engine: $e, url: $u, title: null, duration: null, thumbnail: null}]')
     fi
     queue_write_new "$id" "$QUEUE_ITEMS_JSON" || die "failed to write the queue for $url"
 
@@ -3316,7 +3317,7 @@ do_next() {
 # before an mv or after it, never a half-written one. So a --queue-show is never a reason for
 # the child to wait at a track boundary.
 #
-# The items are what the queue HOLDS — {engine, url, title, duration} — plus the index they
+# The items are what the queue HOLDS — {engine, url, title, duration, thumbnail} — plus the index they
 # sit at, which is the handle every rewrite verb takes. Deliberately no `id`: read_queue_items
 # normalises every accepted shape down to those four fields, so an `id` here would be a key
 # that is always null. And deliberately no per-item `state`: `pos` already says which one is
@@ -3334,7 +3335,8 @@ do_queue_show() {
     if [[ ! -f "$qf" ]] || ! out=$(jq -c '{status: "ok", pos: .pos, len: (.items | length),
               items: [.items | to_entries[]
                       | {index: .key, engine: .value.engine, url: .value.url,
-                         title: .value.title, duration: .value.duration}]}' "$qf" 2>/dev/null); then
+                         title: .value.title, duration: .value.duration,
+                         thumbnail: (.value.thumbnail // null)}]}' "$qf" 2>/dev/null); then
         [[ "$OUTPUT_MODE" == "json" ]] && echo '{"status":"error","reason":"queue_failed"}' || echo "could not read the queue" >&2
         exit 4
     fi

@@ -1623,7 +1623,7 @@ info_run() {
 # multi-part VIDEO, whose `?p=N` parts are a list in every way a caller cares about. A
 # single-part video lists one part; that is an answer, not an error.
 #
-# EVERY ITEM IS AN ITEM RECORD: `{engine, id, url, title, duration}` is what ting-playlist stores
+# EVERY ITEM IS AN ITEM RECORD: `{engine, id, url, title, duration, thumbnail}` is what ting-playlist stores
 # and what ting-play --queue consumes, so `--items -j` pipes into either with nothing renamed. Each
 # record's id and url are the pair resolving that record answers with (measured 2026-09-26:
 # yt-dlp reports `BV…_p2` for `?p=2` of a multi-part video, `BV…_p1` even for its bare URL, and
@@ -1836,7 +1836,8 @@ JQ_AUDIO_ITEMS="$JQ_ITEMS_HEAD"'
              url: ("https://www.bilibili.com/audio/au" + $sid),
              title: ($r.title // null),
              duration: ($r.duration // null),
-             duration_fmt: (($r.duration | fmt_dur) // null)} ]}
+             duration_fmt: (($r.duration | fmt_dur) // null),
+             thumbnail: ($r.cover | https_cover)} ]}
 '
 
 JQ_VIDEO_ITEMS="$JQ_ITEMS_HEAD"'
@@ -1846,7 +1847,8 @@ JQ_VIDEO_ITEMS="$JQ_ITEMS_HEAD"'
              url: ("https://www.bilibili.com/video/" + $r.bvid),
              title: ($r.title // null),
              duration: ($r.duration // null),
-             duration_fmt: (($r.duration | fmt_dur) // null)} ]}
+             duration_fmt: (($r.duration | fmt_dur) // null),
+             thumbnail: (($r.pic // $r.cover) | https_cover)} ]}
 '
 
 # A VIDEO'S PARTS, off either parts endpoint. `$rows` is every part (the endpoint answers all
@@ -1859,6 +1861,7 @@ JQ_VIDEO_ITEMS="$JQ_ITEMS_HEAD"'
 JQ_PARTS_ITEMS='
 ((.data.bvid? // null) // $fallback) as $bv
 | ("https://www.bilibili.com/video/" + $bv) as $base
+| ((.data.pic? // null) | https_cover) as $vpic
 | ($all | length) as $total
 | ($all | .[$off:$off + $max]) as $batch
 | ($off + ($batch | length) < $total) as $more
@@ -1875,7 +1878,8 @@ JQ_PARTS_ITEMS='
                url: ($base + "?p=" + ($r.page | tostring)),
                title: ($r.part // null),
                duration: ($r.duration // null),
-               duration_fmt: (($r.duration | fmt_dur) // null)} ]}
+               duration_fmt: (($r.duration | fmt_dur) // null),
+               thumbnail: $vpic} ]}
 '
 
 # Sets ITEMS_ENV (or prints --raw and exits). `view` first, `pagelist` when it is refused — see

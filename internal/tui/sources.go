@@ -46,8 +46,8 @@ type stash struct {
 // info is the one --info on hand: the focused row's upload date and likes on the status
 // line, and its chapters.
 type info struct {
-	engine, url, title, uploaded, likes string
-	chapters                            []verb.Chapter
+	engine, url, title, uploaded, likes, thumbnail string
+	chapters                                       []verb.Chapter
 }
 
 // currentWorkspace maps the current row source to its Workspace tab.
@@ -346,7 +346,7 @@ func (m *Model) focusedIndex() int {
 }
 
 func (m *Model) item(r row) verb.QueueItem {
-	return verb.QueueItem{Engine: r.Engine, URL: r.URL, Title: r.Title, Duration: r.Duration}
+	return verb.QueueItem{Engine: r.Engine, URL: r.URL, Title: r.Title, Duration: r.Duration, Thumbnail: r.Thumb}
 }
 
 // addToPlaylist is a: with no playlist yet it asks for a name, else it offers the picker.
@@ -548,6 +548,7 @@ func (m *Model) remotePlaylistRows(ls []verb.RemotePlaylist, eng string) []row {
 			Engine:  eng,
 			Channel: ch,
 			Rail:    rail,
+			Thumb:   pl.Thumbnail,
 			N:       -1,
 			Sec:     -1,
 		})
@@ -801,7 +802,7 @@ func (m *Model) infoDone(msg infoMsg) {
 		m.notice(m.s.InfoAct+":", storeMsg(msg.err, m.s.Failed))
 		return
 	}
-	in := &info{engine: msg.engine, url: msg.url, title: clean(msg.i.Title), chapters: msg.i.Chapters}
+	in := &info{engine: msg.engine, url: msg.url, title: clean(msg.i.Title), thumbnail: msg.i.Thumbnail, chapters: msg.i.Chapters}
 	if d := msg.i.UploadDate; len(d) == 8 {
 		in.uploaded = d[:4] + "-" + d[4:6] + "-" + d[6:]
 	} else {
@@ -946,7 +947,7 @@ func (m *Model) showChapters() {
 		}
 		sec := int(c.Start)
 		rows = append(rows, row{Title: oneline(c.Title), URL: chapterURL(in.url, sec), Engine: in.engine,
-			Duration: dur, Rail: rail, N: i + 1, Sec: sec})
+			Duration: dur, Rail: rail, N: i + 1, Sec: sec, Thumb: in.thumbnail})
 	}
 	m.openRows(srcChapters, in.title, rows)
 	m.total = len(rows)

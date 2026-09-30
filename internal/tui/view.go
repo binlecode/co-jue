@@ -979,7 +979,7 @@ func (m *Model) coverEscape(f frame) string {
 		}
 		return kittyDel(false)
 	}
-	if f.coverGate && len(m.rows) > 0 {
+	if f.coverGate && len(m.rows) > 0 && m.cursor < len(m.rows) {
 		if img := m.cover.done[m.rows[m.cursor].Thumb]; img != nil {
 			col := max(1, f.rightEdge-img.cols+1)
 			down := ""
@@ -1033,7 +1033,7 @@ func (m *Model) updateInspector() {
 }
 
 func (m *Model) coverLoading() bool {
-	if len(m.rows) == 0 {
+	if len(m.rows) == 0 || m.cursor >= len(m.rows) {
 		return false
 	}
 	u := m.rows[m.cursor].Thumb

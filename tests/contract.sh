@@ -2782,10 +2782,15 @@ for _slot in yt-items bili-items ne-items; do
                       and (.url|type)=="string" and (.url|startswith("http"))
                       and (.id|type)=="string" and (.id|length)>0
                       and (.duration|type)=="number" and .duration>0
-                      and (.duration_fmt|test("h:[0-9][0-9]m:[0-9][0-9]s$")))' "$(out $_slot)")" = 0 ] &&
+                      and (.duration_fmt|test("h:[0-9][0-9]m:[0-9][0-9]s$"))
+                      and has("thumbnail")
+                      and ((.thumbnail|type)=="null" or ((.thumbnail|type)=="string" and (.thumbnail|startswith("https://")))))
+              and ([.items[]|select((.thumbnail|type)=="string" and (.thumbnail|startswith("https://")))]|length > 0)' "$(out $_slot)")" = 0 ] &&
         _items_ok=$((_items_ok + 1))
 done
 report "every --items envelope is a list of calls" 3 "$_items_ok"
+report "--items preserves thumbnail into ting-playlist" 0 \
+    "$(printf '%s' "$(out yt-items)" | $PL --add plthumb -j >/dev/null && jq_ok 'all(.items[]; has("thumbnail")) and (.items[0].thumbnail|startswith("https://"))' $PL --show plthumb -j)"
 # Each site's own id spelling, checked once: an item's url has to be the one that RESOLVES,
 # and the three engines build it three different ways. A record that named the container, or
 # that carried the site's collection query along, would pass every check above.

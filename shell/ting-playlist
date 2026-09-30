@@ -458,16 +458,19 @@ read_items() {
                  error("search envelope has no engine field")
                else . end)
             | [ .results[] | {engine: $e, id: (.id // null), url: .url,
-                              title: (.title // null), duration: (.duration // null)} ]
+                              title: (.title // null), duration: (.duration // null),
+                              thumbnail: (.thumbnail // null)} ]
          elif type == "object" and has("items") then
             # A playlist envelope, i.e. the --show output of this same command. Items
             # already carry their own engine, so no envelope-level tag is needed: this is
             # what makes `ting-playlist --show a -j | ting-playlist --add b` work.
             [ .items[] | {engine: (.engine // null), id: (.id // null), url: (.url // null),
-                          title: (.title // null), duration: (.duration // null)} ]
+                          title: (.title // null), duration: (.duration // null),
+                          thumbnail: (.thumbnail // null)} ]
          elif type == "array" then
             [ .[] | {engine: (.engine // null), id: (.id // null), url: (.url // null),
-                     title: (.title // null), duration: (.duration // null)} ]
+                     title: (.title // null), duration: (.duration // null),
+                     thumbnail: (.thumbnail // null)} ]
          else
             error("input must be a search envelope or a JSON array of items")
          end)
@@ -535,7 +538,7 @@ do_show() {
         # playlist through the same loader it renders a search with, and lets this output
         # be piped straight back into --add.
         jq -c "$JQ_PRELUDE"'{status: "ok", name, count: (.items | length),
-              items: (.items | map(. + {duration_fmt: (.duration | fmt_dur)}))}' <<<"$PLAYLIST_JSON"
+              items: (.items | map(. + {duration_fmt: (.duration | fmt_dur), thumbnail: (.thumbnail // null)}))}' <<<"$PLAYLIST_JSON"
         return 0
     fi
     jq -r "$JQ_PRELUDE"'
@@ -788,7 +791,7 @@ Options:
   -V            Print the suite version
 
 Input (--add): JSON on stdin — a search envelope (ting-play --search -j, verbatim), this
-  command's own --show envelope, or an array of {engine, url, [id], [title], [duration]}.
+  command's own --show envelope, or an array of {engine, url, [id], [title], [duration], [thumbnail]}.
   The search-envelope form is preferred: a search RESULT carries no engine field, the
   envelope does.
 

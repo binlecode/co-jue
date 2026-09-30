@@ -372,7 +372,7 @@ func (m *Model) playCmd() tea.Cmd {
 	var queue []verb.QueueItem
 	if m.opt.Loop == "seq" {
 		for _, q := range m.rows[m.cursor:] {
-			queue = append(queue, verb.QueueItem{Engine: q.Engine, URL: q.URL, Title: q.Title, Duration: q.Duration})
+			queue = append(queue, verb.QueueItem{Engine: q.Engine, URL: q.URL, Title: q.Title, Duration: q.Duration, Thumbnail: q.Thumb})
 		}
 	}
 	prev, s, ctx := m.playerID, m.suite, m.ctx
@@ -526,7 +526,7 @@ func (m *Model) Flush() error {
 // five-second download in line is a keyboard that does not answer for five seconds.
 func (m *Model) coverCmd() tea.Cmd {
 	c := &m.cover
-	if !c.on || c.inFlight != "" || m.prompting && m.all == nil || len(m.rows) == 0 {
+	if !c.on || c.inFlight != "" || m.prompting && m.all == nil || len(m.rows) == 0 || m.cursor >= len(m.rows) {
 		return nil
 	}
 	// The wide frame draws the cover in the inspector column, whatever the list's gate says.
