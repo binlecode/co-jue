@@ -189,14 +189,14 @@ func firstSet(getenv func(string) string, keys ...string) string {
 // glyphs is the chrome's inventory. Every one is text-presentation (no emoji), so a width
 // table can be trusted with them; TING_ASCII swaps the whole set.
 type glyphs struct {
-	Note, Live, Sep, Caret, Play, Pause, AV, AH, Enter, Tab, Cursor, Thumb, Track string
+	Live, Sep, Caret, Play, Pause, AV, AH, Enter, Tab, Cursor, Thumb, Track string
 	Ell, Arrow, Dash, GE, LE, TimeL, TimeR, CPU, RAM, Fill, Rest                  string
 	Lyric, LyricInter                                                             string
 	Spin, Part                                                                    []string
 }
 
 var glyphsUTF = glyphs{
-	Note: "♫ ", Live: "● LIVE", Sep: "·", Caret: "❯", Play: "▶", Pause: "❚❚", AV: "↑↓", AH: "←→",
+	Live: "● LIVE", Sep: "·", Caret: "❯", Play: "▶", Pause: "❚❚", AV: "↑↓", AH: "←→",
 	Enter: "⏎", Tab: "⇥", Cursor: "▎", Thumb: "█", Track: "│", Ell: "…", Arrow: "→", Dash: "—",
 	GE: "≥", LE: "≤", TimeL: "【", TimeR: "】", CPU: "▣", RAM: "▤", Fill: "█", Rest: "─",
 	Lyric: "♪ ", LyricInter: "♪  · · ·",
@@ -205,7 +205,7 @@ var glyphsUTF = glyphs{
 }
 
 var glyphsASCII = glyphs{
-	Note: "", Live: "LIVE", Sep: "|", Caret: ">", Play: ">", Pause: "||", AV: "Up/Dn", AH: "Lt/Rt",
+	Live: "LIVE", Sep: "|", Caret: ">", Play: ">", Pause: "||", AV: "Up/Dn", AH: "Lt/Rt",
 	Enter: "Enter", Tab: "Tab", Cursor: ">", Thumb: "#", Track: "|", Ell: "...", Arrow: "->",
 	Dash: "-", GE: ">=", LE: "<=", TimeL: "[", TimeR: "]", CPU: "cpu", RAM: "ram", Fill: "=",
 	Rest: "-", Lyric: "> ", LyricInter: ">  ...", Spin: []string{"|", "/", "-", "\\"},

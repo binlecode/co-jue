@@ -209,6 +209,10 @@ func main() {
 		}
 		idx = 0
 	}
+	cleanedQuery := strings.TrimSpace(strings.Join(f.query, " "))
+	if cleanedQuery == "" {
+		f.query = nil
+	}
 	feedOpt := ""
 	if f.feedSet {
 		if len(f.query) > 0 {

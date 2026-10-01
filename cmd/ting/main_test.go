@@ -19,3 +19,17 @@ func TestHelpStatesThemeCycle(t *testing.T) {
 		t.Fatalf("help says t walks %v, the key walks %v", got, tui.ThemeCycle)
 	}
 }
+
+func TestParseArgsEmptyQueryStrings(t *testing.T) {
+	f := parseArgs([]string{""})
+	cleanedQuery := strings.TrimSpace(strings.Join(f.query, " "))
+	if cleanedQuery != "" {
+		t.Fatalf("expected empty query, got %q", cleanedQuery)
+	}
+
+	f2 := parseArgs([]string{"   "})
+	cleanedQuery2 := strings.TrimSpace(strings.Join(f2.query, " "))
+	if cleanedQuery2 != "" {
+		t.Fatalf("expected empty query, got %q", cleanedQuery2)
+	}
+}

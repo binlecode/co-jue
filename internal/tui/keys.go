@@ -623,14 +623,23 @@ func (m *Model) updatePrompt(k tea.KeyMsg) tea.Cmd {
 		if v == "" && len(m.pick) > 0 {
 			v = strconv.Itoa(m.pickCursor + 1)
 		}
-		if v == "" {
-			return m.cancelPrompt()
-		}
 		kind, pick := m.askKind, m.pick
 		// A search behind a fetch in flight keeps the prompt and its text: closing it would
 		// throw away what was typed for a key that did nothing.
 		if kind == askSearch && m.hold() {
 			return nil
+		}
+		if v == "" {
+			if kind == askSearch {
+				if m.engine().Has("--feed") {
+					m.prompting, m.pick, m.pickCursor = false, nil, 0
+					m.input.Blur()
+					m.switchWorkspace(WsFeeds)
+					return m.loadFeed("home")
+				}
+				m.notice(m.s.FeedAct+":", m.s.FeedNotSupported)
+			}
+			return m.cancelPrompt()
 		}
 		m.prompting, m.pick, m.pickCursor = false, nil, 0
 		m.input.Blur()
@@ -641,6 +650,11 @@ func (m *Model) updatePrompt(k tea.KeyMsg) tea.Cmd {
 					m.query = u
 				}
 				return m.loadURL(u)
+			}
+			if m.stage.Active() != WsSearch {
+				m.saveCurrentWorkspace()
+				m.stage.SwitchTo(WsSearch)
+				m.navbar.SwitchTo(WsSearch)
 			}
 			return m.fetch(fetchNew, v, m.opt.Engine, m.opt.Search, m.s.Searching+` "`+v+`"`+m.g.Ell)
 		case askNew:

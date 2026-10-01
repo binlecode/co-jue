@@ -129,7 +129,7 @@ Environment:
                    so a plugin cannot replace a built-in engine. ENVIRONMENT ONLY — it
                    names programs this UI runs, so neither config file can set it.
                    Default: ${XDG_DATA_HOME:-~/.local/share}/ting/engines
-  TING_ASCII=1     Use ASCII glyphs (♫ ● ○ ❯ · ▶ ❚❚ • … → — arrows → ASCII) for
+  TING_ASCII=1     Use ASCII glyphs (● ○ ❯ · ▶ ❚❚ • … → — arrows → ASCII) for
                    terminals whose font can't draw them. Auto-on for non-UTF-8 locales.
                    Shared with the rest of the suite.
   TING_LANG=en|zh  Language of the menu chrome. Default: zh under a zh* locale,

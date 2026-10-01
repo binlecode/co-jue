@@ -328,3 +328,31 @@ func TestNarrowAndWideTerminalHeaderBounds(t *testing.T) {
 		}
 	}
 }
+
+func TestHeaderNoMusicCharWhenPlaying(t *testing.T) {
+	m := makeTestLofiModel(100, 24, "zh", false)
+	m.g = glyphsUTF
+	if !m.playing() {
+		t.Fatalf("expected model to be playing")
+	}
+	f := m.View()
+	lines := strings.Split(f, "\n")
+	if len(lines) < 2 {
+		t.Fatalf("expected at least 2 lines, got %d", len(lines))
+	}
+	for i, l := range lines[:2] {
+		plain := stripANSI(l)
+		if strings.Contains(plain, "♫") {
+			t.Errorf("header line %d should not contain music character ♫, got: %q", i, plain)
+		}
+		if !strings.HasPrefix(plain, "  ") {
+			t.Errorf("header line %d should start with 2 spaces, got: %q", i, plain)
+		}
+	}
+	if !strings.Contains(lines[0], "╭──╮ ╱──╮") {
+		t.Errorf("line 0 should contain Monoline top mark, got: %q", lines[0])
+	}
+	if !strings.Contains(lines[1], "╰──╯ ╯  │") {
+		t.Errorf("line 1 should contain Monoline bottom mark, got: %q", lines[1])
+	}
+}

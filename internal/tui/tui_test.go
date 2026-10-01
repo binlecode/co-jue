@@ -618,6 +618,74 @@ func TestStartupWithoutQueryNoPrompt(t *testing.T) {
 	}
 }
 
+func TestEmptySearchEntersFeedHome(t *testing.T) {
+	shell, err := filepath.Abs("../../shell")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := verb.LocateIn(shell)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := New(context.Background(), s, Options{
+		Engines: []verb.Engine{
+			{Name: "yt", Flags: []string{"--feed", "--search"}},
+		},
+		Engine: 0,
+	})
+	key(m, "n")
+	if !m.prompting || m.askKind != askSearch {
+		t.Fatalf("expected search prompt open, got prompting=%v kind=%v", m.prompting, m.askKind)
+	}
+	cmd := m.updatePrompt(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.prompting {
+		t.Fatalf("prompt should be closed after Enter, got prompting=true")
+	}
+	if m.stage.Active() != WsFeeds {
+		t.Fatalf("expected stage active WsFeeds, got %v", m.stage.Active())
+	}
+	if m.navbar.active != WsFeeds {
+		t.Fatalf("expected navbar active WsFeeds, got %v", m.navbar.active)
+	}
+	if cmd == nil {
+		t.Fatalf("expected command to load feed, got nil")
+	}
+}
+
+func TestEmptySearchNonFeedEngine(t *testing.T) {
+	shell, err := filepath.Abs("../../shell")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := verb.LocateIn(shell)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := New(context.Background(), s, Options{
+		Engines: []verb.Engine{
+			{Name: "bili", Flags: []string{"--search"}},
+		},
+		Engine: 0,
+	})
+	key(m, "n")
+	if !m.prompting || m.askKind != askSearch {
+		t.Fatalf("expected search prompt open, got prompting=%v kind=%v", m.prompting, m.askKind)
+	}
+	cmd := m.updatePrompt(tea.KeyMsg{Type: tea.KeyEnter})
+	if m.prompting {
+		t.Fatalf("prompt should be closed after Enter, got prompting=true")
+	}
+	if cmd != nil {
+		t.Fatalf("expected no cmd on non-feed engine, got %v", cmd)
+	}
+	if m.noticeL != m.s.FeedAct+":" || !strings.Contains(m.noticeT, m.s.FeedNotSupported) {
+		t.Fatalf("expected FeedNotSupported notice, got %q: %q", m.noticeL, m.noticeT)
+	}
+	if m.stage.Active() != WsSearch {
+		t.Fatalf("expected stage active WsSearch, got %v", m.stage.Active())
+	}
+}
+
 func TestRemotePlaylistsKey(t *testing.T) {
 	// 1. Engine without --playlists (e.g. bili)
 	m1 := model(t, Options{})

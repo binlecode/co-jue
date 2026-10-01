@@ -808,7 +808,11 @@ func (m *Model) searchDone(msg searchDoneMsg) tea.Cmd {
 			text = m.s.NoResultsFor + ` "` + req.query + `"`
 		}
 		m.notice(m.s.SearchAct+":", text)
-		if m.all == nil {
+		if req.kind == fetchNew {
+			m.all, m.rows, m.query, m.feed = []row{}, []row{}, req.query, ""
+			m.stage.SwitchTo(WsSearch)
+			m.navbar.SwitchTo(WsSearch)
+		} else if m.all == nil {
 			m.all, m.rows, m.query, m.feed = []row{}, []row{}, req.query, ""
 		}
 		return nil
@@ -839,6 +843,8 @@ func (m *Model) searchDone(msg searchDoneMsg) tea.Cmd {
 	case fetchNew:
 		m.query = req.query
 		m.feed = ""
+		m.stage.SwitchTo(WsSearch)
+		m.navbar.SwitchTo(WsSearch)
 	}
 	m.all, m.rows = rows, rows
 	m.cursor, m.top = 0, 0

@@ -667,11 +667,7 @@ func (m *Model) View() string {
 			botBrand = p.RowHL + botBrand + p.RowEnd + p.Bold + p.Accent
 		}
 
-		leadPrefix := "  "
-		if g.Note != "" && m.playing() {
-			leadPrefix = g.Note
-		}
-		head1 := leadPrefix + p.Bold + p.Accent + topBrand + p.Reset
+		head1 := "  " + p.Bold + p.Accent + topBrand + p.Reset
 		if tabs != "" {
 			head1 += "  " + tabs
 		}
