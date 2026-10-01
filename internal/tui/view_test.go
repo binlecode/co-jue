@@ -242,10 +242,10 @@ func TestBrandWordmarkZhMonoline(t *testing.T) {
 	if len(lines) < 2 {
 		t.Fatalf("expected at least 2 header lines, got %d", len(lines))
 	}
-	if !strings.Contains(lines[0], "╭──╮   ╱──╮") {
+	if !strings.Contains(lines[0], "╭──╮ ╱──╮") {
 		t.Errorf("line 0 should contain Monoline top mark, got: %q", lines[0])
 	}
-	if !strings.Contains(lines[1], "╰──╯   ╯  │") {
+	if !strings.Contains(lines[1], "╰──╯ ╯  │") {
 		t.Errorf("line 1 should contain Monoline bottom mark, got: %q", lines[1])
 	}
 	if !strings.Contains(lines[1], "query='lofi'") {
@@ -279,10 +279,10 @@ func TestBrandWordmarkEnHeavyBlock(t *testing.T) {
 	if len(lines) < 2 {
 		t.Fatalf("expected at least 2 header lines, got %d", len(lines))
 	}
-	if !strings.Contains(lines[0], "█▀▀█   ▄▄██") {
+	if !strings.Contains(lines[0], "█▀▀█ ▄▄██") {
 		t.Errorf("line 0 should contain Heavy Block top mark, got: %q", lines[0])
 	}
-	if !strings.Contains(lines[1], "█▄▄█   ▀  █") {
+	if !strings.Contains(lines[1], "█▄▄█ ▀  █") {
 		t.Errorf("line 1 should contain Heavy Block bottom mark, got: %q", lines[1])
 	}
 	if !strings.Contains(lines[1], "query='lofi'") {

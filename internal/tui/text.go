@@ -241,14 +241,14 @@ func brand(lang string, ascii bool) brandMark {
 	}
 	if lang == "zh" {
 		return brandMark{
-			Top:    "╭──╮   ╱──╮",
-			Bottom: "╰──╯   ╯  │",
+			Top:    "╭──╮ ╱──╮",
+			Bottom: "╰──╯ ╯  │",
 			Single: "[ 听 ]",
 		}
 	}
 	return brandMark{
-		Top:    "█▀▀█   ▄▄██",
-		Bottom: "█▄▄█   ▀  █",
+		Top:    "█▀▀█ ▄▄██",
+		Bottom: "█▄▄█ ▀  █",
 		Single: "ting",
 	}
 }
