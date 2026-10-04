@@ -52,8 +52,9 @@ echo "    ✔ 依赖完整 (go, mpv, yt-dlp)"
 
 echo "==> 2. 编译并安装 ting CLI..."
 mkdir -p "$BIN_DIR"
-(cd "$REPO_DIR" && go build -trimpath -ldflags "-s -w" -o "${BIN_DIR}/ting" ./cmd/ting)
-echo "    ✔ 已安装至 ${BIN_DIR}/ting ($("${BIN_DIR}/ting" -V))"
+(cd "$REPO_DIR" && go build -trimpath -ldflags "-s -w" -o "${REPO_DIR}/ting" ./cmd/ting)
+ln -sfn "${REPO_DIR}/ting" "${BIN_DIR}/ting"
+echo "    ✔ 已安装软链至 ${BIN_DIR}/ting ($("${BIN_DIR}/ting" -V))"
 
 echo "==> 3. 部署并软链全局 Agent Skill..."
 mkdir -p "$CO_BRAIN_SKILLS"
@@ -67,8 +68,8 @@ fi
 
 echo "==> 4. 自检与健康验证..."
 status_out=$("${BIN_DIR}/ting" status)
-if [[ $? -eq 0 ]] && grep -q '"state":"idle"' <<<"$status_out"; then
-    echo "    ✔ ting 微外设自检通过 (状态: idle)"
+if [[ $? -eq 0 ]] && grep -q '"status":"ok"' <<<"$status_out"; then
+    echo "    ✔ ting 微外设自检通过 (响应正常: $(jq -r .state <<<"$status_out"))"
 else
     echo "    ⚠️ 自检返回异常: $status_out"
 fi
