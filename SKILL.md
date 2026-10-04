@@ -21,7 +21,7 @@ ting transcript <url> [--range 14:00-18:00]       # 读：纯净逐字原话证�
 ting play <url> [--start 60]                     # 放：后台起播 (单实例 mpv，已等待声音就绪)
 ting status                                      # 查：时空遥测 (在播状态、当前秒数头、总时长、音量)
 ting control pause | resume | stop               # 控：即时静音、恢复或停止并退出
-ting control seek +30 | seek -15                 # 跳：相对跳转 (支持 +N / -N / 绝对秒数)
+ting control seek +30 | seek -15 | seek 14:05    # 跳：+N / -N 相对跳转；不带符号为绝对位置 (秒数或 mm:ss)
 ting control volume 60                           # 调：音量 (0-100)
 ```
 
@@ -31,6 +31,8 @@ ting control volume 60                           # 调：音量 (0-100)
   - `1`：参数错误或用法不对；
   - `2`：外部工具（`mpv`/`yt-dlp`）缺失或网络错误；
   - `4`：业务未就绪（如 B 站无公开字幕报 `unavailable`、播放器未在播放时执行控制）。
+- **`status` 的 `state`**：`idle` / `loading`（已换曲、尚无播放头，还没出声）/ `playing` / `paused`；新的 `play` 总会解除暂停。
+- **300 条上限**：`transcript` 无论是否带 `--range`，超过 300 条只返回前 300 条并标 `truncated: true`，此时收窄时间窗再取。
 
 ---
 
@@ -40,7 +42,7 @@ ting control volume 60                           # 调：音量 (0-100)
 2. **时间窗切片取证**：读字幕严禁用全文读入，必须使用 `--range <start-end>`（格式支持 `14:00-18:00` 或 `600-900`），只取目标 3~5 分钟的逐字原话，严格把上下文消耗锁定在 500 Tokens 以内。
 3. **事实证据优先**：回答用户“视频里说了什么”必须引用 `transcript` 的逐字原句并标明时间戳。若返回 `unavailable`（退出码 4），如实告知用户该视频无公开字幕，**绝不凭空编造内容**。
 4. **单实例自动互斥**：`ting play` 内部采用 Flock 文件锁，每次起播会自动平滑替换上一次的播放，并已在底层等待真实解码发声（`file-loaded`）就绪，无需 Agent 额外写轮询等待代码。
-5. **物理逃生直通**：底层 `mpv` 已开启系统媒体键支持，用户敲键盘 Space 或捏按 AirPods 耳机即可即时硬件暂停，跳过大模型交互延迟。
+5. **物理逃生直通**：底层 `mpv` 已开启系统媒体键支持，用户按 macOS 媒体键 (F8) 或捏按 AirPods 耳机即可即时硬件暂停，跳过大模型交互延迟。
 
 ---
 

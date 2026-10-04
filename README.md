@@ -21,7 +21,7 @@ ting play "https://www.youtube.com/watch?v=dQw4w9WgXcQ" --start 18   # 后台起
 ting status                                                         # 时空遥测 (当前播放头、状态、音量)
 ting control pause                                                  # 暂停
 ting control resume                                                 # 继续
-ting control seek +30                                               # 相对跳转 (支持 +N / -N)
+ting control seek +30                                               # +N / -N 相对跳转；不带符号为绝对位置 (秒数或 mm:ss)
 ting control volume 60                                              # 音量调节
 ting control stop                                                   # 停止并自动退出 mpv
 ```
@@ -33,8 +33,8 @@ ting control stop                                                   # 停止并�
 - **极简细腰 (~800–1,000 行纯 Go)**：全仓仅保留 `internal/engine/` 与 `cmd/ting/`，零 cgo，零外部框架依赖，单一静态二进制直接编译执行。
 - **双通道控制闭环**：
   - **语义与编排通道**：人类与 Agent 自然语言对话（意图解析、精准段落问答、知识整理写入 `co-library 30-resources/`）；
-  - **物理控制通道**：AirPods 耳机触控与键盘 Space 键由 `mpv --input-media-keys=yes` 原生接管，即按即停，跳过大模型延迟。
-- **Token 护盾**：原始 90KB+ 媒体元数据在进程内提炼为 <1KB 的紧凑结构化输出；长视频全文超出 300 条自动截断并标记 `truncated: true`。
+  - **物理控制通道**：AirPods 耳机触控与 macOS 媒体键 (F8) 由 `mpv --input-media-keys=yes` 原生接管，即按即停，跳过大模型延迟。
+- **Token 护盾**：原始 90KB+ 媒体元数据在进程内提炼为 <1KB 的紧凑结构化输出；字幕（含带 `--range` 的宽窗口）超出 300 条自动截断并标记 `truncated: true`。
 - **四级退出码契约**：
   - `0`：成功（Success）；
   - `1`：命令行用法错、参数格式非法；

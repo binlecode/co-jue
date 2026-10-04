@@ -81,8 +81,8 @@ type rawInfo struct {
 	AutoCaps  map[string]json.RawMessage `json:"automatic_captions"`
 }
 
-// MaxCues caps a transcript asked for without --range: past it the caller gets the head and
-// truncated:true, the hint to come back with a window instead of the whole talk.
+// MaxCues caps every transcript, windowed or not: past it the caller gets the head and
+// truncated:true, the hint to come back with a narrower window.
 const MaxCues = 300
 
 func ytdlp(args ...string) ([]byte, error) {
@@ -96,9 +96,19 @@ func ytdlp(args ...string) ([]byte, error) {
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, fail(2, "error", "yt-dlp: %s", lastLine(stderr.String(), err))
+		return nil, ytdlpFail(stderr.String(), err)
 	}
 	return out, nil
+}
+
+// ytdlpFail classifies a failed yt-dlp run: a URL it cannot read at all is the caller's
+// mistake (exit 1), anything else is the tool or the network (exit 2).
+func ytdlpFail(stderr string, err error) *Fail {
+	code := 2
+	if strings.Contains(stderr, "is not a valid URL") || strings.Contains(stderr, "Unsupported URL") {
+		code = 1
+	}
+	return fail(code, "error", "yt-dlp: %s", lastLine(stderr, err))
 }
 
 func lastLine(s string, err error) string {
@@ -152,7 +162,7 @@ func ParseTime(s string) (float64, error) {
 	var t float64
 	for _, p := range strings.Split(strings.TrimSpace(s), ":") {
 		v, err := strconv.ParseFloat(p, 64)
-		if err != nil || v < 0 {
+		if err != nil || v < 0 || math.IsNaN(v) || math.IsInf(v, 0) {
 			return 0, fmt.Errorf("bad time %q", s)
 		}
 		t = t*60 + v
@@ -161,7 +171,7 @@ func ParseTime(s string) (float64, error) {
 }
 
 // Transcript returns the verbatim cues of u. With hasRange only the cues that intersect
-// [start, end) come back; without it the head is capped at MaxCues.
+// [start, end) come back; either way the head is capped at MaxCues.
 func Transcript(u string, start, end float64, hasRange bool) (*TranscriptResponse, error) {
 	var r *TranscriptResponse
 	var err error
@@ -173,20 +183,28 @@ func Transcript(u string, start, end float64, hasRange bool) (*TranscriptRespons
 	if err != nil {
 		return nil, err
 	}
+	r.Segments, r.Truncated = clip(r.Segments, start, end, hasRange)
+	return r, nil
+}
+
+// clip keeps the cues intersecting [start, end) when hasRange, then caps them at MaxCues: a
+// window wide enough to hold the whole talk must not slip past the cap.
+func clip(cues []Cue, start, end float64, hasRange bool) ([]Cue, bool) {
 	if hasRange {
 		kept := []Cue{}
-		for _, c := range r.Segments {
+		for _, c := range cues {
 			// A point cue (the last lyric line has no successor to end it) counts when it
 			// starts inside the window.
 			if c.Start < end && (c.End > start || c.Start >= start) {
 				kept = append(kept, c)
 			}
 		}
-		r.Segments = kept
-	} else if len(r.Segments) > MaxCues {
-		r.Segments, r.Truncated = r.Segments[:MaxCues], true
+		cues = kept
 	}
-	return r, nil
+	if len(cues) > MaxCues {
+		return cues[:MaxCues], true
+	}
+	return cues, false
 }
 
 func ytTranscript(u string) (*TranscriptResponse, error) {
@@ -339,19 +357,30 @@ func cleanText(s string) string {
 }
 
 var (
-	neteaseIDRe = regexp.MustCompile(`(?:[?&]id=|/song/)(\d+)`)
-	lrcTagRe    = regexp.MustCompile(`^\[(\d+):(\d+(?:[.:]\d+)?)\]`)
+	neteasePathRe = regexp.MustCompile(`/song/(\d+)$`)
+	digitsRe      = regexp.MustCompile(`^\d+$`)
+	lrcTagRe      = regexp.MustCompile(`^\[(\d+):(\d+(?:[.:]\d+)?)\]`)
 )
 
-// neteaseID is the song id of a music.163.com song URL, "" for anything else. yt-dlp's
-// netease extractor fetches no lyrics, so this one site is read over plain HTTP.
+// neteaseID is the song id of a music.163.com song URL, "" for anything else — a playlist or
+// album carries an id= too, and is not a song. yt-dlp's netease extractor fetches no lyrics,
+// so this one site is read over plain HTTP.
 func neteaseID(u string) string {
 	p, err := url.Parse(u)
 	if err != nil || !strings.HasSuffix(p.Hostname(), "music.163.com") {
 		return ""
 	}
-	if m := neteaseIDRe.FindStringSubmatch(p.Path + "?" + p.RawQuery + "#" + p.Fragment); m != nil {
+	// The web player routes in the fragment: music.163.com/#/song?id=N.
+	route, query := p.Path, p.RawQuery
+	if strings.HasPrefix(p.Fragment, "/") {
+		route, query, _ = strings.Cut(p.Fragment, "?")
+	}
+	route = strings.TrimSuffix(route, "/")
+	if m := neteasePathRe.FindStringSubmatch(route); m != nil {
 		return m[1]
+	}
+	if q, _ := url.ParseQuery(query); strings.HasSuffix(route, "/song") && digitsRe.MatchString(q.Get("id")) {
+		return q.Get("id")
 	}
 	return ""
 }

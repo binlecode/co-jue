@@ -57,7 +57,10 @@ func (c *IPCClient) Command(args ...any) (*IPCResponse, error) {
 	defer c.mu.Unlock()
 	c.seq++
 	reqID := c.seq
-	payload, _ := json.Marshal(map[string]any{"command": args, "request_id": reqID})
+	payload, err := json.Marshal(map[string]any{"command": args, "request_id": reqID})
+	if err != nil {
+		return nil, err // NaN and the like: an empty line would only earn a timeout
+	}
 	c.conn.SetDeadline(time.Now().Add(commandTimeout))
 	defer c.conn.SetDeadline(time.Time{})
 	if _, err := c.conn.Write(append(payload, '\n')); err != nil {

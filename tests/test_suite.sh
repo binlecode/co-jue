@@ -5,7 +5,7 @@
 # sites. Each block runs under its own TMPDIR, so it owns its runtime dir and its own mpv and
 # the blocks run side by side; their results print in block order once all are done.
 #
-#   A  security boundary      runtime dir 0700 / symlink refusal / read verbs write nothing
+#   A  security boundary      runtime dir 0700 / symlink refusal / read verbs write nothing / usage gates
 #   B  ingest contract        inspect chapters, transcript windows, unavailable, LRC
 #   C  playback state machine local + network audio, status, every control, stop, crash
 #   D  concurrency            racing plays from cold and warm: one mpv, every play ok
@@ -148,6 +148,25 @@ block_a() {
     expect "usage: seek without seconds is exit 1" 1 '.status=="error"'
     v status now
     expect "usage: status with an argument is exit 1" 1 '.status=="error"'
+    # No player is running here: a bad action must still be a usage error, not not_playing.
+    v control rewind
+    expect "usage: unknown control action is exit 1 with no player" 1 '.status=="error"'
+    # NaN and Inf parse as floats; none of them is a time or a volume.
+    v control seek nan
+    expect "usage: seek nan is exit 1" 1 '.status=="error"'
+    v control seek +inf
+    expect "usage: seek +inf is exit 1" 1 '.status=="error"'
+    v control volume nan
+    expect "usage: volume nan is exit 1" 1 '.status=="error"'
+    v play "$WAV" --start inf
+    expect "usage: --start inf is exit 1" 1 '.status=="error"'
+    v transcript "$YT_NN" --range nan-10
+    expect "usage: --range nan-10 is exit 1" 1 '.status=="error"'
+    # yt-dlp answers these offline; a URL it cannot read is the caller's mistake, not the network's.
+    v inspect notaurl
+    expect "usage: inspect a non-URL is exit 1" 1 '.status=="error" and (.error|test("not a valid URL"))'
+    v transcript notaurl
+    expect "usage: transcript a non-URL is exit 1" 1 '.status=="error" and (.error|test("not a valid URL"))'
 }
 
 # ---- B + E-a: ingest contract and the study workflow --------------------------------------
@@ -165,6 +184,8 @@ block_b() {
         fetch chapter transcript "$YT_NN" --range "$(cat "$TMPDIR/window")"
     ) &
     fetch full transcript "$YT_NN" &
+    fetch wide transcript "$YT_NN" --range 0-99999 &
+    fetch unsupported inspect "https://example.com/" &
     fetch human transcript "$YT_RR" --range 18-30 &
     fetch bili transcript "$BILI" &
     fetch lrc transcript "$NETEASE" --range 20-30 &
@@ -199,6 +220,12 @@ block_b() {
     load full
     expect "transcript without --range: capped at 300 cues, truncated:true" 0 \
         '.truncated==true and (.segments|length)==300'
+    load wide
+    expect "transcript with a --range wider than the talk: capped at 300 too" 0 \
+        '.truncated==true and (.segments|length)==300'
+    load unsupported
+    expect "inspect a page with no media: Unsupported URL, exit 1" 1 \
+        '.status=="error" and (.error|test("Unsupported URL"))'
     load human
     expect "transcript YouTube human track: is_auto false, lang en" 0 \
         '.is_auto==false and .lang=="en" and all(.segments[]; .start<30 and .end>18)
@@ -247,20 +274,29 @@ block_c() {
     expect "control resume: exit 0" 0 '.status=="ok" and .action=="resume"'
     check "status after resume: playing and moving again" poll 3 st ".state==\"playing\" and .time_pos>$t1"
 
-    v control seek 20
+    v control seek +20
     expect "control seek +20: exit 0" 0 '.action=="seek"'
-    check "seek +20 moves the playhead past 20" poll 3 st '.time_pos>=20'
-    v control seek -15
-    expect "control seek -15: exit 0" 0 '.action=="seek"'
-    check "seek -15 moves the playhead back under 10" poll 3 st '.time_pos<10'
+    check "seek +20 moves the playhead past 20" poll 3 st '.time_pos>=20 and .time_pos<30'
+    # A bare time is a position, not an offset: from past 20, 0:40 lands at 40, not past 60.
+    v control seek 0:40
+    expect "control seek 0:40 (absolute): exit 0" 0 '.action=="seek"'
+    check "seek 0:40 puts the playhead at 40" poll 3 st '.time_pos>=40 and .time_pos<45'
+    v control seek 10
+    expect "control seek 10 (absolute): exit 0" 0 '.action=="seek"'
+    check "seek 10 moves the playhead back to 10" poll 3 st '.time_pos>=10 and .time_pos<15'
+    v control seek -5
+    expect "control seek -5: exit 0" 0 '.action=="seek"'
+    check "seek -5 moves the playhead back under 10" poll 3 st '.time_pos<10'
 
     v control volume 35
     expect "control volume 35: exit 0" 0 '.action=="volume"'
     check "status reports volume 35" st '.volume==35'
 
+    # pause belongs to the player, not the track: a play after a pause must still sound.
+    "$BIN" control pause >/dev/null
     v play "$WAV" --start 30
-    expect "play again with --start 30: replaces the track, exit 0" 0 '.state=="playing" and .start==30'
-    check "replaced track starts at 30" poll 3 st '.time_pos>=30'
+    expect "play again with --start 30 while paused: replaces the track, exit 0" 0 '.state=="playing" and .start==30'
+    check "replaced track starts at 30 and plays, not paused" poll 3 st '.state=="playing" and .time_pos>30.2'
     DETAIL="was $pid, now $(mpv_of | tr '\n' ' ')"
     check "a warm play reuses the running mpv" test "$(mpv_of)" = "$pid"
 

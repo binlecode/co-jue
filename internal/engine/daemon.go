@@ -171,10 +171,22 @@ func Play(u string, start float64) (*PlayResponse, error) {
 	if r.Error != "success" || json.Unmarshal(r.Data, &data) != nil || data.ID == 0 {
 		return nil, fail(4, "error", "mpv refused loadfile: %s", r.Error)
 	}
+	// pause is the player's, not the track's: after a control pause the new track would load
+	// silent. Cleared after loadfile so the old track never sounds again on the way out.
+	if r, err := c.Command("set_property", "pause", false); err != nil || r.Error != "success" {
+		return nil, fail(2, "error", "mpv ipc: unpause: %v", errOr(err, r))
+	}
 	if err := c.WaitForPlaybackSuccess(data.ID, 30*time.Second); err != nil {
 		return nil, fail(4, "error", "%v", err)
 	}
 	return &PlayResponse{Status: "ok", State: "playing", URL: u, Start: start}, nil
+}
+
+func errOr(err error, r *IPCResponse) any {
+	if err != nil {
+		return err
+	}
+	return r.Error
 }
 
 type StatusResponse struct {
@@ -209,6 +221,10 @@ func Status() (*StatusResponse, error) {
 			*dst = &v
 		}
 	}
+	// Between loadfile and the first decoded frame there is no playhead yet: nothing sounds.
+	if r.State == "playing" && r.TimePos == nil {
+		r.State = "loading"
+	}
 	return r, nil
 }
 
@@ -218,8 +234,25 @@ type ControlResponse struct {
 }
 
 // Control applies one action to the running player. Nothing running, or a player still idle,
-// is exit 4: there is nothing for the action to act on.
-func Control(action string, value float64) (*ControlResponse, error) {
+// is exit 4: there is nothing for the action to act on. seekMode is "relative" or "absolute"
+// and only read by seek.
+func Control(action string, value float64, seekMode string) (*ControlResponse, error) {
+	var args []any
+	switch action {
+	case "stop":
+		args = []any{"quit"}
+	case "pause", "resume":
+		args = []any{"set_property", "pause", action == "pause"}
+	case "seek":
+		if seekMode != "relative" && seekMode != "absolute" {
+			return nil, fail(1, "error", "unknown seek mode %q", seekMode)
+		}
+		args = []any{"seek", value, seekMode}
+	case "volume":
+		args = []any{"set_property", "volume", value}
+	default:
+		return nil, fail(1, "error", "unknown control action %q", action)
+	}
 	c, err := Connect()
 	if err != nil {
 		return nil, err
@@ -228,19 +261,6 @@ func Control(action string, value float64) (*ControlResponse, error) {
 		return nil, fail(4, "not_playing", "no player running")
 	}
 	defer c.Close()
-	var args []any
-	switch action {
-	case "stop":
-		args = []any{"quit"}
-	case "pause", "resume":
-		args = []any{"set_property", "pause", action == "pause"}
-	case "seek":
-		args = []any{"seek", value, "relative"}
-	case "volume":
-		args = []any{"set_property", "volume", value}
-	default:
-		return nil, fail(1, "error", "unknown control action %q", action)
-	}
 	if action != "stop" {
 		var isIdle bool
 		if _, err := c.Get("idle-active", &isIdle); err != nil || isIdle {

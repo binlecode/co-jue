@@ -22,7 +22,8 @@ func TestParseTime(t *testing.T) {
 			t.Errorf("ParseTime(%q) = %v, %v; want %v", in, got, err, want)
 		}
 	}
-	for _, in := range []string{"", "-1", "abc", "1:xx", "1::2", "1:-2"} {
+	// NaN and Inf parse as floats; they are no position, and NaN would fail every comparison.
+	for _, in := range []string{"", "-1", "abc", "1:xx", "1::2", "1:-2", "NaN", "nan", "inf", "+Inf", "1:nan", "1e400"} {
 		if got, err := ParseTime(in); err == nil {
 			t.Errorf("ParseTime(%q) = %v, want an error", in, got)
 		}
@@ -47,7 +48,7 @@ func TestParseRange(t *testing.T) {
 		}
 	}
 	// Empty and reversed windows select nothing and are a usage error, not an empty result.
-	for _, in := range []string{"900-600", "600-600", "600", "600-", "-900", "a-b", "10:00-9:00", "-5-10", ""} {
+	for _, in := range []string{"900-600", "600-600", "600", "600-", "-900", "a-b", "10:00-9:00", "-5-10", "", "nan-10", "0-inf"} {
 		if s, e, err := ParseRange(in); err == nil {
 			t.Errorf("ParseRange(%q) = %v, %v; want an error", in, s, e)
 		}
@@ -133,6 +134,12 @@ func TestNeteaseID(t *testing.T) {
 		"https://www.youtube.com/watch?id=1824020871":      "",
 		"https://music.163.com.evil.example/song?id=1":     "",
 		"https://music.163.com/playlist?pid=5":             "",
+		// A playlist or album carries an id= too: it is not a song.
+		"https://music.163.com/playlist?id=5":   "",
+		"https://music.163.com/#/playlist?id=5": "",
+		"https://music.163.com/#/album?id=5":    "",
+		"https://music.163.com/album/5":         "",
+		"https://music.163.com/song?id=abc":     "",
 	}
 	for in, want := range cases {
 		if got := neteaseID(in); got != want {
@@ -175,5 +182,51 @@ func TestPickTrack(t *testing.T) {
 		if got != c.want || auto != c.wantAuto {
 			t.Errorf("%s: pickTrack = %q, %v; want %q, %v", c.name, got, auto, c.want, c.wantAuto)
 		}
+	}
+}
+
+func TestYtdlpFail(t *testing.T) {
+	cases := []struct {
+		stderr string
+		code   int
+	}{
+		{"ERROR: [generic] 'notaurl' is not a valid URL", 1},
+		{"ERROR: Unsupported URL: https://example.com/", 1},
+		{"ERROR: [youtube] x: Video unavailable", 2},
+		{"ERROR: Unable to download webpage: <urlopen error [Errno 8]>", 2},
+	}
+	for _, c := range cases {
+		if f := ytdlpFail("WARNING: noise\n"+c.stderr+"\n", errors.New("exit status 1")); f.Code != c.code || f.Msg != "yt-dlp: "+c.stderr {
+			t.Errorf("ytdlpFail(%q) = %d %q, want %d", c.stderr, f.Code, f.Msg, c.code)
+		}
+	}
+}
+
+func TestClip(t *testing.T) {
+	var cues []Cue
+	for i := 0; i < MaxCues+50; i++ {
+		cues = append(cues, Cue{Start: float64(i), End: float64(i + 1), Text: "x"})
+	}
+	cases := []struct {
+		name       string
+		start, end float64
+		hasRange   bool
+		n          int
+		truncated  bool
+	}{
+		{"no range: capped", 0, 0, false, MaxCues, true},
+		// A window wider than the whole talk must not slip past the cap.
+		{"wide range: capped too", 0, 1e6, true, MaxCues, true},
+		{"narrow range: whole window", 10, 20, true, 10, false},
+		{"range past the end: empty, not nil", 1e5, 1e6, true, 0, false},
+	}
+	for _, c := range cases {
+		got, tr := clip(cues, c.start, c.end, c.hasRange)
+		if len(got) != c.n || tr != c.truncated || got == nil {
+			t.Errorf("%s: %d cues, truncated %v; want %d, %v", c.name, len(got), tr, c.n, c.truncated)
+		}
+	}
+	if got, tr := clip(cues[:5], 0, 0, false); len(got) != 5 || tr {
+		t.Errorf("short transcript: %d cues, truncated %v; want 5, false", len(got), tr)
 	}
 }

@@ -3,7 +3,9 @@ package engine
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"math"
 	"net"
 	"strings"
 	"testing"
@@ -172,5 +174,21 @@ func TestWaitForPlaybackSuccessPlayerGone(t *testing.T) {
 	err := c.WaitForPlaybackSuccess(2, 5*time.Second)
 	if err == nil || !strings.HasPrefix(err.Error(), "player went away while loading") {
 		t.Errorf("err = %v, want player went away", err)
+	}
+}
+
+func TestCommandRefusesUnencodableArgs(t *testing.T) {
+	c, _, cmds := pipeClient(t)
+	got := make(chan string, 1)
+	go func() { line, _ := cmds.ReadString('\n'); got <- line }()
+	_, err := c.Command("seek", math.NaN(), "relative")
+	var uv *json.UnsupportedValueError
+	if !errors.As(err, &uv) {
+		t.Fatalf("err = %v, want the marshal error", err)
+	}
+	select {
+	case line := <-got:
+		t.Errorf("wrote %q to the socket, want nothing", line)
+	case <-time.After(50 * time.Millisecond):
 	}
 }

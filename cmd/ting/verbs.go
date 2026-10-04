@@ -7,8 +7,10 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/binlecode/ting/internal/engine"
 )
@@ -16,7 +18,7 @@ import (
 const verbUsage = `usage: ting inspect <url>
        ting transcript <url> [--range START-END]
        ting play <url> [--start SEC]
-       ting control pause|resume|stop|seek <[+-]SEC>|volume <0-100>
+       ting control pause|resume|stop|seek <+SEC|-SEC|SEC|MM:SS>|volume <0-100>
        ting status`
 
 var verbs = map[string]func([]string) (any, error){
@@ -124,26 +126,46 @@ func runPlay(args []string) (any, error) {
 	return engine.Play(u, start)
 }
 
+// controlArgs is how many arguments each control action takes, the action included.
+var controlArgs = map[string]int{"pause": 1, "resume": 1, "stop": 1, "seek": 2, "volume": 2}
+
 func runControl(args []string) (any, error) {
 	if len(args) == 0 {
 		return nil, usageErr("control needs an action")
 	}
-	action, want := args[0], 1
-	if action == "seek" || action == "volume" {
-		want = 2
+	action := args[0]
+	want, ok := controlArgs[action]
+	if !ok {
+		return nil, usageErr("unknown control action " + action)
 	}
 	if len(args) != want {
 		return nil, usageErr("wrong arguments for control " + action)
 	}
 	var v float64
-	if want == 2 {
+	switch action {
+	case "seek":
+		// +N / -N moves from the playhead; a bare time (seconds or mm:ss) is a position.
+		arg, mode := args[1], "absolute"
+		back := strings.HasPrefix(arg, "-")
+		if back || strings.HasPrefix(arg, "+") {
+			arg, mode = arg[1:], "relative"
+		}
+		t, err := engine.ParseTime(arg)
+		if err != nil || strings.HasPrefix(arg, "+") || strings.HasPrefix(arg, "-") {
+			return nil, usageErr("bad value for seek: " + args[1])
+		}
+		if back {
+			t = -t
+		}
+		return engine.Control(action, t, mode)
+	case "volume":
 		var err error
 		v, err = strconv.ParseFloat(args[1], 64)
-		if err != nil || (action == "volume" && (v < 0 || v > 100)) {
-			return nil, usageErr("bad value for " + action + ": " + args[1])
+		if err != nil || math.IsNaN(v) || math.IsInf(v, 0) || v < 0 || v > 100 {
+			return nil, usageErr("bad value for volume: " + args[1])
 		}
 	}
-	return engine.Control(action, v)
+	return engine.Control(action, v, "")
 }
 
 func runStatus(args []string) (any, error) {
