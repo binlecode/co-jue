@@ -3,7 +3,7 @@
 **ting 没有独立的图形界面（GUI）或终端菜单（TUI）。你的对话窗口（或语音流）就是唯一的交互界面。**  
 你不需要记任何命令行参数，也不需要看底层 JSON。本手册专门教你：**如何用最自然的人类语言，让 Agent 帮你找内容、精准研读音视频、调度端侧声音与沉淀知识资产。**
 
-> 💡 **配套演示**：本手册已配套认知击穿交互式 HTML 幻灯片，可在浏览器中双击直接演示：[`docs/USER_MANUAL_SLIDES.html`](USER_MANUAL_SLIDES.html)。
+> 💡 **配套演示**：本手册已配套认知击穿交互式 HTML 幻灯片，可在浏览器中双击直接演示：[`docs/USER_MANUAL-slides.html`](USER_MANUAL-slides.html)。
 
 ---
 
@@ -121,11 +121,11 @@
 当一期访谈或技术演讲研读完毕，你可以直接让 Agent 把精读产物结构化沉淀进个人知识库（如 `~/co-library/30-resources/`）。
 
 #### 实操对话示例：
-> **你**：“*把刚才关于 Claude 3.7 混合推理机制的讨论与关键原话，整理一篇笔记记入知识库。*”  
+> **你**：“*把刚才关于 Claude Opus 5.5 混合推理机制的讨论与关键原话，整理一篇笔记记入知识库。*”  
 > **Agent**：“*已为您提炼标准知识卡片并归档至 `co-library/30-resources/`：*
 > 
 > ```markdown
-> # Resource: Claude 3.7 Hybrid Reasoning Architecture
+> # Resource: Claude Opus 5.5 Hybrid Reasoning Architecture
 > 
 > - **来源**：[Anthropic Engineering Podcast](https://youtube.com/watch?v=...)
 > - **时长**：48:20 · 语言: 英语原声 (Human Verified)
