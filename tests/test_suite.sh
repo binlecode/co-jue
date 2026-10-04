@@ -10,6 +10,12 @@
 #   C  playback state machine local + network audio, status, every control, stop, crash
 #   D  concurrency            racing plays from cold and warm: one mpv, every play ok
 #   E  agent workflows        a: study a chapter  b: background listening  c: "what was that?"
+#   F  token budget           what an envelope costs a context window: no field, escape or digit
+#                             beyond the facts; a window past the end is empty, not noise
+#   G  acoustic ergonomics    stop right after play silences at once; pause freezes the playhead
+#                             within 200 ms, on local and on network audio
+#   H  grounding to artifact  a timestamped verbatim citation for the library; when there are no
+#                             words to cite, inspect still answers with the map
 #
 # Usage: bash tests/test_suite.sh        exit 0 all green, 1 a failure or a broken suite
 
@@ -74,9 +80,10 @@ check() {
     DETAIL=
 }
 
-# poll <secs> <command...>: true as soon as the command is, false at the deadline.
+# poll <secs> <command...>: true as soon as the command is, false at the deadline (secs may be
+# fractional: poll 0.2 is four 50 ms ticks).
 poll() {
-    local i=$(($1 * 20)); shift
+    local i; i=$(awk -v s="$1" 'BEGIN { print int(s * 20) }'); shift
     until "$@"; do ((i-- > 0)) || return 1; sleep 0.05; done
 }
 
@@ -425,19 +432,180 @@ block_ec() {
     check "workflow c: mpv gone after stop" poll 3 gone "$pid"
 }
 
+# ---- F: token budget --------------------------------------------------------------------------
+# An envelope lands verbatim in an agent's context window, so every byte that is not a fact is
+# a token spent on nothing. The bound is derived, not measured: per chapter or cue the framing
+# is its fixed keys plus times of at most 9 characters (12345.678); an extra field, an escaped
+# & or <, or a float printed as 162.32000000000002 breaks it.
+DARIO="https://www.youtube.com/watch?v=ugvHCXCOmm4"   # Lex Fridman #452: 5 hours, 40 chapters
+NE_PURE="https://music.163.com/song?id=476592630"     # The Dawn, piano: NetEase marks it 纯音乐
+
+bytes() { wc -c <"$TMPDIR/$1.out" | tr -d ' '; }
+
+block_f() {
+    fetch long inspect "$DARIO" &
+    fetch window transcript "$YT_NN" --range 300-480 &
+    fetch past transcript "$YT_NN" --range 999999-1000099 &
+    fetch lrcpast transcript "$NETEASE" --range 9999-10099 &
+    wait
+
+    local n
+    load long
+    n=$(bytes long)
+    DETAIL="$n bytes: $OUT"
+    check "inspect a 40-chapter talk: the whole map in under 2500 bytes" \
+        test "$(jq '.chapters|length' <<<"$OUT")" -eq 40 -a "$n" -lt 2500
+    expect "inspect: only status, id, title, duration, uploader and {start,title} chapters" 0 \
+        '(keys - ["status","id","title","duration","uploader","chapters"]) == []
+         and all(.chapters[]; keys == ["start","title"])'
+    # Header keys ~75 bytes plus a 9-digit duration; each chapter {"start":,"title":""}, is 22.
+    export BYTES=$n
+    expect "inspect: framing beyond the strings is at most 31 bytes a chapter" 0 \
+        '($ENV.BYTES|tonumber) - ([.id, .title, .uploader, .chapters[].title] | map(utf8bytelength) | add)
+         <= 31 * (.chapters|length) + 100'
+
+    load window
+    export BYTES=$(bytes window)
+    expect "transcript, a 3-minute window: only status, lang, is_auto and {start,end,text} cues" 0 \
+        '(keys - ["status","lang","is_auto","truncated","segments"]) == [] and (has("truncated")|not)
+         and (.segments|length) > 0 and all(.segments[]; keys == ["end","start","text"])'
+    # {"start":,"end":,"text":""}, is 28 bytes; two times of at most 9 make 46.
+    expect "transcript: framing beyond the words is at most 46 bytes a cue" 0 \
+        '($ENV.BYTES|tonumber) - ([.segments[].text|utf8bytelength] | add) <= 46 * (.segments|length) + 80'
+
+    load past
+    expect "transcript YouTube past its end: ok, no cues, not truncated, exit 0" 0 \
+        '.status=="ok" and .segments==[] and (has("truncated")|not)'
+    # The last lyric line is a point cue: a window after the song must not catch it.
+    load lrcpast
+    expect "transcript NetEase past its end: ok, no cues, the point cue left out, exit 0" 0 \
+        '.status=="ok" and .segments==[] and (has("truncated")|not)'
+}
+
+# ---- G: acoustic ergonomics ---------------------------------------------------------------
+# A human who says "stop" or hits pause hears the effect, not a delay: the bounds here are what
+# a person notices, and both run against a local player with nothing on the network in between.
+block_g() {
+    local pid
+    v play "$WAV"
+    expect "play local audio: playing, exit 0" 0 '.state=="playing"'
+    pid=$(mpv_of)
+    v control stop
+    expect "control stop the instant play returned: exit 0" 0 '.action=="stop"'
+    DETAIL="pid $pid: $(ps -o pid=,stat= -p "$pid")"
+    check "stop right after play: mpv exited and was reaped within 200 ms" poll 0.2 gone "$pid"
+    v status
+    expect "status right after that stop: idle" 0 '.state=="idle"'
+
+    "$BIN" play "$WAV" >/dev/null
+    pid=$(mpv_of)
+    poll 5 st '.time_pos>0.5' || abort "block g: local audio never started"
+    v control pause
+    expect "control pause on local audio: exit 0" 0 '.action=="pause"'
+    sleep 0.2
+    check "local audio: playhead frozen 200 ms after pause returned" holds_still
+
+    # Network audio is where a pause used to keep the playhead creeping (a fallback audio output).
+    "$BIN" control volume 0 >/dev/null   # keep the suite silent
+    v play "$YT_NN" --start 165
+    expect "play YouTube audio at 165: exit 0" 0 '.state=="playing"'
+    check "network audio under way" poll 10 st '.state=="playing" and .time_pos>=166'
+    v control pause
+    expect "control pause on network audio: exit 0" 0 '.action=="pause"'
+    sleep 0.2
+    check "network audio: playhead frozen 200 ms after pause returned" holds_still
+    v control stop
+    expect "control stop: exit 0" 0 '.action=="stop"'
+    check "mpv gone after stop" poll 3 gone "$pid"
+}
+
+# ---- H: grounding to artifact ------------------------------------------------------------------
+# The agent turns ting's facts into something a human keeps: a library citation whose link lands
+# on the quoted words; and, where a source has no words to quote, an honest card built from the
+# map instead of a dead end.
+mmss() { printf '%d:%02d' $(($1 / 60)) $(($1 % 60)); }
+# No markup, entity, cue timing or LRC tag survived, and the whitespace is folded.
+CLEAN='all(.segments[]; .text | test("<[^>]+>|&(amp|lt|gt|quot|apos|nbsp|#[0-9]+);|-->|[0-9]{2}:[0-9]{2}:[0-9]{2}[.,][0-9]{3}|\\[[0-9]+:[0-9]+|^ | $|  ") | not)'
+
+block_h() {
+    (
+        fetch map inspect "$DARIO"
+        jq -r '.chapters as $c | ($c | map(.title) | index("Opus 3.5")) as $i
+            | "\($c[$i].start)-\($c[$i + 1].start)"' "$TMPDIR/map.out" >"$TMPDIR/window" 2>/dev/null
+        fetch passage transcript "$DARIO" --range "$(cat "$TMPDIR/window")"
+    ) &
+    fetch lyrics transcript "$NETEASE" &
+    ( fetch pure transcript "$NE_PURE"
+      [[ $(cat "$TMPDIR/pure.rc") == 4 ]] && fetch puremap inspect "$NE_PURE" ) &
+    ( fetch nosubs transcript "$BILI"
+      [[ $(cat "$TMPDIR/nosubs.rc") == 4 ]] && fetch bilimap inspect "$BILI" ) &
+    wait
+
+    local window from to t title url card
+    window=$(cat "$TMPDIR/window")
+    from=${window%-*} to=${window#*-}
+    DETAIL="window=$window"
+    check "workflow h: chapter located by title in a 5-hour talk gives 1784-2070" test "$window" = "1784-2070"
+    load passage
+    export FROM=$from TO=$to
+    expect "workflow h: the passage is the human track, every cue inside the chapter" 0 \
+        '.status=="ok" and .is_auto==false and (.segments|length)>0
+         and all(.segments[]; .start<($ENV.TO|tonumber) and .end>($ENV.FROM|tonumber))'
+    expect "workflow h: passage text is clean, verbatim words only" 0 "$CLEAN"
+    load lyrics
+    expect "workflow h: NetEase lyrics are clean, no LRC tag left in the text" 0 "$CLEAN"
+
+    # The citation: the first three cues that start inside the chapter, linked at the second the
+    # first of them starts.
+    load passage
+    t=$(jq --argjson f "$from" '[.segments[] | select(.start >= $f)][0].start | floor' <<<"$OUT")
+    title=$(jq -r .title "$TMPDIR/map.out")
+    url="$DARIO&t=$t"
+    card=$(printf '### %s\n\n' "$(jq -r --argjson f "$from" '.chapters[] | select(.start==$f) | .title' "$TMPDIR/map.out")"
+        jq -r --argjson f "$from" '[.segments[] | select(.start >= $f)][:3] | map(.text) | join(" ") | "> " + .' <<<"$OUT"
+        printf '>\n> — [%s](%s), [%s](%s)\n' "$title" "$DARIO" "$(mmss "$t")" "$url")
+    DETAIL="$card"
+    check "workflow h: the citation links a second inside the chapter" test "$t" -ge "$from" -a "$t" -lt "$to"
+    check "workflow h: the citation is a quote block with source and &t= timestamp links" \
+        /usr/bin/grep -qE "^> — \[.+\]\(https://www\.youtube\.com/watch\?v=ugvHCXCOmm4\), \[$(mmss "$t")\]\(https://www\.youtube\.com/watch\?v=ugvHCXCOmm4&t=$t\)$" <<<"$card"
+    check "workflow h: the citation carries no markup or cue timing" \
+        eval '! /usr/bin/grep -qE "<[^>]+>|&(amp|lt|gt|quot|#[0-9]+);|-->|[0-9]{2}:[0-9]{2}:[0-9]{2}[.,][0-9]{3}" <<<"$card"'
+
+    # No words to quote: the agent falls back to inspect and says what it has instead.
+    load pure
+    expect "workflow h: a NetEase instrumental has no words: unavailable, exit 4" 4 '.status=="unavailable"'
+    local cards= src
+    for src in puremap bilimap; do
+        load "$src"
+        expect "workflow h: inspect still answers where transcript could not ($src)" 0 \
+            '.status=="ok" and (.title|length>0) and .duration>0 and (.chapters|type)=="array"'
+        cards+=$(jq -r '"## \(.title)\n无公开原声字幕，但已为您准备好" + (if (.chapters|length)>0
+            then "章节地图：\n" + (.chapters | map("- \(.start|floor) \(.title)") | join("\n"))
+            else "节目概要：\n- 时长 \(.duration|floor) 秒，无章节" end) + "\n"' <<<"$OUT")$'\n'
+    done
+    DETAIL="$cards"
+    check "workflow h: both fallback cards say there is nothing to quote and give the map" \
+        test "$(/usr/bin/grep -c '^无公开原声字幕，但已为您准备好' <<<"$cards")" -eq 2 \
+             -a "$(/usr/bin/grep -cE '^- (时长 [0-9]+ 秒|[0-9]+ .+)' <<<"$cards")" -ge 2
+}
+
 # ---- run ------------------------------------------------------------------------------------
 START=$SECONDS
-block a block_a
-block b block_b
-block c block_c
-block d block_d
-block eb block_eb
-block ec block_ec
+block a block_a &
+block b block_b &
+block c block_c &
+block d block_d &
+block eb block_eb &
+block ec block_ec &
+block f block_f &
+block g block_g &
+block h block_h &
 wait
 
 PASS=0 FAIL=0
 for blk in "a:A  security boundary" "b:B  ingest contract + E-a study workflow" "c:C  playback state machine" \
-    "d:D  concurrency" "eb:E-b background listening" "ec:E-c wait, what did he just say"; do
+    "d:D  concurrency" "eb:E-b background listening" "ec:E-c wait, what did he just say" \
+    "f:F  token budget" "g:G  acoustic ergonomics" "h:H  grounding to artifact"; do
     echo "=== ${blk#*:} ==="
     [[ -s "$RUN/${blk%%:*}.res" ]] || { echo "  (block reported nothing)"; FAIL=$((FAIL + 1)); continue; }
     while IFS='|' read -r verdict name detail; do

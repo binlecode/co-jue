@@ -50,7 +50,7 @@ This file provides guidance to Claude Code (claude.ai/code) and all coding agent
 go vet ./... && go test ./...
 go build -o ting ./cmd/ting
 
-# 端到端契约与工作流测试（真实 ting / mpv / yt-dlp / 外网，零 Mock，约 30s，需 jq）
+# 端到端契约与工作流测试（真实 ting / mpv / yt-dlp / 外网，零 Mock，九块并行约 12s，需 jq）
 bash tests/test_suite.sh
 
 # 核心动词抽检
@@ -69,7 +69,7 @@ bash tests/test_suite.sh
 ## 测试分层
 
 - **单元层** `internal/engine/*_test.go`：`ingest_test.go`（ParseRange/ParseTime、json3 去重清洗、LRC 时间推导、网易云 id、pickTrack 语言链）、`ipc_test.go`（request_id 匹配、事件入队、`WaitForPlaybackSuccess` 的加载成功/失败/被顶替/redirect/超时）、`daemon_test.go`（runtimeDir 0700 放行，宽权限/符号链接/普通文件拒收，只读动词不落盘）。IPC 测试在内存管道另一端扮演 mpv 的线协议。
-- **端到端层** `tests/test_suite.sh`：A 安全边界 · B 感知契约 · C 播放状态机（本地 + 网络音频、全部 control、stop 后进程回收、kill -9 后恢复）· D 冷/热并发 play 争抢 · E 三条人/Agent/ting 工作流（a 章节研读、b 背景听歌卡片、c 暂停追问播放头附近原话）。各块独立 `TMPDIR`、各自的 mpv，并行执行；网络音频前先 `volume 0`，套件全程静音。退出时只按本套件 socket 路径回收 mpv 并删除临时目录，最后一行断言零残留。
+- **端到端层** `tests/test_suite.sh`：A 安全边界 · B 感知契约 · C 播放状态机（本地 + 网络音频、全部 control、stop 后进程回收、kill -9 后恢复）· D 冷/热并发 play 争抢 · E 三条人/Agent/ting 工作流（a 章节研读、b 背景听歌卡片、c 暂停追问播放头附近原话）· F Token 预算（信封无多余字段/转义/浮点噪声，越界窗口返回空）· G 声学人机（起播即停 200ms 内回收，暂停 200ms 内播放头冻结）· H 落地为资产（带 `&t=` 时间戳的逐字引用块；无字幕/纯音乐时 inspect 兜底）。各块独立 `TMPDIR`、各自的 mpv，并行执行；网络音频前先 `volume 0`，套件全程静音。退出时只按本套件 socket 路径回收 mpv 并删除临时目录，最后一行断言零残留。
 
 ---
 
