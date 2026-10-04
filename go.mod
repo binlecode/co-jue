@@ -1,3 +1,3 @@
-module github.com/binlecode/ting
+module github.com/binlecode/co-ting
 
 go 1.26.0

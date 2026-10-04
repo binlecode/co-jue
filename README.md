@@ -1,6 +1,6 @@
-# ting (听)
+# co-ting (ting)
 
-**ting** —— 面向 AI Agent（Claude Code、OpenCode、co-cli）的轻量端侧视听感知与播放微外设（Go 静态单二进制，零 cgo，零第三方库）。版本遵循 SemVer 规范，由根目录 `VERSION` 统一定义（当前版本：`1.1.0`）。
+**co-ting**（CLI 二进制命令为 `ting`）—— `co` 生态面向 AI Agent（Claude Code、OpenCode、co-cli、co-s2s）的轻量端侧视听感知与播放微外设（Go 静态单二进制，零 cgo，零第三方库，收容于 `~/workspace_genai/co-ting/`）。版本遵循 SemVer 规范，由根目录 `VERSION` 统一定义（当前版本：`1.1.0`）。
 
 进入“可抛弃客户端软件”时代后，ting 彻底废除所有 TUI/GUI 客户端界面与搜索推荐包袱，**让 Agent 成为唯一的端侧播放 UX**。ting 仅作为 Agent 挂载在宿主机上的两件基础外设：
 1. **输入端（感知外设）**：在 `yt-dlp` 之上提供极简字段投影与章节索引，提供可核验的逐字事实证据（严格防范 Token 爆炸与机翻污染）；

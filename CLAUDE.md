@@ -30,7 +30,7 @@ This file provides guidance to Claude Code (claude.ai/code) and all coding agent
 
 ## 项目性质
 
-**ting** —— 面向 AI Agent（Claude Code、OpenCode、co-cli）的端侧视听感知与播放微外设（Go 静态单二进制）。版本严格遵循 SemVer 语义化规范（声明于根目录 `VERSION`，如 `1.1.0`）。
+**co-ting**（CLI 二进制命令为 `ting`）—— `co` 生态面向 AI Agent（Claude Code、OpenCode、co-cli、co-s2s）的端侧视听感知与播放微外设（Go 静态单二进制，收容于 `~/workspace_genai/co-ting/`）。版本严格遵循 SemVer 语义化规范（声明于根目录 `VERSION`，如 `1.1.0`）。
 
 - **感知平面 (Ingest)**：
   - `ting inspect <url>`：极简提取章节时间轴（Chapters）与元数据，Token 开销 < 100 Tokens；

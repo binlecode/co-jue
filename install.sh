@@ -1,42 +1,43 @@
 #!/usr/bin/env bash
-# install.sh — ting 原子安装与卸载脚本 (CLI 二进制 + 全局 Agent Skill)
+# install.sh — co-ting (ting) 原子安装与卸载脚本 (CLI 二进制 + 全局 Agent Skill)
 set -euo pipefail
 
 REPO_DIR=$(cd -P "$(dirname "$0")" && pwd -P)
 BIN_DIR="${HOME}/bin"
 CO_BRAIN_DIR="${HOME}/workspace_genai/co-brain"
 CO_BRAIN_SKILLS="${CO_BRAIN_DIR}/skills/ting"
+CO_BRAIN_CO_SKILLS="${CO_BRAIN_DIR}/skills/co-ting"
 GLOBAL_SKILLS_PARENT="${HOME}/env-config/.agents/skills"
 GLOBAL_SKILLS="${GLOBAL_SKILLS_PARENT}/ting"
+GLOBAL_CO_SKILLS="${GLOBAL_SKILLS_PARENT}/co-ting"
 VERSION=$(tr -d '[:space:]' < "${REPO_DIR}/VERSION")
 
 # -----------------------------------------------------------------------------
 # 卸载逻辑 (--uninstall)
 # -----------------------------------------------------------------------------
 if [[ "${1:-}" == "--uninstall" ]]; then
-    echo "==> 正在卸载 ting (v${VERSION})..."
+    echo "==> 正在卸载 co-ting / ting (v${VERSION})..."
     
-    if [[ -f "${BIN_DIR}/ting" || -L "${BIN_DIR}/ting" ]]; then
-        rm -f "${BIN_DIR}/ting"
-        echo "    ✔ 已删除二进制: ${BIN_DIR}/ting"
-    fi
+    for b in ting co-ting; do
+        if [[ -f "${BIN_DIR}/$b" || -L "${BIN_DIR}/$b" ]]; then
+            rm -f "${BIN_DIR}/$b"
+            echo "    ✔ 已删除二进制/软链: ${BIN_DIR}/$b"
+        fi
+    done
 
-    if [[ -L "${GLOBAL_SKILLS}" ]]; then
-        rm -f "${GLOBAL_SKILLS}"
-        echo "    ✔ 已移除 env-config 技能软链: ${GLOBAL_SKILLS}"
-    fi
-
-    if [[ -L "${HOME}/.agents/skills/ting" ]]; then
-        rm -f "${HOME}/.agents/skills/ting"
-        echo "    ✔ 已移除 ~/.agents 技能软链: ${HOME}/.agents/skills/ting"
-    fi
+    for s in "$GLOBAL_SKILLS" "$GLOBAL_CO_SKILLS" "${HOME}/.agents/skills/ting" "${HOME}/.agents/skills/co-ting" "$CO_BRAIN_CO_SKILLS"; do
+        if [[ -L "$s" || -f "$s" ]]; then
+            rm -f "$s"
+            echo "    ✔ 已移除技能软链: $s"
+        fi
+    done
 
     if [[ -d "${CO_BRAIN_SKILLS}" ]]; then
         rm -rf "${CO_BRAIN_SKILLS}"
         echo "    ✔ 已清理 co-brain 技能目录: ${CO_BRAIN_SKILLS}"
     fi
 
-    echo "🎉 卸载完成！ting 已从系统 PATH 与全局 Agent 技能中移除。"
+    echo "🎉 卸载完成！co-ting 已从系统 PATH 与全局 Agent 技能中移除。"
     exit 0
 fi
 
@@ -56,26 +57,30 @@ if [[ $missing -eq 1 ]]; then
 fi
 echo "    ✔ 依赖完整 (go, mpv, yt-dlp)"
 
-echo "==> 2. 编译并安装 ting CLI (v${VERSION})..."
+echo "==> 2. 编译并安装 co-ting CLI (v${VERSION})..."
 mkdir -p "$BIN_DIR"
 (cd "$REPO_DIR" && go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o "${REPO_DIR}/ting" ./cmd/ting)
 ln -sfn "${REPO_DIR}/ting" "${BIN_DIR}/ting"
-echo "    ✔ 已安装软链至 ${BIN_DIR}/ting ($("${BIN_DIR}/ting" -V))"
+ln -sfn "${REPO_DIR}/ting" "${BIN_DIR}/co-ting"
+echo "    ✔ 已安装软链至 ${BIN_DIR}/ting 与 ${BIN_DIR}/co-ting ($("${BIN_DIR}/ting" -V))"
 
 echo "==> 3. 部署并更新全局 Agent Skill..."
 mkdir -p "$CO_BRAIN_SKILLS"
 cp "$REPO_DIR/SKILL.md" "$CO_BRAIN_SKILLS/SKILL.md"
-echo "    ✔ 已同步至 co-brain 技能库: ${CO_BRAIN_SKILLS}/SKILL.md"
+ln -sfn "$CO_BRAIN_SKILLS" "$CO_BRAIN_CO_SKILLS"
+echo "    ✔ 已同步至 co-brain 技能库: ${CO_BRAIN_SKILLS}/SKILL.md (含 co-ting 别名)"
 
 if [[ -d "$GLOBAL_SKILLS_PARENT" ]]; then
     ln -sfn "$CO_BRAIN_SKILLS" "$GLOBAL_SKILLS"
-    echo "    ✔ 已建立/刷新全局技能软链: ${GLOBAL_SKILLS}"
+    ln -sfn "$CO_BRAIN_SKILLS" "$GLOBAL_CO_SKILLS"
+    echo "    ✔ 已建立/刷新全局技能软链: ${GLOBAL_SKILLS} & ${GLOBAL_CO_SKILLS}"
 fi
 
-# 确保 ~/.agents/skills/ting 可达
-if [[ -d "${HOME}/.agents/skills" && ! -e "${HOME}/.agents/skills/ting" ]]; then
+# 确保 ~/.agents/skills/ting 与 co-ting 可达
+if [[ -d "${HOME}/.agents/skills" ]]; then
     ln -sfn "$CO_BRAIN_SKILLS" "${HOME}/.agents/skills/ting"
-    echo "    ✔ 已建立 ~/.agents 技能软链: ${HOME}/.agents/skills/ting"
+    ln -sfn "$CO_BRAIN_SKILLS" "${HOME}/.agents/skills/co-ting"
+    echo "    ✔ 已建立 ~/.agents 技能软链: ting & co-ting"
 fi
 
 # 强校验 Skill 内容一致性
@@ -89,7 +94,7 @@ fi
 echo "==> 4. 自检与健康验证..."
 status_out=$("${BIN_DIR}/ting" status)
 if [[ $? -eq 0 ]] && grep -q '"status":"ok"' <<<"$status_out"; then
-    echo "    ✔ ting 微外设自检通过 (响应正常: $(jq -r .state <<<"$status_out"))"
+    echo "    ✔ co-ting 微外设自检通过 (响应正常: $(jq -r .state <<<"$status_out"))"
 else
     echo "    ⚠️ 自检返回异常: $status_out"
 fi

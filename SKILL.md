@@ -1,6 +1,6 @@
 ---
 name: ting
-description: "Audio-visual perception & playback peripheral for AI agents. Read video chapters and verbatim transcripts to answer timestamped questions; stream audio in background via mpv. Trigger: ting, play music, background music, transcript, chapters, pause, resume, 听歌, 放首歌, 背景音乐, 字幕, 第几分钟讲了什么."
+description: "Audio-visual perception & playback peripheral for AI agents in the co ecosystem (co-ting). Read video chapters and verbatim transcripts to answer timestamped questions; stream audio in background via mpv. Trigger: ting, co-ting, play music, background music, transcript, chapters, pause, resume, 听歌, 放首歌, 背景音乐, 字幕, 第几分钟讲了什么."
 ---
 
 # ting —— Agent 的视听感知与播放外设

@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/binlecode/ting/internal/engine"
+	"github.com/binlecode/co-ting/internal/engine"
 )
 
 const verbUsage = `usage: ting inspect <url>
