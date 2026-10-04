@@ -1,6 +1,6 @@
 # ARCHITECTURE —— co-ting (ting)
 
-**co-ting**（CLI 二进制命令为 `ting`）—— `co` 生态面向 AI Agent（Claude Code、OpenCode、co-cli、co-s2s）的轻量端侧视听感知与播放微外设（Go 静态单二进制，~800-1000 行纯 Go，无 cgo，无第三方依赖，收容于 `~/workspace_genai/co-ting/`）。版本遵循 SemVer 规范，单一数据源声明于根目录 `VERSION`（当前版本：`1.1.0`）。
+**co-ting**（CLI 二进制命令为 `ting`）—— `co` 生态面向 AI Agent（Claude Code、OpenCode、co-cli、co-s2s）的轻量端侧视听感知与播放微外设（Go 静态单二进制，~1,000–1,100 行纯 Go，无 cgo，无第三方依赖，收容于 `~/workspace_genai/co-ting/`）。版本遵循 SemVer 规范，单一数据源声明于根目录 `VERSION`（当前版本：`1.1.0`）。
 
 ---
 

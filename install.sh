@@ -46,7 +46,7 @@ fi
 # -----------------------------------------------------------------------------
 echo "==> 1. 检查运行时依赖..."
 missing=0
-for dep in go mpv yt-dlp; do
+for dep in go mpv yt-dlp jq; do
     if ! command -v "$dep" >/dev/null 2>&1; then
         echo "    ❌ 缺少必要工具: $dep (建议通过 brew install $dep 安装)"
         missing=1
@@ -55,7 +55,7 @@ done
 if [[ $missing -eq 1 ]]; then
     exit 1
 fi
-echo "    ✔ 依赖完整 (go, mpv, yt-dlp)"
+echo "    ✔ 依赖完整 (go, mpv, yt-dlp, jq)"
 
 echo "==> 2. 编译并安装 co-ting CLI (v${VERSION})..."
 mkdir -p "$BIN_DIR"
@@ -92,8 +92,8 @@ else
 fi
 
 echo "==> 4. 自检与健康验证..."
-status_out=$("${BIN_DIR}/ting" status)
-if [[ $? -eq 0 ]] && grep -q '"status":"ok"' <<<"$status_out"; then
+status_out=$("${BIN_DIR}/ting" status 2>&1 || true)
+if grep -q '"status":"ok"' <<<"$status_out"; then
     echo "    ✔ co-ting 微外设自检通过 (响应正常: $(jq -r .state <<<"$status_out"))"
 else
     echo "    ⚠️ 自检返回异常: $status_out"

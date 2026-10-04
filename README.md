@@ -46,10 +46,10 @@ ting control stop                                                   # 停止并�
 ## 一键安装与部署
 
 ```sh
-# 一键原子安装（自动编译 Go 二进制至 ~/bin/ting，并注入全局 Agent Skill）
+# 一键原子安装（编译并建立 ~/bin/{ting,co-ting} 双软链，并同步全局 Agent Skill 到 co-brain 与 ~/.agents/skills/）
 ./install.sh
 
-# 一键卸载
+# 一键卸载（自动清理 ~/bin 与全局 Skill 软链）
 ./install.sh --uninstall
 ```
 
