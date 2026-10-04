@@ -2,7 +2,7 @@
 
 调研日期：2026-10-03。  
 对标生产一手来源：`public-clis/bilibili-cli`（Agent CLI 契约、Token 极简 YAML、字幕优先降级与 16kHz mono WAV ASR 切片架构）、`aidevops/yt-dlp` 与 `ytfetch-mcp`（Agent 面向 yt-dlp 的元数据裁剪与紧凑抽象规范）、`python-mpv-jsonipc` / `spotuify` / `termusic`（Headless 常驻 mpv JSON-IPC 守护进程、纳秒级套接字控制与状态外推）、Anthropic 官方 Agent Tool 设计规约（`writing-effective-tools-for-ai-agents.md`：Token 效率、上下文预算控制、消除内部实现泄漏）。  
-我方工程范围：`workspace_fullstack/ting/`（重构目标：退役 TUI 与旧 shell 脚本，重塑为轻量引擎工具）、`workspace_genai/co-cli`（Tool 注册面与执行调度）、`workspace_genai/co-s2s`（实时语音感知与环境音反馈）、`co-library`（`30-resources/` 媒体知识资产摄取与闭环）。
+我方工程范围：`workspace_genai/co-ting/`（重构目标：退役 TUI 与旧 shell 脚本，重塑为轻量引擎工具）、`workspace_genai/co-cli`（Tool 注册面与执行调度）、`workspace_genai/co-s2s`（实时语音感知与环境音反馈）、`co-library`（`30-resources/` 媒体知识资产摄取与闭环）。
 
 ---
 
