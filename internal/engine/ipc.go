@@ -35,6 +35,34 @@ func newIPCClient(c net.Conn) *IPCClient {
 
 func (c *IPCClient) Close() error { return c.conn.Close() }
 
+// NextEvent pops a queued asynchronous event or reads the next one from mpv.
+func (c *IPCClient) NextEvent(deadline time.Time) (map[string]any, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.eventQueue) > 0 {
+		ev := c.eventQueue[0]
+		c.eventQueue = c.eventQueue[1:]
+		return ev, nil
+	}
+	if !deadline.IsZero() {
+		c.conn.SetReadDeadline(deadline)
+		defer c.conn.SetReadDeadline(time.Time{})
+	}
+	for {
+		line, err := c.reader.ReadBytes('\n')
+		if err != nil {
+			return nil, err
+		}
+		var raw map[string]any
+		if json.Unmarshal(line, &raw) != nil {
+			continue
+		}
+		if _, ok := raw["event"].(string); ok {
+			return raw, nil
+		}
+	}
+}
+
 // readMessage reads one line; an event is queued and reported as nil.
 func (c *IPCClient) readMessage() (map[string]any, error) {
 	line, err := c.reader.ReadBytes('\n')

@@ -19,7 +19,8 @@ const verbUsage = `usage: ting inspect <url>
        ting transcript <url> [--range START-END]
        ting play <url> [--start SEC]
        ting control pause|resume|stop|seek <+SEC|-SEC|SEC|MM:SS>|volume <0-100>
-       ting status`
+       ting status
+       ting events [--until <EVENT>] [--timeout SEC]`
 
 var verbs = map[string]func([]string) (any, error){
 	"inspect":    runInspect,
@@ -27,6 +28,7 @@ var verbs = map[string]func([]string) (any, error){
 	"play":       runPlay,
 	"control":    runControl,
 	"status":     runStatus,
+	"events":     runEvents,
 }
 
 func usageErr(msg string) error {
@@ -50,9 +52,11 @@ func runVerb(run func([]string) (any, error), args []string) int {
 			os.Stderr.WriteString(verbUsage + "\n")
 		}
 	}
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetEscapeHTML(false) // URLs keep their & as is
-	enc.Encode(out)
+	if out != nil || err != nil {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetEscapeHTML(false) // URLs keep their & as is
+		enc.Encode(out)
+	}
 	return code
 }
 
@@ -173,4 +177,38 @@ func runStatus(args []string) (any, error) {
 		return nil, usageErr("status takes no arguments")
 	}
 	return engine.Status()
+}
+
+func runEvents(args []string) (any, error) {
+	until := ""
+	timeout := float64(0)
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--until":
+			if i+1 >= len(args) {
+				return nil, usageErr("--until requires an event name")
+			}
+			i++
+			until = args[i]
+			if !engine.ValidUntilEvents[until] {
+				return nil, usageErr("unknown --until event: " + until)
+			}
+		case "--timeout":
+			if i+1 >= len(args) {
+				return nil, usageErr("--timeout requires seconds")
+			}
+			i++
+			sec, err := strconv.ParseFloat(args[i], 64)
+			if err != nil || sec <= 0 || math.IsNaN(sec) || math.IsInf(sec, 0) {
+				return nil, usageErr("bad value for --timeout: " + args[i])
+			}
+			timeout = sec
+		default:
+			return nil, usageErr("unexpected argument for events: " + args[i])
+		}
+	}
+	if until != "" && timeout == 0 {
+		timeout = 600 // default 10m timeout for --until mode
+	}
+	return engine.Events(until, timeout)
 }

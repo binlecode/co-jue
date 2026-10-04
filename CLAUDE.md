@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) and all coding agent
 
 开工前必须明确以下五条硬底线，**违反会导致进程权限异常、契约破坏或工程漂移**：
 
-- 🔴 **纯 Go 标准库与单静态二进制**：全仓代码仅使用 Go 标准库，零 cgo（`CGO_ENABLED=0` 保证可编译），零第三方外部包。代码规模严格控制在 ~1,000–1,100 行内，保持极致轻量。
+- 🔴 **纯 Go 标准库与单静态二进制**：全仓代码仅使用 Go 标准库，零 cgo（`CGO_ENABLED=0` 保证可编译），零第三方外部包。代码规模严格控制在 ~1,400 行内，保持极致轻量。
 - 🔴 **双外部原语依赖**：外部依赖严格锁定为两个（`yt-dlp` 与 `mpv`；可选 `deno` 作为 yt-dlp 的 JS 运行时）。严禁引入任何额外外部二进制或 C 库。
 - 🔴 **四级退出码与机器信封**：
   - `0`：成功（Success）；
@@ -16,6 +16,7 @@ This file provides guidance to Claude Code (claude.ai/code) and all coding agent
   - 默认输出单行紧凑 JSON，严禁静默修改既有信封字段。
 - 🔴 **状态隔离与目录安全**：运行时 Socket 严格收容在 `$TMPDIR/ting-<uid>/`，目录权限必须为 `0700`、属主等于自身 UID、严禁为符号链接。临时产物一律限在 `tmp/` 下，严禁污染源码树。
 - 🔴 **本地闭环 CI/CD（本地能做的，绝不推给 GitHub）**：全生命周期的测试、语法静态分析、SemVer 校验、多架构静态编译构建、打包发布与 Skill 同步一律通过本地工具链（`.githooks/`、`install.sh`、`scripts/release.sh`、`tests/test_suite.sh`）闭环完成。**严禁引入 `.github/workflows/` 等远端臃肿 CI**，不将本地可完全胜任的任务推到 GitHub Actions 虚拟机上浪费资源。
+- 🔴 **文档分类与 Changelog 归位**：严格遵循全域规约（`ARCH-doc-taxonomy.md`）。系统演进历史、版本更新日志与阶段全表（Stage chronicles）一律归入根目录 `CHANGELOG.md`，严禁在 `ARCHITECTURE.md` 或 `docs/` 尾部以附录堆积历史日志。
 
 ---
 
@@ -30,11 +31,12 @@ This file provides guidance to Claude Code (claude.ai/code) and all coding agent
 
 ## 项目性质
 
-**co-ting**（CLI 二进制命令为 `ting`）—— `co` 生态面向 AI Agent（Claude Code、OpenCode、co-cli、co-s2s）的端侧视听感知与播放微外设（Go 静态单二进制，收容于 `~/workspace_genai/co-ting/`）。版本严格遵循 SemVer 语义化规范（声明于根目录 `VERSION`，如 `1.1.0`）。
+**co-ting**（CLI 二进制命令为 `ting`）—— `co` 生态面向 AI Agent（Claude Code、OpenCode、co-cli、co-s2s）的端侧视听感知与播放微外设（Go 静态单二进制，收容于 `~/workspace_genai/co-ting/`）。版本严格遵循 SemVer 语义化规范（声明于根目录 `VERSION`，如 `1.1.0`；演进全表与更新日志见 `CHANGELOG.md`）。
 
 - **感知平面 (Ingest)**：
   - `ting inspect <url>`：极简提取章节时间轴（Chapters）与元数据，Token 开销 < 100 Tokens；
-  - `ting transcript <url> [--range START-END]`：提取声称级逐字原话证据（防机翻污染、带相交判定裁剪、超出 300 条自动截断），无字幕如实返回 `unavailable`（退出码 4）。
+  - `ting transcript <url> [--range START-END]`：提取声称级逐字原话证据（防机翻污染、带相交判定裁剪、超出 300 条自动截断），无字幕如实返回 `unavailable`（退出码 4）；
+  - `ting events [--until <EVENT>] [--timeout SEC]`：毫秒级事件感知面（曲目放毕、AirPods 触控、章节切换），彻底根除轮询 Token 开销。
 - **执行平面 (Daemon)**：
   - `ting play <url> [--start SEC]`：Flock 互斥与 Lazy-start 托管单实例后台无头 mpv，超时等待声音就绪（`file-loaded`）；
   - `ting control <pause|resume|seek|volume|stop>`：毫秒级确定性控制，`stop` 后 mpv 自动优雅退出，不留僵尸守护；
@@ -77,7 +79,7 @@ bash tests/test_suite.sh
 ## 测试分层
 
 - **单元层** `internal/engine/*_test.go`：`ingest_test.go`（ParseRange/ParseTime、json3 去重清洗、LRC 时间推导、网易云 id、pickTrack 语言链）、`ipc_test.go`（request_id 匹配、事件入队、`WaitForPlaybackSuccess` 的加载成功/失败/被顶替/redirect/超时）、`daemon_test.go`（runtimeDir 0700 放行，宽权限/符号链接/普通文件拒收，只读动词不落盘）。IPC 测试在内存管道另一端扮演 mpv 的线协议。
-- **端到端层** `tests/test_suite.sh`：A 安全边界 · B 感知契约 · C 播放状态机（本地 + 网络音频、全部 control、stop 后进程回收、kill -9 后恢复）· D 冷/热并发 play 争抢 · E 三条人/Agent/ting 工作流（a 章节研读、b 背景听歌卡片、c 暂停追问播放头附近原话）· F Token 预算（信封无多余字段/转义/浮点噪声，越界窗口返回空）· G 声学人机（起播即停 200ms 内回收，暂停 200ms 内播放头冻结）· H 落地为资产（带 `&t=` 时间戳的逐字引用块；无字幕/纯音乐时 inspect 兜底）。各块独立 `TMPDIR`、各自的 mpv，并行执行；网络音频前先 `volume 0`，套件全程静音。退出时只按本套件 socket 路径回收 mpv 并删除临时目录，最后一行断言零残留。
+- **端到端层** `tests/test_suite.sh`：A 安全边界 · B 感知契约 · C 播放状态机（本地 + 网络音频、全部 control、stop 后进程回收、kill -9 后恢复）· D 冷/热并发 play 争抢 · E 五条人/Agent/ting 工作流（a 章节研读、b 背景听歌卡片、c 暂停追问播放头附近原话、d 自动续播 DJ、e AirPods 触控即时倒带）· F Token 预算（信封无多余字段/转义/浮点噪声，越界窗口返回空）· G 声学人机（起播即停 200ms 内回收，暂停 200ms 内播放头冻结）· H 落地为资产（带 `&t=` 时间戳的逐字引用块；无字幕/纯音乐时 inspect 兜底）· I 事件感知契约（推流信标、snapshot、eof 触发、边沿差分去抖、零僵尸守护）。各块独立 `TMPDIR`、各自的 mpv，并行执行；网络音频前先 `volume 0`，套件全程静音。退出时只按本套件 socket 路径回收 mpv 并删除临时目录，最后一行断言零残留。
 
 ---
 

@@ -15,6 +15,8 @@
 ting inspect "https://www.youtube.com/watch?v=dQw4w9WgXcQ"           # 提取章节与元数据 (<100 Tokens)
 ting transcript "https://www.youtube.com/watch?v=dQw4w9WgXcQ"        # 提取逐字原话证据 (带相交判定切片)
 ting transcript "https://www.youtube.com/watch?v=dQw4w9WgXcQ" --range 18-30
+ting events --until track_ended                                      # 阻塞等待曲毕信号 (退出码 0，自动切歌/续播)
+ting events                                                         # 管道流式监听事件 (snapshot / paused / resumed)
 
 # 2. 端侧播放执行平面 (Actuation)
 ting play "https://www.youtube.com/watch?v=dQw4w9WgXcQ" --start 18   # 后台起播 (自动 Lazy-start 托管单实例 mpv)
@@ -30,7 +32,7 @@ ting control stop                                                   # 停止并�
 
 ## 架构原则
 
-- **极简细腰 (~800–1,000 行纯 Go)**：全仓仅保留 `internal/engine/` 与 `cmd/ting/`，零 cgo，零外部框架依赖，单一静态二进制直接编译执行。
+- **极简细腰 (~1,400 行纯 Go)**：全仓仅保留 `internal/engine/` 与 `cmd/ting/`，零 cgo，零外部框架依赖，单一静态二进制直接编译执行。
 - **双通道控制闭环**：
   - **语义与编排通道**：人类与 Agent 自然语言对话（意图解析、精准段落问答、知识整理写入 `co-library 30-resources/`）；
   - **物理控制通道**：AirPods 耳机触控与 macOS 媒体键 (F8) 由 `mpv --input-media-keys=yes` 原生接管，即按即停，跳过大模型延迟。
@@ -74,5 +76,6 @@ bash tests/test_suite.sh
 
 - **系统架构正本**：[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - **第一性原理调研**：[`docs/RESEARCH-agent-media-engine-refactor.md`](docs/RESEARCH-agent-media-engine-refactor.md)
+- **演进全表与更新日志**：[`CHANGELOG.md`](CHANGELOG.md)
 - **Agent 交互手册**：[`docs/USER_MANUAL.md`](docs/USER_MANUAL.md) · [认知击穿幻灯版](docs/USER_MANUAL-slides.html)
 - **Agent Skill 规范**：[`SKILL.md`](SKILL.md)

@@ -24,6 +24,7 @@ ting status                                      # 查：时空遥测 (在播状
 ting control pause | resume | stop               # 控：即时静音、恢复或停止并退出
 ting control seek +30 | seek -15 | seek 14:05    # 跳：+N / -N 相对跳转；不带符号为绝对位置 (秒数或 mm:ss)
 ting control volume 60                           # 调：音量 (0-100)
+ting events [--until <EVENT>] [--timeout SEC]    # 听：事件感知面 (单次阻塞 until 或管道流式；支持 track_started|track_ended|paused|resumed|chapter_changed)
 ```
 
 - **全命令默认输出单行紧凑 JSON**；
@@ -44,6 +45,7 @@ ting control volume 60                           # 调：音量 (0-100)
 3. **事实证据优先**：回答用户“视频里说了什么”必须引用 `transcript` 的逐字原句并标明时间戳。若返回 `unavailable`（退出码 4），如实告知用户该视频无公开字幕，**绝不凭空编造内容**。
 4. **单实例自动互斥**：`ting play` 内部采用 Flock 文件锁，每次起播会自动平滑替换上一次的播放，并已在底层等待真实解码发声（`file-loaded`）就绪，无需 Agent 额外写轮询等待代码。
 5. **物理逃生直通**：底层 `mpv` 已开启系统媒体键支持，用户按 macOS 媒体键 (F8) 或捏按 AirPods 耳机即可即时硬件暂停，跳过大模型交互延迟。
+6. **事件感知与自动续播**：智能体充当连续伴随 DJ 时，严禁用死循环轮询 `status`（消耗 Token 并产生迟滞），应当调用 `ting events --until track_ended` 单次阻塞等待，捕获曲目放毕（`reason: "eof"`）信号即刻起播下一首。
 
 ---
 

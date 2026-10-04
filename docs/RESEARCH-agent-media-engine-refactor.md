@@ -166,15 +166,8 @@
     - `internal/format/`: Token 预算裁剪与 YAML/紧凑 JSON 输出引擎；
     - `SKILL.md`: 开箱即用的 Agent Skill 规范，包含 Agent 驱动播放与媒体分析的标准 Prompt 与调用指引。
 
-### 4.3 实施路线三阶段规划 (Phase Roadmap)
+### 4.3 实施路线与演进归位
 
-1. **第一阶段：契约重立与底层 IPC 验证（P0）**
-   - 编写 `internal/daemon`，实现 Go 对无头 `mpv --idle` 的常驻拉起与 Unix Domain Socket JSON-IPC 控制（play/pause/seek/status/volume）；
-   - 输出第一版极简 CLI 动词（`ting play`, `ting pause`, `ting seek`, `ting status`），实测单次控制延迟降至 <10ms。
-2. **第二阶段：多源感知与 Token 紧凑投影（P1）**
-   - 接入 `yt-dlp` 紧凑调用包装，实现对 YouTube / Bilibili / 播客源的元数据与章节抽取；
-   - 落地三级字幕与 ASR 切片逻辑（`ting transcript`, `ting chunk`），实现紧凑 YAML 输出；
-   - 编写根目录 `SKILL.md`，规范化 Agent Tool 契约。
-3. **第三阶段：历史负债清理与生态联通（P2）**
-   - `git rm` 彻底清空 `shell/` 与旧 `internal/tui/`，消除 2.4 万行历史负债；
-   - 将 `ting` 接入 `workspace_genai/co-cli` 工具面，在真实日常 Coding 会话中完成“人类说话 - Agent 调度 - 终端播放”的端到端闭环验证。
+实施路线规划的三大阶段（P0 IPC 底层验证、P1 多源感知与 Token 投影、P2 历史负债清退与生态联通）已在 v1.0.0 阶段全面落地交付，2.4 万行历史负债彻底清空。
+
+依据全域统一文档分类法规约（`ARCH-doc-taxonomy.md`），系统演进历史、各阶段详细交付成果与版本变更日志已全部统一归位至根目录 [`CHANGELOG.md`](../CHANGELOG.md)。

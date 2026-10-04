@@ -198,13 +198,11 @@ type StatusResponse struct {
 	Volume   *float64 `json:"volume,omitempty"`
 }
 
-func Status() (*StatusResponse, error) {
+func StatusOn(c *IPCClient) (*StatusResponse, error) {
 	idle := &StatusResponse{Status: "ok", State: "idle"}
-	c, err := Connect()
-	if err != nil || c == nil {
-		return idle, err
+	if c == nil {
+		return idle, nil
 	}
-	defer c.Close()
 	var isIdle, paused bool
 	if _, err := c.Get("idle-active", &isIdle); err != nil || isIdle {
 		return idle, nil // a player that hung up mid-read is exiting: idle is the truth
@@ -226,6 +224,15 @@ func Status() (*StatusResponse, error) {
 		r.State = "loading"
 	}
 	return r, nil
+}
+
+func Status() (*StatusResponse, error) {
+	c, err := Connect()
+	if err != nil || c == nil {
+		return &StatusResponse{Status: "ok", State: "idle"}, err
+	}
+	defer c.Close()
+	return StatusOn(c)
 }
 
 type ControlResponse struct {

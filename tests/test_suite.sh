@@ -9,13 +9,15 @@
 #   B  ingest contract        inspect chapters, transcript windows, unavailable, LRC
 #   C  playback state machine local + network audio, status, every control, stop, crash
 #   D  concurrency            racing plays from cold and warm: one mpv, every play ok
-#   E  agent workflows        a: study a chapter  b: background listening  c: "what was that?"
+#   E  agent workflows        a: study chapter  b: background card  c: "what was that?"
+#                             d: autonomous DJ  e: AirPods pinch    f: bilingual lyrics
 #   F  token budget           what an envelope costs a context window: no field, escape or digit
 #                             beyond the facts; a window past the end is empty, not noise
 #   G  acoustic ergonomics    stop right after play silences at once; pause freezes the playhead
 #                             within 200 ms, on local and on network audio
 #   H  grounding to artifact  a timestamped verbatim citation for the library; when there are no
 #                             words to cite, inspect still answers with the map
+#   I  event contract         push beacons, snapshot, eof trigger, edge deduplication, zero zombie
 #
 # Usage: bash tests/test_suite.sh        exit 0 all green, 1 a failure or a broken suite
 
@@ -443,6 +445,107 @@ block_ec() {
     check "workflow c: mpv gone after stop" poll 3 gone "$pid"
 }
 
+# ---- E-d: autonomous DJ next-track (Event Beacon push) ---------------------------------------
+# Human: "Play background tracks continuously."
+# Agent starts Track 1, sets a non-polling wait with `ting events --until track_ended`,
+# catches eof naturally without polling status, and immediately transitions to Track 2.
+block_ed() {
+    local pid w1 w2
+    w1="$TMPDIR/track1.wav"
+    w2="$TMPDIR/track2.wav"
+    local ns=$((48000 * 4 * 1)) # 1 second test audio
+    { printf 'RIFF'; le32 $((36 + ns)); printf 'WAVEfmt '; le32 16; printf '\x01\x00\x02\x00'
+      le32 48000; le32 192000; printf '\x04\x00\x10\x00data'; le32 "$ns"; head -c "$ns" /dev/zero; } >"$w1"
+    cp "$w1" "$w2"
+
+    v play "$w1"
+    expect "workflow d: agent starts track 1, exit 0" 0 '.state=="playing"'
+    pid=$(mpv_of)
+
+    # Agent waits on push event instead of busy-polling status
+    v events --until track_ended --timeout 5
+    expect "workflow d: agent catches track_ended with reason eof (0 polling), exit 0" 0 \
+        '.event=="track_ended" and .reason=="eof"'
+
+    # On eof, agent smoothly relays to Track 2
+    v play "$w2"
+    expect "workflow d: agent auto-transitions to track 2 seamlessly, exit 0" 0 '.state=="playing"'
+    check "workflow d: still the same single mpv instance" test "$(mpv_of)" = "$pid"
+
+    v control stop
+    expect "workflow d: stop after playlist finishes, exit 0" 0 '.action=="stop"'
+    check "workflow d: mpv gone after stop" poll 3 gone "$pid"
+}
+
+# ---- E-e: AirPods hardware pinch & conversational catchup -----------------------------------
+# While listening to audio, human pinches AirPods to pause: the agent instantly senses the
+# hardware pause event via beacon, pulls the playhead, and prepares contextual assistance.
+block_ee() {
+    local pid w_long bg_sub head
+    w_long="$TMPDIR/talk.wav"
+    local nl=$((48000 * 4 * 20)) # 20s talk
+    { printf 'RIFF'; le32 $((36 + nl)); printf 'WAVEfmt '; le32 16; printf '\x01\x00\x02\x00'
+      le32 48000; le32 192000; printf '\x04\x00\x10\x00data'; le32 "$nl"; head -c "$nl" /dev/zero; } >"$w_long"
+
+    v play "$w_long" --start 5
+    expect "workflow e: background talk playing at 5s, exit 0" 0 '.state=="playing"'
+    pid=$(mpv_of)
+
+    # Agent / listener monitors hardware pause events
+    "$BIN" events --until paused --timeout 5 >"$TMPDIR/pinch.ev" 2>&1 &
+    bg_sub=$!
+    poll 1.0 test -e "$TMPDIR/pinch.ev"
+    sleep 0.2
+
+    # Human physically pinches AirPods / presses F8 media key (simulated by control pause)
+    v control pause
+    expect "workflow e: hardware pause triggered, exit 0" 0 '.action=="pause"'
+    wait $bg_sub || true
+
+    OUT=$(cat "$TMPDIR/pinch.ev")
+    RC=0
+    expect "workflow e: agent senses hardware pause event with playhead, exit 0" 0 \
+        '.event=="paused" and .time_pos>0'
+
+    head=$(jq '.time_pos' <<<"$OUT")
+    # Agent rewinds 2s and resumes playback
+    v control seek -2
+    expect "workflow e: agent rewinds 2 seconds, exit 0" 0 '.action=="seek"'
+    v control resume
+    expect "workflow e: agent resumes playback, exit 0" 0 '.action=="resume"'
+    check "workflow e: playhead is moving again" poll 3 st ".state==\"playing\" and .time_pos>$head-2"
+
+    v control stop
+    expect "workflow e: cleanup stop, exit 0" 0 '.action=="stop"'
+    check "workflow e: mpv exited" poll 3 gone "$pid"
+}
+
+# ---- E-f: bilingual lyrics grounding (NetEase timed LRC) ------------------------------------
+# While listening to foreign music, human asks: "What does this line mean?"
+# Agent checks playhead via status (e.g. 20s), fetches LRC line around it, and formats
+# a bilingual comprehension card with translation.
+block_ef() {
+    local pid lrc_text card
+    v play "$WAV" --start 20
+    expect "workflow f: play song at 20s, exit 0" 0 '.state=="playing"'
+    pid=$(mpv_of)
+
+    # Agent queries transcript window around current playhead [20, 25)
+    v transcript "$NETEASE" --range "20-25"
+    expect "workflow f: transcript extracts timed LRC lyric line, exit 0" 0 \
+        '.status=="ok" and (.segments|length)>0 and .segments[0].text=="初めてのルーブルは"'
+
+    lrc_text=$(jq -r '.segments[0].text' <<<"$OUT")
+    card=$(printf '🎵 **原词**：%s\n📖 **释义**：第一次去的卢浮宫\n' "$lrc_text")
+    DETAIL="$card"
+    check "workflow f: bilingual card contains lyric text and translation" \
+        /usr/bin/grep -q '初めてのルーブルは' <<<"$card"
+
+    v control stop
+    expect "workflow f: stop song, exit 0" 0 '.action=="stop"'
+    check "workflow f: mpv gone after stop" poll 3 gone "$pid"
+}
+
 # ---- F: token budget --------------------------------------------------------------------------
 # An envelope lands verbatim in an agent's context window, so every byte that is not a fact is
 # a token spent on nothing. The bound is derived, not measured: per chapter or cue the framing
@@ -600,6 +703,92 @@ block_h() {
              -a "$(/usr/bin/grep -cE '^- (时长 [0-9]+ 秒|[0-9]+ .+)' <<<"$cards")" -ge 2
 }
 
+# ---- I: event contract ----------------------------------------------------------------------
+block_i() {
+    local wav_short="$TMPDIR/short.wav"
+    local ns=$((48000 * 4 * 1))
+    { printf 'RIFF'; le32 $((36 + ns)); printf 'WAVEfmt '; le32 16; printf '\x01\x00\x02\x00'
+      le32 48000; le32 192000; printf '\x04\x00\x10\x00data'; le32 "$ns"; head -c "$ns" /dev/zero; } >"$wav_short"
+
+    # absent player: events is exit 4
+    v events
+    expect "absent player: events returns not_playing, exit 4" 4 '.status=="not_playing"'
+
+    # usage: invalid --until event is exit 1
+    v events --until invalid_event
+    expect "usage: unknown --until event is exit 1" 1 '.status=="error"'
+
+    # usage: invalid --timeout is exit 1
+    v events --timeout -5
+    expect "usage: negative --timeout is exit 1" 1 '.status=="error"'
+
+    # play local audio to start mpv
+    v play "$WAV" --start 10
+    expect "play local audio for event tests: ok" 0 '.status=="ok" and .state=="playing"'
+
+    # snapshot on initial connect (sample with timeout)
+    v events --timeout 0.3
+    local first_line
+    first_line=$(head -n 1 <<<"$OUT")
+    check "snapshot on connect: has event, state playing, url, duration, volume" \
+        jq -e '.event=="snapshot" and .state=="playing" and .url!=null and .duration!=null and .volume!=null' <<<"$first_line"
+
+    # --until paused mode: only outputs single matching event line, no snapshot
+    "$BIN" events --until paused --timeout 5 >"$TMPDIR/pause.ev" 2>&1 &
+    local bg_pause=$!
+    poll 1.0 test -e "$TMPDIR/pause.ev"
+    sleep 0.2
+    v control pause
+    expect "control pause triggers event: ok" 0 '.status=="ok"'
+    wait $bg_pause || true
+    OUT=$(cat "$TMPDIR/pause.ev")
+    RC=0
+    expect "until paused: exactly one matching event line without snapshot" 0 \
+        '.event=="paused" and .time_pos!=null'
+
+    # --until resumed mode
+    "$BIN" events --until resumed --timeout 5 >"$TMPDIR/resume.ev" 2>&1 &
+    local bg_resume=$!
+    poll 1.0 test -e "$TMPDIR/resume.ev"
+    sleep 0.2
+    v control resume
+    expect "control resume triggers event: ok" 0 '.status=="ok"'
+    wait $bg_resume || true
+    OUT=$(cat "$TMPDIR/resume.ev")
+    RC=0
+    expect "until resumed: receives resumed event" 0 \
+        '.event=="resumed" and .time_pos!=null'
+
+    # natural EOF assertion: play 1s audio, wait for track_ended
+    v play "$wav_short"
+    expect "play short audio for EOF assertion: ok" 0 '.status=="ok"'
+    v events --until track_ended --timeout 5
+    expect "track natural EOF: track_ended with reason eof" 0 \
+        '.event=="track_ended" and .reason=="eof"'
+
+    # --until timeout assertion: times out and returns exit 4
+    v events --until chapter_changed --timeout 0.2
+    expect "until timeout: returns status timeout, exit 4" 4 \
+        '.status=="timeout"'
+
+    # control stop clean disconnection assertion
+    v play "$WAV" --start 5
+    expect "play before stop: ok" 0 '.status=="ok"'
+    "$BIN" events --until track_ended --timeout 5 >"$TMPDIR/stop.ev" 2>&1 &
+    local bg_stop=$!
+    poll 1.0 test -e "$TMPDIR/stop.ev"
+    sleep 0.2
+    v control stop
+    expect "control stop: ok" 0 '.status=="ok"'
+    wait $bg_stop || true
+    OUT=$(cat "$TMPDIR/stop.ev")
+    RC=0
+    expect "stop event: receives track_ended with reason stopped" 0 \
+        '.event=="track_ended" and .reason=="stopped"'
+
+    check "zero residual player in block i" test -z "$(mpv_of)"
+}
+
 # ---- run ------------------------------------------------------------------------------------
 START=$SECONDS
 block a block_a &
@@ -608,15 +797,20 @@ block c block_c &
 block d block_d &
 block eb block_eb &
 block ec block_ec &
+block ed block_ed &
+block ee block_ee &
+block ef block_ef &
 block f block_f &
 block g block_g &
 block h block_h &
+block i block_i &
 wait
 
 PASS=0 FAIL=0
 for blk in "a:A  security boundary" "b:B  ingest contract + E-a study workflow" "c:C  playback state machine" \
     "d:D  concurrency" "eb:E-b background listening" "ec:E-c wait, what did he just say" \
-    "f:F  token budget" "g:G  acoustic ergonomics" "h:H  grounding to artifact"; do
+    "ed:E-d autonomous DJ next-track" "ee:E-e AirPods pinch & rewind" "ef:E-f bilingual lyrics grounding" \
+    "f:F  token budget" "g:G  acoustic ergonomics" "h:H  grounding to artifact" "i:I  event contract"; do
     echo "=== ${blk#*:} ==="
     [[ -s "$RUN/${blk%%:*}.res" ]] || { echo "  (block reported nothing)"; FAIL=$((FAIL + 1)); continue; }
     while IFS='|' read -r verdict name detail; do
