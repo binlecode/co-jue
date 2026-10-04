@@ -1,0 +1,1011 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ting —— 100% Agentic 视听感知与播放微外设 · 认知击穿手册</title>
+  <style>
+    :root {
+      --bg: #07090e;
+      --card-bg: rgba(255, 255, 255, 0.035);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --text: #f1f5f9;
+      --text-dim: #94a3b8;
+      --text-muted: #64748b;
+      --cyan: #00f0ff;
+      --cyan-glow: rgba(0, 240, 255, 0.2);
+      --emerald: #10b981;
+      --emerald-glow: rgba(16, 185, 129, 0.2);
+      --amber: #f59e0b;
+      --amber-glow: rgba(245, 158, 11, 0.2);
+      --rose: #f43f5e;
+      --violet: #8b5cf6;
+      --font-mono: "JetBrains Mono", "SF Mono", Menlo, Monaco, Consolas, monospace;
+      --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Segoe UI", Roboto, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: var(--font-sans);
+      overflow: hidden;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      user-select: none;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Ambient background grid */
+    .ambient-grid {
+      position: fixed;
+      inset: 0;
+      background-image: 
+        radial-gradient(circle at 50% 0%, rgba(0, 240, 255, 0.08), transparent 45%),
+        radial-gradient(circle at 100% 100%, rgba(139, 92, 246, 0.06), transparent 50%),
+        linear-gradient(rgba(255, 255, 255, 0.015) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
+      background-size: 100% 100%, 100% 100%, 48px 48px, 48px 48px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* Top progress line */
+    .top-progress-bar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--cyan), var(--emerald));
+      transition: width 0.3s ease;
+      z-index: 100;
+      box-shadow: 0 0 12px var(--cyan);
+    }
+
+    /* Header brand */
+    header {
+      position: fixed;
+      top: 20px;
+      left: 32px;
+      right: 32px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 10;
+      pointer-events: none;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .brand-badge {
+      background: rgba(0, 240, 255, 0.1);
+      color: var(--cyan);
+      border: 1px solid rgba(0, 240, 255, 0.3);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-family: var(--font-mono);
+      font-weight: 600;
+    }
+
+    .brand-title {
+      font-size: 14px;
+      color: var(--text-dim);
+    }
+
+    .slide-meta {
+      font-family: var(--font-mono);
+      font-size: 13px;
+      color: var(--text-muted);
+      display: flex;
+      gap: 16px;
+    }
+
+    /* Slides viewport */
+    .deck-container {
+      position: relative;
+      flex: 1;
+      width: 100vw;
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 1;
+    }
+
+    .slide {
+      position: absolute;
+      width: 100%;
+      max-width: 1200px;
+      height: 82vh;
+      max-height: 780px;
+      padding: 40px 60px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      opacity: 0;
+      visibility: hidden;
+      transform: translateY(20px) scale(0.98);
+      transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+      pointer-events: none;
+    }
+
+    .slide.active {
+      opacity: 1;
+      visibility: visible;
+      transform: translateY(0) scale(1);
+      pointer-events: auto;
+    }
+
+    /* Slide Typography */
+    .slide-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--cyan);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 12px;
+    }
+
+    .slide-tag::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--cyan);
+      box-shadow: 0 0 8px var(--cyan);
+    }
+
+    .slide-title {
+      font-size: 42px;
+      font-weight: 800;
+      line-height: 1.15;
+      letter-spacing: -0.03em;
+      margin-bottom: 14px;
+      background: linear-gradient(135deg, #ffffff 40%, var(--text-dim) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .slide-subtitle {
+      font-size: 18px;
+      color: var(--text-dim);
+      line-height: 1.5;
+      max-width: 860px;
+      margin-bottom: 32px;
+    }
+
+    /* Content Cards and Grids */
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      width: 100%;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 20px;
+      width: 100%;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 24px;
+      backdrop-filter: blur(12px);
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card.glow-cyan {
+      border-color: rgba(0, 240, 255, 0.3);
+      box-shadow: inset 0 0 20px rgba(0, 240, 255, 0.05);
+    }
+
+    .card.glow-emerald {
+      border-color: rgba(16, 185, 129, 0.3);
+      box-shadow: inset 0 0 20px rgba(16, 185, 129, 0.05);
+    }
+
+    .card.glow-rose {
+      border-color: rgba(244, 63, 94, 0.3);
+      box-shadow: inset 0 0 20px rgba(244, 63, 94, 0.05);
+    }
+
+    .card.glow-amber {
+      border-color: rgba(245, 158, 11, 0.3);
+      box-shadow: inset 0 0 20px rgba(245, 158, 11, 0.05);
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+
+    .card-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .card-badge {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-weight: 600;
+    }
+
+    .card-body {
+      font-size: 14px;
+      color: var(--text-dim);
+      line-height: 1.6;
+    }
+
+    .card-body p + p {
+      margin-top: 10px;
+    }
+
+    /* Terminal & Code Blocks */
+    .terminal-box {
+      background: #040508;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      line-height: 1.55;
+      padding: 16px;
+      color: #cbd5e1;
+      overflow-x: auto;
+    }
+
+    .terminal-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+    .dot-red { background: #ff5f56; }
+    .dot-yellow { background: #ffbd2e; }
+    .dot-green { background: #27c93f; }
+
+    .code-cyan { color: var(--cyan); }
+    .code-green { color: var(--emerald); }
+    .code-amber { color: var(--amber); }
+    .code-dim { color: var(--text-muted); }
+    .code-white { color: #ffffff; font-weight: 600; }
+
+    /* Flow Diagrams */
+    .flow-diagram {
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 10px;
+      padding: 20px;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      line-height: 1.5;
+      color: #94a3b8;
+      white-space: pre;
+      overflow-x: auto;
+    }
+
+    /* Impact Metric Badges */
+    .metric-group {
+      display: flex;
+      gap: 20px;
+      margin-top: 20px;
+    }
+
+    .metric-pill {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 8px;
+      padding: 12px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .metric-num {
+      font-size: 26px;
+      font-weight: 800;
+      font-family: var(--font-mono);
+      color: #fff;
+    }
+
+    .metric-label {
+      font-size: 11px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    /* Dialogue box */
+    .dialogue-box {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-top: 10px;
+    }
+
+    .msg {
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 13.5px;
+      line-height: 1.5;
+    }
+
+    .msg-user {
+      background: rgba(0, 240, 255, 0.06);
+      border-left: 3px solid var(--cyan);
+      color: #e2e8f0;
+    }
+
+    .msg-agent {
+      background: rgba(16, 185, 129, 0.06);
+      border-left: 3px solid var(--emerald);
+      color: #e2e8f0;
+    }
+
+    .msg-speaker {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      margin-bottom: 4px;
+      text-transform: uppercase;
+    }
+
+    .msg-user .msg-speaker { color: var(--cyan); }
+    .msg-agent .msg-speaker { color: var(--emerald); }
+
+    /* Footer Controls */
+    footer {
+      position: fixed;
+      bottom: 20px;
+      left: 32px;
+      right: 32px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 10;
+    }
+
+    .nav-hints {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-muted);
+      display: flex;
+      gap: 16px;
+      align-items: center;
+    }
+
+    .kbd {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+
+    .controls {
+      display: flex;
+      gap: 8px;
+    }
+
+    .btn-nav {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: var(--text-dim);
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-nav:hover {
+      background: rgba(255, 255, 255, 0.12);
+      color: #fff;
+      border-color: rgba(255, 255, 255, 0.25);
+    }
+
+    /* Highlighting pulse */
+    .pulse-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--emerald);
+      box-shadow: 0 0 10px var(--emerald);
+      margin-right: 6px;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="ambient-grid"></div>
+  <div class="top-progress-bar" id="progressBar"></div>
+
+  <!-- Header -->
+  <header>
+    <div class="brand">
+      <span class="brand-badge">ting-gen-2</span>
+      <span class="brand-title">Agent 视听感知与播放微外设 · 认知击穿手册</span>
+    </div>
+    <div class="slide-meta">
+      <span id="slideIndicator">01 / 10</span>
+    </div>
+  </header>
+
+  <!-- Deck Viewport -->
+  <main class="deck-container">
+
+    <!-- Slide 1: Paradigm Shift -->
+    <section class="slide active" data-index="1">
+      <span class="slide-tag">Paradigm Shift · 认知范式跃迁</span>
+      <h1 class="slide-title">别再给播放器写客户端了</h1>
+      <p class="slide-subtitle">进入「可抛弃客户端软件 (Post-App Paradigm)」时代：The Agent is the UX。你的对话流就是唯一的交互呈现层。</p>
+      
+      <div class="grid-2">
+        <div class="card glow-rose">
+          <div class="card-header">
+            <span class="card-title">旧世界：24,000 行的双向妥协</span>
+            <span class="card-badge" style="background: rgba(244,63,94,0.15); color: var(--rose);">架构死锁</span>
+          </div>
+          <div class="card-body">
+            <p>• <b>给人类用</b>：在 Bash 3.2 强写 1.3 万行脚本与 1.1 万行 Bubbletea TUI，缺歌单、缺日推、缺系统媒体键，体验极其简陋。</p>
+            <p>• <b>给 Agent 调</b>：yt-dlp dump-json 单次倾倒 150KB 原始格式，吞噬 50,000 Tokens 上下文，充其量只是个黑盒“音箱开关”。</p>
+          </div>
+        </div>
+
+        <div class="card glow-cyan">
+          <div class="card-header">
+            <span class="card-title">新世界：~900 行纯 Go 微外设</span>
+            <span class="card-badge" style="background: rgba(0,240,255,0.15); color: var(--cyan);">Agentic 沉降</span>
+          </div>
+          <div class="card-body">
+            <p>• <b>彻底剥离客户端属性</b>：零 GUI、零 TUI、零搜索爬虫、零本地历史数据库，Agent 全面接管认知与呈现。</p>
+            <p>• <b>沉降为底层硬件驱动</b>：输入端是事实感知外设（&lt;100 Tok 章节大纲、&lt;500 Tok 原话证据）；输出端是后台无头声卡。</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="metric-group">
+        <div class="metric-pill">
+          <span class="metric-num">~900 行</span>
+          <span class="metric-label">纯 Go 标准库 / 零 cgo / 零外部包</span>
+        </div>
+        <div class="metric-pill">
+          <span class="metric-num">&lt; 100 Tok</span>
+          <span class="metric-label">长视频 Chapters 时间轴开销</span>
+        </div>
+        <div class="metric-pill">
+          <span class="metric-num">0 ms</span>
+          <span class="metric-label">AirPods 耳机触控急停延迟</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 2: Mental Model & Dual Channel -->
+    <section class="slide" data-index="2">
+      <span class="slide-tag">Mental Model · 核心心智模型</span>
+      <h2 class="slide-title">双通道闭环：语义编排 vs 物理逃生</h2>
+      <p class="slide-subtitle">绝不把所有操作都压给大模型。复杂的理解交给语言通道，本能的急停交给硬件直通。</p>
+
+      <div class="flow-diagram">
+        人类 (你) -----------------( 自然语言对话流 )-----------------> AI Agent (你的生产力伙伴)
+            |                                                           |
+            | (紧急暂停 / 即刻静音)                                      | (调度微外设)
+            v                                                           v
+  物理按键 (AirPods 耳机柄 / 键盘 F8)                             ting (后台无头单实例 mpv)
+    [ 0ms 延迟 · 零 Token 开销 ]                                  [ 本地声卡 · 毫秒级 Unix Socket ]
+      </div>
+
+      <div class="grid-2" style="margin-top: 24px;">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">通道 A：语义编排通道（脑）</span>
+            <span class="card-badge" style="background: rgba(0,240,255,0.1); color: var(--cyan);">自然语言</span>
+          </div>
+          <div class="card-body">
+            <p>“放点深夜写代码的慢歌”、“第 15 分钟关于 KV Cache 压缩作者具体怎么论证的”、“把核心论据记入知识库”。</p>
+            <p>由 Agent 负责意图识别、定向切片、提炼事实、呈现 2 行极简卡片并调度声音。</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">通道 B：物理直通逃生口（手）</span>
+            <span class="card-badge" style="background: rgba(16,185,129,0.1); color: var(--emerald);">0ms 硬件直通</span>
+          </div>
+          <div class="card-body">
+            <p>电话突然打进、同事走来讨论？<b>千万别等大模型回复</b>。</p>
+            <p>轻捏一下 AirPods 耳机柄或按键盘 F8 键，系统媒体键直达 mpv，瞬时静音。跳过模型推理与网络延迟。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3: Scenario ROI Hierarchy -->
+    <section class="slide" data-index="3">
+      <span class="slide-tag">Value Matrix · 场景价值阶梯</span>
+      <h2 class="slide-title">按 ROI 重新审视 10 大协同场景</h2>
+      <p class="slide-subtitle">普通播放器只会“放歌”，ting 的最大杠杆在于：将数小时长音频瞬间转化为可核验的事实原件与永久资产。</p>
+
+      <div class="grid-3">
+        <div class="card glow-cyan">
+          <div class="card-header">
+            <span class="card-title">Tier 1: 认知杠杆</span>
+            <span class="card-badge" style="background: rgba(0,240,255,0.15); color: var(--cyan);">★★★★★ 极高</span>
+          </div>
+          <div class="card-body">
+            <p><b>1. 分章研读与点播闭环</b><br>长视频 &lt;100 Tok 秒出大纲，点选章节精确起播。</p>
+            <p><b>2. 声称级事实核查</b><br>靶向切片提取原话，生成 &t=xxx 秒级时间戳超链接。</p>
+            <p><b>3. 实时打断与倒带重听</b><br>走神 10 秒时锁定播放头，抓出原话并重听。</p>
+            <p><b>4. 知识沉淀进 co-library</b><br>从流媒体提炼为终身可检索的 Permanent Notes。</p>
+          </div>
+        </div>
+
+        <div class="card glow-emerald">
+          <div class="card-header">
+            <span class="card-title">Tier 2: 专注心流</span>
+            <span class="card-badge" style="background: rgba(16,185,129,0.15); color: var(--emerald);">★★★★☆ 高频</span>
+          </div>
+          <div class="card-body">
+            <p><b>5. 番茄钟伴听工作流</b><br>声音作为物理时间节拍器，25 分钟倒计时自动停播。</p>
+            <p><b>6. 日常伴听与音量调度</b><br>2 行极简卡片，新曲自动平滑替换，绝不刷屏。</p>
+            <p><b>7. 播控穿梭 (Seek & Skip)</b><br>快进 30 秒、跳过片头、绝对时间精确定位。</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Tier 3: 垂直特化</span>
+            <span class="card-badge" style="background: rgba(255,255,255,0.08); color: var(--text-dim);">★★★☆☆ 辅助</span>
+          </div>
+          <div class="card-body">
+            <p><b>8. 歌词同步与多语种释义</b><br>网易云 LRC 逐行对齐，外语听力与语法精读。</p>
+            <p><b>9. 时空遥测与进度探查</b><br>不切窗口，随时知晓播放头与剩余时长。</p>
+            <p><b>10. 本地音频与录音审计</b><br>本地会议录音 WAV 原生起播与技术复盘。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4: Scenario 1 Deep Dive -->
+    <section class="slide" data-index="4">
+      <span class="slide-tag">Scenario 1 (ROI ★★★★★) · 长视频解构</span>
+      <h2 class="slide-title">全局路标 ➔ 定向分章点播闭环</h2>
+      <p class="slide-subtitle">面对 2~3 小时的大会录播或深度访谈，拒绝盲目拖动进度条。先看章节地图，再选目标精准入耳。</p>
+
+      <div class="grid-2">
+        <div class="dialogue-box">
+          <div class="msg msg-user">
+            <div class="msg-speaker">人类</div>
+            看看这个 Andrej Karpathy 的新视频主要讲了啥章节？
+          </div>
+          <div class="msg msg-agent">
+            <div class="msg-speaker">Agent (调用 ting inspect &lt;url&gt;)</div>
+            为您提取了章节路标（耗费 82 Tokens）：<br>
+            • 00:00 导言与分词原理 (Tokenization)<br>
+            • 24:15 Byte-Pair Encoding 算法推导<br>
+            • 58:30 GPT-4 词表特殊 Token 陷阱<br>
+            • 1:25:10 实践代码 Walkthrough
+          </div>
+          <div class="msg msg-user">
+            <div class="msg-speaker">人类</div>
+            我对特殊 Token 比较感兴趣，从 58 分 30 秒直接放给我听。
+          </div>
+          <div class="msg msg-agent">
+            <div class="msg-speaker">Agent (调用 ting play &lt;url&gt; --start 3510)</div>
+            已为您从 <b>58:30</b> 起播【GPT-4 词表特殊 Token 陷阱】，耳机已就绪。<br>
+            <i>说“暂停 / 跳过 1 分钟 / 调小音量”可随时控制。</i>
+          </div>
+        </div>
+
+        <div class="card glow-cyan">
+          <div class="card-header">
+            <span class="card-title">Token 护盾与两阶段起播保障</span>
+            <span class="card-badge" style="background: rgba(0,240,255,0.15); color: var(--cyan);">&lt; 100 Tokens</span>
+          </div>
+          <div class="card-body">
+            <div class="terminal-box" style="margin-bottom: 12px;">
+              <span class="code-dim">$</span> <span class="code-cyan">ting inspect</span> "https://youtube.com/watch?v=..."<br>
+              <span class="code-green">{"status":"ok","id":"...","title":"...","duration":7200,"chapters":[{"start":0,"title":"..."},{"start":3510,"title":"GPT-4..."}]}</span>
+            </div>
+            <p>• <b>字段投影</b>：在内存中剔除原始 150KB 冗余流媒体握手参数，仅保留 5 个核心元数据。</p>
+            <p>• <b>两阶段确认</b>：底层自动监听 mpv 的 <code>start-file</code> 与 <code>file-loaded</code> 事件，确保声音真实解码发声后才返回，杜绝伪成功。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5: Scenario 2 & 3 Deep Dive -->
+    <section class="slide" data-index="5">
+      <span class="slide-tag">Scenario 2 & 3 (ROI ★★★★★) · 事实与打断</span>
+      <h2 class="slide-title">声称级证据核查 与 走神打断回溯</h2>
+      <p class="slide-subtitle">拒绝大模型幻觉，直达毫秒级原画证据；戴耳机听讲走神 10 秒？一键回溯刚才的原声原句。</p>
+
+      <div class="grid-2">
+        <div class="card glow-emerald">
+          <div class="card-header">
+            <span class="card-title">场景 2：声称级事实核查 (Verbatim)</span>
+            <span class="card-badge" style="background: rgba(16,185,129,0.15); color: var(--emerald);">&lt; 500 Tokens</span>
+          </div>
+          <div class="card-body">
+            <p class="code-white">“第 15 分钟关于 KV Cache，作者具体怎么说的？”</p>
+            <div class="terminal-box" style="margin: 10px 0;">
+              <span class="code-dim">$</span> ting transcript &lt;url&gt; <span class="code-amber">--range 14:00-17:30</span><br>
+              <span class="code-green">&gt; [15:12] "Static pre-allocation causes up to 70% memory waste."</span><br>
+              <span class="code-cyan">&gt; — 来源超链接：https://...&t=912s</span>
+            </div>
+            <p>• <b>拒绝全文读入</b>：按相交区间精准裁剪目标 3 分钟窗口，严格锁定 Token 开销。</p>
+            <p>• <b>拒绝机翻污染</b>：强制锁定 <code>en-orig</code> 原语种自动语音或人工字幕，带可点击时间戳直达原画。</p>
+          </div>
+        </div>
+
+        <div class="card glow-amber">
+          <div class="card-header">
+            <span class="card-title">场景 3：走神打断与倒带重听</span>
+            <span class="card-badge" style="background: rgba(245,158,11,0.15); color: var(--amber);">时空多模态闭环</span>
+          </div>
+          <div class="card-body">
+            <p class="code-white">“停一下，刚才那句话说了什么？”</p>
+            <div class="flow-diagram" style="padding: 10px; font-size: 11px; margin: 10px 0;">
+1. 立即暂停 mpv (锁定 time_pos=845s)
+2. ting transcript --range 830-850 提取原话
+3. 回答用户刚才原句，询问是否倒回去听
+4. 用户：“倒回去听” ➔ seek -15 恢复播放
+            </div>
+            <p>• <b>时空解耦</b>：播放头时间戳与字幕时间轴在端侧实时对齐，彻底解决听课走神痛点。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6: Scenario 4 Knowledge Asset -->
+    <section class="slide" data-index="6">
+      <span class="slide-tag">Scenario 4 (ROI ★★★★☆) · 知识资产沉淀</span>
+      <h2 class="slide-title">瞬时流媒体 ➔ co-library 永久资产</h2>
+      <p class="slide-subtitle">普通人听视频听过就忘；搭配 ting 与 co-brain，一次研读长期受益，自动转化为终身可核验的 Permanent Notes。</p>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">标准资源提炼规约 (30-resources/)</span>
+            <span class="card-badge" style="background: rgba(139,92,246,0.15); color: var(--violet);">知识资产化</span>
+          </div>
+          <div class="card-body">
+            <div class="terminal-box" style="font-size: 12px;">
+              <span class="code-cyan"># Resource: Claude 3.7 Hybrid Reasoning Architecture</span><br><br>
+              - <b>来源</b>: [Anthropic Podcast](https://...)<br>
+              - <b>时长</b>: 48:20 · 语言: 英语原声 (Human Verified)<br><br>
+              <span class="code-amber">## 核心论点摘要</span><br>
+              1. 混合推理允许单次调用内动态按需展开思考链；<br>
+              2. 思考预算 API 显式约束延迟与深度的确定性平衡。<br><br>
+              <span class="code-green">## 声称级逐字证据 (Verbatim Evidence)</span><br>
+              &gt; [12:35] "The breakthrough is trading compute for certainty only where ambiguity exceeds threshold."<br>
+              &gt; — [Podcast 12:35](https://youtube.com/watch?v=...&t=755s)
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">为什么这是不可逆的生产力跃迁？</span>
+            <span class="card-badge" style="background: rgba(0,240,255,0.1); color: var(--cyan);">长期复利</span>
+          </div>
+          <div class="card-body">
+            <p>• <b>可溯源可证伪</b>：任何论点后面都附带有精确到秒的 <code>&t=755s</code> 跳转链接。点击链接直接在原作者视频中验证上下文，彻底消除模型幻觉。</p>
+            <p>• <b>全脑记忆联动</b>：资产提炼后经 <code>/brain-storm</code> 审议写入 <code>~/co-library/30-resources/</code>，成为全生态智能体随时可召回（FTS5 / 向量）的终身外部脑记忆。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7: Daily Flow & Ergonomics -->
+    <section class="slide" data-index="7">
+      <span class="slide-tag">Scenario 5 ~ 7 · 专注伴听与播控</span>
+      <h2 class="slide-title">声音作为物理节拍器：专注与日常伴随</h2>
+      <p class="slide-subtitle">拒绝切屏操作。写代码时的背景音、番茄钟节奏守护与无缝平滑切歌。</p>
+
+      <div class="grid-3">
+        <div class="card glow-cyan">
+          <div class="card-header">
+            <span class="card-title">场景 5：番茄钟专注流</span>
+            <span class="card-badge" style="background: rgba(0,240,255,0.1); color: var(--cyan);">时间管理</span>
+          </div>
+          <div class="card-body">
+            <p>“<b>放 25 分钟白噪音，到点叫我并停掉。</b>”</p>
+            <p>后台起播环境音，25 分钟倒计时结束自动执行 <code>ting control stop</code> 优雅退出，并在会话中温和提醒休息。</p>
+          </div>
+        </div>
+
+        <div class="card glow-emerald">
+          <div class="card-header">
+            <span class="card-title">场景 6：专注伴听与切歌</span>
+            <span class="card-badge" style="background: rgba(16,185,129,0.1); color: var(--emerald);">2 行卡片</span>
+          </div>
+          <div class="card-body">
+            <p>“<b>来首周杰伦的晴天。</b>”</p>
+            <p>Agent 呈现 2 行极简卡片：<br>
+            <code>正在播放 · 晴天 — 周杰伦 · 网易云<br>按耳机即可暂停，说“换一首”亦可控制</code><br>
+            中途换歌无需先停，自动平滑替换旧曲。</p>
+          </div>
+        </div>
+
+        <div class="card glow-amber">
+          <div class="card-header">
+            <span class="card-title">场景 7：播控穿梭 (Seek)</span>
+            <span class="card-badge" style="background: rgba(245,158,11,0.1); color: var(--amber);">毫秒级跳转</span>
+          </div>
+          <div class="card-body">
+            <p>“<b>跳过前面 1 分半广告</b>” ➔ <code>seek +90</code><br>
+            “<b>倒回去 15 秒</b>” ➔ <code>seek -15</code><br>
+            “<b>跳到 24 分 30 秒</b>” ➔ <code>seek 24:30</code><br>
+            “<b>音量调到 40</b>” ➔ <code>volume 40</code></p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 8: Graceful Degradation -->
+    <section class="slide" data-index="8">
+      <span class="slide-tag">Robustness · 异常自愈与降级艺术</span>
+      <h2 class="slide-title">四级退出码契约：绝不抛出未经处理的异常</h2>
+      <p class="slide-subtitle">真实网络环境极其脆弱（无字幕、纯音乐、断网）。ting 建立严格降级梯级，保证 Agent 永远能体贴应对。</p>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">四级确定性退出码契约</span>
+            <span class="card-badge" style="background: rgba(0,240,255,0.1); color: var(--cyan);">标准协议</span>
+          </div>
+          <div class="card-body">
+            <div class="terminal-box" style="font-size: 12px;">
+              <span class="code-green">0 Success</span>       命令执行成功，标准单行 JSON<br>
+              <span class="code-rose">1 Usage Error</span>   参数格式非法、缺少 URL、时间格式错<br>
+              <span class="code-amber">2 Tool/Net Fail</span> 缺失 mpv/yt-dlp、底层网络中断<br>
+              <span class="code-cyan">4 Not Ready</span>     业务未就绪 (无公开字幕 unavailable, 空闲时发控制)
+            </div>
+            <p style="margin-top: 10px;">所有命令输出一律强制为单行紧凑 JSON，严格保证 Agent 工具调用的解析安全性。</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">常见边界场景自愈策略</span>
+            <span class="card-badge" style="background: rgba(16,185,129,0.1); color: var(--emerald);">优雅自愈</span>
+          </div>
+          <div class="card-body">
+            <p>• <b>B 站视频无公开字幕 (退出码 4)</b>：<br>
+            Agent 绝不报错崩溃，自动退回 Chapters 章节地图：“<i>该视频无字幕，但我为您准备好了章节路标，您可以选段直接听。</i>”</p>
+            <p>• <b>网易云纯音乐 / 伴奏 (退出码 4)</b>：<br>
+            主动标识器乐：“<i>这是一首纯音乐（无歌词），已直接为您在音箱起播。</i>”</p>
+            <p>• <b>空闲误按暂停 (退出码 4 not_playing)</b>：<br>
+            友好提示：“<i>当前没有在播曲目，说‘放首晴天’开始听歌。</i>”</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 9: Architecture & Engineering Principles -->
+    <section class="slide" data-index="9">
+      <span class="slide-tag">Engineering Invariants · 极致工程底线</span>
+      <h2 class="slide-title">无依赖、单静态二进制、零内存泄漏</h2>
+      <p class="slide-subtitle">面向系统工程师的严苛底线：保证常驻进程绝对可靠、权限绝对收容、并发绝无竞态。</p>
+
+      <div class="grid-3">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">纯 Go 标准库与单静态</span>
+          </div>
+          <div class="card-body">
+            <p>全仓代码纯 Go 标准库实现，<b>零 cgo，零外部第三方包</b>，编译为单一静态二进制。外部仅锁定 <code>mpv</code> 与 <code>yt-dlp</code> 两个系统原语。</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">0700 权限与状态安全隔离</span>
+          </div>
+          <div class="card-body">
+            <p>运行时 Socket 严格收容在 <code>$TMPDIR/ting-&lt;uid&gt;/</code>，权限必须为严格 <code>0700</code> 且属主等于自身 UID，拒收任何符号链接与宽权限目录。</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">request_id 解交错与无僵尸守护</span>
+          </div>
+          <div class="card-body">
+            <p>单套接字多路解耦异步事件；并发起播通过 Flock 文件锁安全互斥；<code>stop</code> 下发后 mpv 200ms 内优雅退出，零僵尸残留。</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="flow-diagram" style="margin-top: 20px; font-size: 12px; padding: 14px;">
+端到端测试套件 (tests/test_suite.sh)：A 安全边界 · B 感知契约 · C 状态机 · D 并发争抢 · E 三条工作流 · F Token 预算 · G 声学人机 · H 资产落地
+9 大测试块并行无 Mock 驱动，129 项物理断言 10 秒全绿通过。
+      </div>
+    </section>
+
+    <!-- Slide 10: Summary Jingle & Action -->
+    <section class="slide" data-index="10">
+      <span class="slide-tag">Takeaway · 终极人机协同心智</span>
+      <h2 class="slide-title">动嘴编排、动手急停、分章切片、可信存证</h2>
+      <p class="slide-subtitle">人机视听协同的终极法则：将大模型的认知深度与端侧微外设的毫秒级控制完美缝合。</p>
+
+      <div class="grid-2">
+        <div class="card glow-cyan">
+          <div class="card-header">
+            <span class="card-title">人机协同四句口诀</span>
+            <span class="card-badge" style="background: rgba(0,240,255,0.15); color: var(--cyan);">心法</span>
+          </div>
+          <div class="card-body" style="font-size: 16px; line-height: 2;">
+            <p>• <b>听歌动嘴</b>：想听什么直接说，两行卡片看着爽；</p>
+            <p>• <b>暂停动手</b>：捏按耳机最灵光，零秒静音不用等；</p>
+            <p>• <b>长篇问点</b>：不用通篇读字幕，报个分钟抓原话；</p>
+            <p>• <b>沉淀知识</b>：关键证据随手存，自动归入知识库。</p>
+          </div>
+        </div>
+
+        <div class="card glow-emerald">
+          <div class="card-header">
+            <span class="card-title">立即在会话中开启心流体验</span>
+            <span class="card-badge" style="background: rgba(16,185,129,0.15); color: var(--emerald);"><span class="pulse-dot"></span>已就绪</span>
+          </div>
+          <div class="card-body">
+            <p>全局 Agent 技能已部署完成。现在就可以在对话窗口对我说：</p>
+            <div class="terminal-box" style="margin-top: 10px;">
+              <span class="code-cyan">“放点适合写代码的 Lo-Fi 背景音”</span><br>
+              <span class="code-green">“看看这个视频分哪几部分：https://...”</span><br>
+              <span class="code-amber">“第 15 分钟作者说了什么具体论据？引用原话”</span>
+            </div>
+            <p style="margin-top: 14px; font-size: 12px; color: var(--text-muted);">完整交互手册详见 docs/USER_MANUAL.md</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Footer Navigation -->
+  <footer>
+    <div class="nav-hints">
+      <span><span class="kbd">←</span> <span class="kbd">→</span> 或 <span class="kbd">Space</span> 切换</span>
+      <span><span class="kbd">F</span> 全屏</span>
+    </div>
+    <div class="controls">
+      <button class="btn-nav" id="btnPrev">上一页</button>
+      <button class="btn-nav" id="btnNext">下一页</button>
+    </div>
+  </footer>
+
+  <script>
+    (function() {
+      const slides = document.querySelectorAll('.slide');
+      const totalSlides = slides.length;
+      let currentIndex = 0;
+
+      const progressBar = document.getElementById('progressBar');
+      const slideIndicator = document.getElementById('slideIndicator');
+      const btnPrev = document.getElementById('btnPrev');
+      const btnNext = document.getElementById('btnNext');
+
+      function updateSlide(index) {
+        if (index < 0) index = 0;
+        if (index >= totalSlides) index = totalSlides - 1;
+        currentIndex = index;
+
+        slides.forEach((slide, i) => {
+          if (i === currentIndex) {
+            slide.classList.add('active');
+          } else {
+            slide.classList.remove('active');
+          }
+        });
+
+        // Update progress bar
+        const progress = ((currentIndex + 1) / totalSlides) * 100;
+        progressBar.style.width = progress + '%';
+
+        // Update counter
+        const curStr = String(currentIndex + 1).padStart(2, '0');
+        const totStr = String(totalSlides).padStart(2, '0');
+        slideIndicator.textContent = `${curStr} / ${totStr}`;
+      }
+
+      function nextSlide() {
+        if (currentIndex < totalSlides - 1) {
+          updateSlide(currentIndex + 1);
+        }
+      }
+
+      function prevSlide() {
+        if (currentIndex > 0) {
+          updateSlide(currentIndex - 1);
+        }
+      }
+
+      // Keyboard listeners
+      window.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') {
+          e.preventDefault();
+          nextSlide();
+        } else if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
+          e.preventDefault();
+          prevSlide();
+        } else if (e.key === 'f' || e.key === 'F') {
+          if (!document.fullscreenElement) {
+            document.documentElement.requestFullscreen().catch(() => {});
+          } else {
+            document.exitFullscreen().catch(() => {});
+          }
+        }
+      });
+
+      btnNext.addEventListener('click', nextSlide);
+      btnPrev.addEventListener('click', prevSlide);
+
+      // Touch swipe support
+      let touchStartX = 0;
+      window.addEventListener('touchstart', (e) => {
+        touchStartX = e.changedTouches[0].screenX;
+      }, false);
+      window.addEventListener('touchend', (e) => {
+        const touchEndX = e.changedTouches[0].screenX;
+        if (touchEndX < touchStartX - 50) nextSlide();
+        if (touchEndX > touchStartX + 50) prevSlide();
+      }, false);
+
+      updateSlide(0);
+    })();
+  </script>
+</body>
+</html>
