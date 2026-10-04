@@ -43,16 +43,28 @@ ting control stop                                                   # 停止并�
 
 ---
 
+## 一键安装与部署
+
+```sh
+# 一键原子安装（自动编译 Go 二进制至 ~/bin/ting，并注入全局 Agent Skill）
+./install.sh
+
+# 一键卸载
+./install.sh --uninstall
+```
+
+---
+
 ## 构建与测试
 
 ```sh
-# 构建二进制
+# 本地编译二进制
 go build -o ting ./cmd/ting
 
-# Go 单元测试（离线）
+# Go 单元测试（离线，< 1s）
 go vet ./... && go test ./...
 
-# 端到端契约与工作流测试套件 (零 Mock，真实驱动 mpv 与网络端点)
+# 端到端契约与工作流测试套件（真实驱动 mpv 与网络端点，零 Mock，~11s）
 bash tests/test_suite.sh
 ```
 
@@ -60,6 +72,7 @@ bash tests/test_suite.sh
 
 ## 架构正本与规范
 
-- **实施计划正本**：[`docs/PLAN-agentic-media-plane-refactor.md`](docs/PLAN-agentic-media-plane-refactor.md)
+- **系统架构正本**：[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - **第一性原理调研**：[`docs/RESEARCH-agent-media-engine-refactor.md`](docs/RESEARCH-agent-media-engine-refactor.md)
+- **Agent 交互手册**：[`docs/USER_MANUAL.md`](docs/USER_MANUAL.md)
 - **Agent Skill 规范**：[`SKILL.md`](SKILL.md)
