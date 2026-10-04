@@ -49,8 +49,11 @@ ting control stop                                                   # 停止并�
 # 构建二进制
 go build -o ting ./cmd/ting
 
-# 运行自动化测试套件 (零 Mock，真实驱动 mpv 与网络端点)
-bash tests/test_gen2.sh
+# Go 单元测试（离线）
+go vet ./... && go test ./...
+
+# 端到端契约与工作流测试套件 (零 Mock，真实驱动 mpv 与网络端点)
+bash tests/test_suite.sh
 ```
 
 ---

@@ -120,6 +120,7 @@ func launch() (*IPCClient, error) {
 		"--idle=yes", // idle until a loadfile; stays idle between tracks; quits on control stop
 		"--no-video",
 		"--input-media-keys=yes", // headset and keyboard play/pause reach this player
+		"--audio-format=s16",     // forces CoreAudio format; prevents fallback to unpausable avfoundation on macOS
 		"--demuxer-max-bytes=32MiB",
 		"--demuxer-max-back-bytes=16MiB",
 		"--input-ipc-server="+sock,

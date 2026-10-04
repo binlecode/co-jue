@@ -46,11 +46,11 @@ This file provides guidance to Claude Code (claude.ai/code) and all coding agent
 ## 常用命令
 
 ```sh
-# 语法与静态检查
+# 语法与静态检查 + Go 单元测试（纯逻辑与协议解析，离线，< 1s）
 go vet ./... && go test ./...
 go build -o ting ./cmd/ting
 
-# 自动化契约与功能测试（真实驱动 mpv 与网络端点，零 Mock，含工作流仿真）
+# 端到端契约与工作流测试（真实 ting / mpv / yt-dlp / 外网，零 Mock，约 30s，需 jq）
 bash tests/test_suite.sh
 
 # 核心动词抽检
@@ -63,6 +63,13 @@ bash tests/test_suite.sh
 ./ting control volume 50
 ./ting control stop
 ```
+
+---
+
+## 测试分层
+
+- **单元层** `internal/engine/*_test.go`：`ingest_test.go`（ParseRange/ParseTime、json3 去重清洗、LRC 时间推导、网易云 id、pickTrack 语言链）、`ipc_test.go`（request_id 匹配、事件入队、`WaitForPlaybackSuccess` 的加载成功/失败/被顶替/redirect/超时）、`daemon_test.go`（runtimeDir 0700 放行，宽权限/符号链接/普通文件拒收，只读动词不落盘）。IPC 测试在内存管道另一端扮演 mpv 的线协议。
+- **端到端层** `tests/test_suite.sh`：A 安全边界 · B 感知契约 · C 播放状态机（本地 + 网络音频、全部 control、stop 后进程回收、kill -9 后恢复）· D 冷/热并发 play 争抢 · E 三条人/Agent/ting 工作流（a 章节研读、b 背景听歌卡片、c 暂停追问播放头附近原话）。各块独立 `TMPDIR`、各自的 mpv，并行执行；网络音频前先 `volume 0`，套件全程静音。退出时只按本套件 socket 路径回收 mpv 并删除临时目录，最后一行断言零残留。
 
 ---
 
