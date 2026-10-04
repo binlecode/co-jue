@@ -1,6 +1,6 @@
 ---
 name: ting
-description: Drive ting as the agent's audio-visual perception and playback peripheral — read a video's chapters and verbatim transcript to answer timestamped questions, play music or talks in the background, and pause/resume/seek/stop/query the playhead. Sources are YouTube, Bilibili and NetEase Cloud Music. Trigger words: ting, play music, background music, listen to, what did the video say at, transcript, chapters, pause, resume, now playing, 听歌, 放首歌, 背景音乐, 字幕, 第几分钟讲了什么, 暂停, 继续, 现在放到哪.
+description: "Audio-visual perception & playback peripheral for AI agents. Read video chapters and verbatim transcripts to answer timestamped questions; stream audio in background via mpv. Trigger: ting, play music, background music, transcript, chapters, pause, resume, 听歌, 放首歌, 背景音乐, 字幕, 第几分钟讲了什么."
 ---
 
 # ting —— Agent 的视听感知与播放外设
