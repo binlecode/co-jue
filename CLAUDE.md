@@ -50,8 +50,8 @@ This file provides guidance to Claude Code (claude.ai/code) and all coding agent
 go vet ./... && go test ./...
 go build -o ting ./cmd/ting
 
-# 自动化契约与功能测试（真实驱动 mpv 与网络端点，零 Mock）
-bash tests/test_gen2.sh
+# 自动化契约与功能测试（真实驱动 mpv 与网络端点，零 Mock，含工作流仿真）
+bash tests/test_suite.sh
 
 # 核心动词抽检
 ./ting inspect "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
