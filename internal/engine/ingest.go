@@ -1,4 +1,4 @@
-// Package engine is ting-gen-2's whole runtime (PLAN-agentic-media-plane-refactor.md): the
+// Package engine is ting's runtime: the
 // ingest side squeezes a media URL into small verifiable facts (chapters, verbatim cues), the
 // playback side owns one detached mpv behind a Unix socket. Standard library only.
 package engine

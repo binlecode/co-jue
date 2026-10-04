@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# .githooks/pre-push — pre-push gate for ting
+# Prevents force-pushing to main, and ensures v* tags match the root VERSION file.
+set -euo pipefail
+
+protected="main"
+zero="0000000000000000000000000000000000000000"
+fail=0
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  # Check deletion or force-push on main
+  if [ "$remote_ref" = "refs/heads/${protected}" ]; then
+    if [ "$local_sha" = "$zero" ]; then
+      echo "BLOCKED: this push would delete '${protected}' on remote." >&2
+      fail=1
+    elif [ "$remote_sha" != "$zero" ] && ! git merge-base --is-ancestor "$remote_sha" "$local_sha" 2>/dev/null; then
+      echo "BLOCKED: non-fast-forward push to '${protected}'." >&2
+      fail=1
+    fi
+  fi
+
+  # Check v* tags match VERSION
+  case "$remote_ref" in
+    refs/tags/v*)
+      tag_name="${remote_ref#refs/tags/v}"
+      file_ver="$(cat VERSION 2>/dev/null | tr -d '[:space:]' || true)"
+      if [ -n "$file_ver" ] && [ "$tag_name" != "$file_ver" ]; then
+        echo "BLOCKED: pushing tag 'v${tag_name}' but VERSION file contains '${file_ver}'." >&2
+        fail=1
+      fi
+      ;;
+  esac
+done
+
+exit $fail

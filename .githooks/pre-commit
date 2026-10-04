@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# .githooks/pre-commit — pre-commit gate for ting
+# Verifies Go formatting, vet, unit tests (including SemVer parity), and script syntax.
+set -euo pipefail
+
+# 1. Go vet & tests
+go vet ./...
+go test ./...
+
+# 2. Bash syntax
+bash -n install.sh tests/test_suite.sh

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tests/test_suite.sh — ting-gen-2 end-to-end contract and workflow suite.
+# tests/test_suite.sh — ting end-to-end contract and workflow suite.
 #
 # Zero mocks: the real binary, a real mpv over its real socket, real yt-dlp against the real
 # sites. Each block runs under its own TMPDIR, so it owns its runtime dir and its own mpv and
@@ -118,6 +118,17 @@ block() {
 # ---- A: security boundary ----------------------------------------------------------------
 block_a() {
     local rt="$TMPDIR/ting-$UIDN"
+
+    # SemVer parity and version reporting
+    local expected_ver
+    expected_ver="$(tr -d '[:space:]' < "$REPO/VERSION")"
+    local ver_out
+    ver_out="$("$BIN" --version)"
+    DETAIL="$ver_out"
+    check "version matches VERSION file ($expected_ver)" test "$ver_out" = "ting $expected_ver"
+    check "version follows semver format" bash -c "echo '$ver_out' | grep -qE '^ting [0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'"
+    unset DETAIL
+
     v status
     expect "absent runtime dir: status is idle, exit 0" 0 '.status=="ok" and .state=="idle"'
     v control pause

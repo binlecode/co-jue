@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) and all coding agent
 
 ## ⚠️ 关键底线 —— 开工前必看
 
-开工前必须明确以下四条硬底线，**违反会导致进程权限异常或契约破坏**：
+开工前必须明确以下五条硬底线，**违反会导致进程权限异常、契约破坏或工程漂移**：
 
 - 🔴 **纯 Go 标准库与单静态二进制**：全仓代码仅使用 Go 标准库，零 cgo（`CGO_ENABLED=0` 保证可编译），零第三方外部包。代码规模严格控制在 ~1,000 行内，保持极致轻量。
 - 🔴 **双外部原语依赖**：外部依赖严格锁定为两个（`yt-dlp` 与 `mpv`；可选 `deno` 作为 yt-dlp 的 JS 运行时）。严禁引入任何额外外部二进制或 C 库。
@@ -15,6 +15,7 @@ This file provides guidance to Claude Code (claude.ai/code) and all coding agent
   - `4`：业务未就绪（如媒体无可用字幕 `unavailable`、播放器未在播放时执行控制）。
   - 默认输出单行紧凑 JSON，严禁静默修改既有信封字段。
 - 🔴 **状态隔离与目录安全**：运行时 Socket 严格收容在 `$TMPDIR/ting-<uid>/`，目录权限必须为 `0700`、属主等于自身 UID、严禁为符号链接。临时产物一律限在 `tmp/` 下，严禁污染源码树。
+- 🔴 **本地闭环 CI/CD（本地能做的，绝不推给 GitHub）**：全生命周期的测试、语法静态分析、SemVer 校验、多架构静态编译构建、打包发布与 Skill 同步一律通过本地工具链（`.githooks/`、`install.sh`、`scripts/release.sh`、`tests/test_suite.sh`）闭环完成。**严禁引入 `.github/workflows/` 等远端臃肿 CI**，不将本地可完全胜任的任务推到 GitHub Actions 虚拟机上浪费资源。
 
 ---
 
@@ -29,7 +30,7 @@ This file provides guidance to Claude Code (claude.ai/code) and all coding agent
 
 ## 项目性质
 
-**ting-gen-2** —— 面向 AI Agent（Claude Code、OpenCode、co-cli）的端侧视听感知与播放微外设（Go 静态单二进制）。
+**ting** —— 面向 AI Agent（Claude Code、OpenCode、co-cli）的端侧视听感知与播放微外设（Go 静态单二进制）。版本严格遵循 SemVer 语义化规范（声明于根目录 `VERSION`，如 `1.1.0`）。
 
 - **感知平面 (Ingest)**：
   - `ting inspect <url>`：极简提取章节时间轴（Chapters）与元数据，Token 开销 < 100 Tokens；
@@ -46,6 +47,13 @@ This file provides guidance to Claude Code (claude.ai/code) and all coding agent
 ## 常用命令
 
 ```sh
+# 本地一键安装与全局 Agent Skill 部署校验
+./install.sh
+./install.sh --uninstall
+
+# 本地多架构交叉编译与发布打包 (支持 --publish 配合 local gh CLI 直发 Release)
+./scripts/release.sh
+
 # 语法与静态检查 + Go 单元测试（纯逻辑与协议解析，离线，< 1s）
 go vet ./... && go test ./...
 go build -o ting ./cmd/ting

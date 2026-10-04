@@ -1,6 +1,6 @@
 package main
 
-// The gen-2 verbs (PLAN-agentic-media-plane-refactor.md): the agent-facing face of
+// The atomic CLI verbs: the agent-facing face of
 // internal/engine. Every outcome is one compact JSON line on stdout and one exit code —
 // 0 ok, 1 usage, 2 external tool or network, 4 the effect did not happen.
 
