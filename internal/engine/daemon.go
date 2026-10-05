@@ -323,6 +323,7 @@ func QueueAdd(u string) (*QueueAddResponse, error) {
 		if r.URL, err = waitSounding(c, id, u); err != nil {
 			return nil, err
 		}
+		c.Get("playlist-count", &r.Count)
 	}
 	return r, nil
 }
