@@ -6,17 +6,53 @@
 
 ---
 
-## 系统阶段演进全表 (Stages 0–2)
+## 系统阶段演进全表 (Stages 0–3)
 
 | 阶段 (Stage) | 对应版本 | 时间节点 | 触发原因 | 核心架构动作 | 揭示的核心原则 |
 |---|---|---|---|---|---|
 | **Stage 0** | `v0.8.0` ~ `v0.27.0` | 2026-07 ~ 2026-09 | 试图同时满足人类终端交互与 Agent 命令行调用双面需求 | 基于 bash 3.2 脚本管理 mpv detached 进程生命周期；基于 Go Bubbletea 构建终端多栏 TUI 界面；维护个人歌单、历史记录与终端封面渲染；累计膨胀至 2.4 万行代码（1.3w 行 shell + 1.1w 行 Go） | **双向妥协导致双向平庸**：人类面缺乏现代播放器体验与快捷键生态，Agent 面输出 100KB JSON 撑爆上下文，沦为黑盒“音箱开关”。 |
 | **Stage 1** | `v1.0.0` | 2026-10-03 | 跃迁至“可抛弃客户端软件”范式（Post-App Paradigm），确立 **The Agent is the UX** | 彻底清退 2.4 万行旧 Shell 脚本与 TUI 历史负债；重构为 ~1,000 行纯 Go 标准库极简静态单二进制；依赖严格锁定为 `yt-dlp` 与 `mpv` 双原语；交付 4 大原子动词（`inspect`, `transcript`, `play`, `control`/`status`）；开启 `mpv --input-media-keys=yes` 原生打通 macOS 键盘媒体键与 AirPods 耳机暂停键；确立四级退出码与单行紧凑 JSON 信封 | **Agent 本身就是唯一的端侧播放 UX**；微外设应当做极致细腰、极低 Token 消耗与事实证据去幻觉，拒绝客户端界面与本地数据库包袱。 |
 | **Stage 2** | `v1.1.0` | 2026-10-04 | 统一 `co` 生态命名规范，实现零远端 CI 的本地工程闭环与驱动级加固 | 仓名正名并收容至 `workspace_genai/co-ting/`；确立 SemVer 单一真源与 `.githooks` 本地门禁；交付多架构静态交叉编译与发布脚本 `scripts/release.sh`；交付原子化安装与卸载脚本 `install.sh`；加固 macOS CoreAudio 暂停（`audio-format s16`）与 IPC 解交错；交付 9 块 131 项零 Mock 端到端测试套件；编写人机协同操作手册与认知击穿演示幻灯片 | **本地能做的绝不推给 GitHub**；全生命周期在宿主机闭环；微外设质量由确定性端到端测试与硬件契约把关。 |
+| **Stage 3** | `v1.2.0` | 2026-10-05 | Turn-based Agent 回显后即挂起，无法常驻后台接力续播；语义点歌被单 URL 强校验阻断 | 暴露 mpv 原生瞬态内存播放列表（`queue add/list/clear`、`control next/prev`），零持久化；显式 `ytsearch1:` 检索前缀复用 yt-dlp 原生检索，零自研爬虫；新增 `queue_ended` 事件；废除 ~1,400 行人工魔数，改行 Need-based 零冗余原则；端到端套件扩至 12 块 232 项 | **连续性下沉到播放器而非 Agent**：Agent 一次性编排歌单后即可离场，队列由 mpv 内存自驱动，随进程生灭；规模由需要决定，而非由数字决定。 |
 
 ---
 
 ## 版本更新日志 (SemVer Releases)
+
+## [1.2.0] - 2026-10-05
+
+**瞬态内存队列、显式检索前缀、`queue_ended` 队列放毕感知与规范 URL 解析；代码规模改行 Need-based 原则。**
+
+- **瞬态内存队列 (`ting queue`，完结吸收 PLAN-transient-queue-and-query-resolution)**：
+  - 新增一级动词 `queue add <url|query>` / `queue list` / `queue clear`，直接暴露 mpv 原生内存播放列表，**零持久化歌单数据库**，随 mpv 进程启停生灭；
+  - `queue add`：播放器空闲或未运行（以 `playlist-pos == -1` 判定，不依赖跳变滞后的 `idle-active`）时先 `playlist-clear` 清掉已播历史，再 `loadfile … append-play` 起播并等待出声，返回 `state:"playing", pos:0, count:1`；正在播放时仅追加并非阻塞立返 `state:"queued", pos:count-1, count`；
+  - `queue list`：返回 `{status, pos, count, items[]}`，`title` 与 `current` 均 `omitempty`（待播项尚未加载，不伪造标题；仅当前项标 `current:true`）；播放器未运行或空闲时返回 `{"status":"ok","pos":-1,"count":0,"items":[]}`，与 `status` 一样不创建运行时目录；
+  - `queue clear`：清除全部待播，当前发声曲目继续；未运行或空闲返回退出码 4 `not_playing`；
+  - `ting play` 语义明确为**替换整个队列**；
+  - **统一锁 `flockAction`**：`play` 与 `queue add` 在同一把 `ting.lock` 排他锁内完成拨号/拉起、状态探查与指令分发，锁外再 `WaitForPlaybackSuccess` 等待出声，冷启动并发 add 只拉起一个 mpv 且条目零丢失。
+- **切歌控制 (`ting control next|prev`)**：
+  - 以 `playlist-next weak` / `playlist-prev weak` 下发，越界时 mpv 拒绝而非终止播放器，映射为退出码 4 `unavailable`（`end of playlist` / `start of playlist`）；
+  - 切换成功后自动解除暂停并等待新曲出声，返回 `{"status":"ok","action":"next"}`。
+- **显式检索前缀（Query Resolution）**：
+  - `play` / `queue add` / `inspect` / `transcript` 均接受显式 `ytsearch1:<关键词>`（及等价的 `ytsearch:`），复用 yt-dlp 原生检索协议，**零自研爬虫**；坚持显式前缀，不做隐式猜测，非法 URL（退出码 1）与缺失本地文件（退出码 4）契约不变；
+  - **非对称分流**：mpv 只认 `ytdl://ytsearch1:…`（裸前缀会被当成本地路径），yt-dlp 拒收 `ytdl://`——传给 mpv 时补 `ytdl://`（`normalizeForMPV`），传给 yt-dlp 时剥离（`normalizeForYtdlp`，并在网易云 id 识别前执行）；
+  - 头部锚定判定 `^[a-z0-9]*search[a-z0-9]*:`，白名单外的检索前缀（如 `ytsearch5:`、`scsearch:`）返回退出码 1；`youtube.com/results?search_query=…` 等普通 URL 不受误伤；
+  - 检索结果的 playlist 外壳以 `entries[0]` 的原始字节解包替换（`transcript --load-info-json` 读到的是视频本身），空结果返回退出码 4 `unavailable`；普通播放列表 URL 不做降维。
+- **规范 URL 解析（信封变更）**：
+  - `play` 与 `queue add`（起播分支）的 `url` 字段由**回显输入**改为**出声后读取 mpv `path` 的解析结果**：检索词或短链返回标准 watch URL；`queue add` 排队分支仍回显归一化输入（如 `ytdl://ytsearch1:…`）。
+- **队列放毕感知 (`queue_ended`)**：
+  - `ting events` 新增事件 `{"event":"queue_ended"}`：观察 `idle-active` 的 `false → true` 边沿，且最后一首以 `eof` 或 `error` 结束时派发；`next`/`play` 替换导致的越界属调用方自身动作，不报；
+  - `events --until queue_ended` 启动时播放器已空闲返回退出码 4 `player is idle`，未运行返回 `no player running`，监听中途被 `stop` 或进程退出返回 `player exited`；
+  - **修复**：`start-file` 到达时即刷新 `curURL`，切到一首加载失败的曲目时 `track_ended` 不再误报上一首的 URL。
+- **代码规范调整（Need-based）**：
+  - 废除历史遗留的“代码规模严格控制在 ~1,400 行内”人工魔数（由 Master 裁决），改以功能必要性、极致精简与零冗余为准绳；纯 Go 标准库、零 cgo、零第三方包、双外部原语红线不变；
+  - 同步更正 `CLAUDE.md`、`README.md`、`docs/ARCHITECTURE.md` 与幻灯片中的陈旧行数描述。
+- **测试**：
+  - 单元层增补 `normalizeForYtdlp`/检索解包、`flockAction` 与队列分流、`playlist-next/prev` 越界、`queue_ended` 状态机等用例；
+  - 端到端套件由 9 块扩至 **12 块（A–L）**，全套 **232 项断言全绿（并行约 11s）**：新增 `Block J` 瞬态队列生命周期（35 项，含 6 路并发冷启动 add）、`Block K` 显式检索解析（18 项）、`Block L` 队列放毕感知（13 项）。
+- **文档**：同步 `SKILL.md`、`docs/ARCHITECTURE.md`、`docs/USER_MANUAL.md`、`README.md` 与 `CLAUDE.md`；依据规约完成架构正本吸收并删除施工方案 `docs/PLAN-transient-queue-and-query-resolution.md`。
+
+---
 
 ## [1.1.0] - 2026-10-04
 
