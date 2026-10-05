@@ -47,12 +47,19 @@ type ChapterChangedEvent struct {
 	Start        *float64 `json:"start,omitempty"`
 }
 
+// QueueEndedEvent is the queue played out: the last entry ended on its own and the player
+// went idle. Skipping or replacing past the end is the caller's own doing and not reported.
+type QueueEndedEvent struct {
+	Event string `json:"event"`
+}
+
 var ValidUntilEvents = map[string]bool{
 	"track_started":   true,
 	"track_ended":     true,
 	"paused":          true,
 	"resumed":         true,
 	"chapter_changed": true,
+	"queue_ended":     true,
 }
 
 func eventType(ev any) string {
@@ -66,6 +73,8 @@ func eventType(ev any) string {
 	case PauseEvent:
 		return v.Event
 	case ChapterChangedEvent:
+		return v.Event
+	case QueueEndedEvent:
 		return v.Event
 	}
 	return ""
@@ -89,17 +98,23 @@ func eventsOn(c *IPCClient, until string, timeoutSec float64, out io.Writer) (an
 
 	c.Command("observe_property", 1, "pause")
 	c.Command("observe_property", 2, "chapter")
+	c.Command("observe_property", 3, "idle-active")
 
 	st, err := StatusOn(c)
 	if err != nil {
 		return nil, err
 	}
 
+	lastIdle := st.State == "idle"
+	if lastIdle && until == "queue_ended" {
+		return nil, fail(4, "not_playing", "player is idle") // no queue to end: it would never come
+	}
 	lastPause := (st.State == "paused")
 	lastChapter := -2
 	curURL, curDur := st.URL, st.Duration
 	trackActive := (st.State == "playing" || st.State == "paused" || st.State == "loading")
 	trackEndedEmitted := false
+	endedOnItsOwn := false // the last entry ended at eof or error, not skipped or replaced
 
 	var matched any
 	emit := func(ev any) bool {
@@ -173,6 +188,12 @@ func eventsOn(c *IPCClient, until string, timeoutSec float64, out io.Writer) (an
 		}
 
 		switch raw["event"] {
+		case "start-file":
+			// path is already the new entry's here: a track that fails to load must not be
+			// reported under the previous one's URL.
+			curURL, curDur, endedOnItsOwn = "", nil, false
+			c.Get("path", &curURL)
+
 		case "file-loaded":
 			c.Get("path", &curURL)
 			c.Get("duration", &curDur)
@@ -198,6 +219,7 @@ func eventsOn(c *IPCClient, until string, timeoutSec float64, out io.Writer) (an
 			}
 			fileErr, _ := raw["file_error"].(string)
 			trackActive, trackEndedEmitted = false, true
+			endedOnItsOwn = mapped == "eof" || mapped == "error"
 			if emit(TrackEndedEvent{Event: "track_ended", URL: curURL, Reason: mapped, Duration: curDur, Error: fileErr}) {
 				return matched, nil
 			}
@@ -220,6 +242,16 @@ func eventsOn(c *IPCClient, until string, timeoutSec float64, out io.Writer) (an
 					timePos = &pos
 				}
 				if emit(PauseEvent{Event: name, TimePos: timePos}) {
+					return matched, nil
+				}
+
+			case "idle-active":
+				isIdle, ok := raw["data"].(bool)
+				if !ok || isIdle == lastIdle {
+					continue
+				}
+				lastIdle = isIdle
+				if isIdle && endedOnItsOwn && emit(QueueEndedEvent{Event: "queue_ended"}) {
 					return matched, nil
 				}
 

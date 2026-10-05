@@ -84,23 +84,36 @@ func Connect() (*IPCClient, error) {
 	return c, nil
 }
 
-// launch is the one lazy start, and only play calls it. The flock spans dial-or-spawn, so two
-// plays racing from a cold start yield one mpv: the loser waits, then dials the winner's.
-func launch() (*IPCClient, error) {
-	dir, err := runtimeDir(true)
-	if err != nil {
-		return nil, err
-	}
-	sock := filepath.Join(dir, "mpv.sock")
+// flockAction runs fn on the one player, starting it if need be, all under ting.lock: the
+// lock spans dial-or-spawn and fn's commands, so two plays or queue adds racing from a cold
+// start yield one mpv and neither sees the other's half-done playlist. The lock is released
+// on return; an entryID > 0 is a track still loading, for the caller to wait on outside the
+// lock with the connection it is handed (and closes).
+func flockAction(dir string, fn func(c *IPCClient) (entryID int64, err error)) (*IPCClient, int64, error) {
 	lock, err := os.OpenFile(filepath.Join(dir, "ting.lock"), os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
-		return nil, fail(2, "error", "open lock: %v", err)
+		return nil, 0, fail(2, "error", "open lock: %v", err)
 	}
 	defer lock.Close() // closing the descriptor releases the flock
 	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
-		return nil, fail(2, "error", "flock: %v", err)
+		return nil, 0, fail(2, "error", "flock: %v", err)
 	}
+	c, err := launch(dir)
+	if err != nil {
+		return nil, 0, err
+	}
+	id, err := fn(c)
+	if err != nil {
+		c.Close()
+		return nil, 0, err
+	}
+	return c, id, nil
+}
 
+// launch is the one lazy start, called only under flockAction's lock: it dials the running
+// player or spawns one.
+func launch(dir string) (*IPCClient, error) {
+	sock := filepath.Join(dir, "mpv.sock")
 	if c, err := dialSocket(sock); err == nil {
 		for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); time.Sleep(25 * time.Millisecond) {
 			var isIdle bool
@@ -139,6 +152,67 @@ func launch() (*IPCClient, error) {
 	return nil, fail(2, "error", "mpv socket not ready after 3s")
 }
 
+// normalizeForMPV is u as mpv takes it: a search only reaches mpv's ytdl hook behind the
+// ytdl:// scheme (bare, mpv reads it as a file path). Anything else passes as it is.
+func normalizeForMPV(u string) (string, error) {
+	bare, search, err := searchQuery(u)
+	if err != nil || !search {
+		return u, err
+	}
+	return "ytdl://" + bare, nil
+}
+
+// prepare is the shared front of play and queue add: u normalized for mpv, yt-dlp present
+// (mpv resolves streams through it) and the runtime dir in place.
+func prepare(u string) (string, string, error) {
+	u, err := normalizeForMPV(u)
+	if err != nil {
+		return "", "", err
+	}
+	if _, err := exec.LookPath("yt-dlp"); err != nil {
+		return "", "", fail(2, "error", "yt-dlp not found on PATH (mpv resolves streams through it)")
+	}
+	dir, err := runtimeDir(true)
+	return u, dir, err
+}
+
+// loadfile sends one loadfile and returns the playlist entry id mpv gave it.
+func loadfile(c *IPCClient, args ...any) (int64, error) {
+	r, err := c.Command(append([]any{"loadfile"}, args...)...)
+	if err != nil {
+		return 0, fail(2, "error", "mpv ipc: %v", err)
+	}
+	var data struct {
+		ID int64 `json:"playlist_entry_id"`
+	}
+	if r.Error != "success" || json.Unmarshal(r.Data, &data) != nil || data.ID == 0 {
+		return 0, fail(4, "error", "mpv refused loadfile: %s", r.Error)
+	}
+	return data.ID, nil
+}
+
+// unpause clears the player's pause: it is the player's, not the track's, so after a control
+// pause the next track would load silent.
+func unpause(c *IPCClient) error {
+	if r, err := c.Command("set_property", "pause", false); err != nil || r.Error != "success" {
+		return fail(2, "error", "mpv ipc: unpause: %v", errOr(err, r))
+	}
+	return nil
+}
+
+// waitSounding waits outside the lock for entry id (-1: whatever starts next) to load, then
+// reads the URL it resolved to — a search or a short link comes back as the watch URL.
+func waitSounding(c *IPCClient, id int64, u string) (string, error) {
+	if err := c.WaitForPlaybackSuccess(id, 30*time.Second); err != nil {
+		return "", fail(4, "error", "%v", err)
+	}
+	var path string
+	if ok, _ := c.Get("path", &path); ok && path != "" {
+		u = path
+	}
+	return u, nil
+}
+
 type PlayResponse struct {
 	Status string  `json:"status"`
 	State  string  `json:"state"`
@@ -146,40 +220,167 @@ type PlayResponse struct {
 	Start  float64 `json:"start,omitempty"`
 }
 
-// Play replaces whatever is playing with u and returns once mpv has loaded it — the loadfile
-// reply alone only means the entry was queued, not that anything will sound.
+// Play replaces whatever is playing (the whole queue) with u and returns once mpv has loaded
+// it — the loadfile reply alone only means the entry was queued, not that anything will sound.
 func Play(u string, start float64) (*PlayResponse, error) {
-	if _, err := exec.LookPath("yt-dlp"); err != nil {
-		return nil, fail(2, "error", "yt-dlp not found on PATH (mpv resolves streams through it)")
+	u, dir, err := prepare(u)
+	if err != nil {
+		return nil, err
 	}
-	c, err := launch()
+	c, id, err := flockAction(dir, func(c *IPCClient) (int64, error) {
+		args := []any{u, "replace", -1}
+		if start > 0 {
+			args = append(args, fmt.Sprintf("start=%g", start))
+		}
+		id, err := loadfile(c, args...)
+		if err != nil {
+			return 0, err
+		}
+		// Cleared after loadfile so the old track never sounds again on the way out.
+		return id, unpause(c)
+	})
 	if err != nil {
 		return nil, err
 	}
 	defer c.Close()
-	args := []any{"loadfile", u, "replace", -1}
-	if start > 0 {
-		args = append(args, fmt.Sprintf("start=%g", start))
-	}
-	r, err := c.Command(args...)
-	if err != nil {
-		return nil, fail(2, "error", "mpv ipc: %v", err)
-	}
-	var data struct {
-		ID int64 `json:"playlist_entry_id"`
-	}
-	if r.Error != "success" || json.Unmarshal(r.Data, &data) != nil || data.ID == 0 {
-		return nil, fail(4, "error", "mpv refused loadfile: %s", r.Error)
-	}
-	// pause is the player's, not the track's: after a control pause the new track would load
-	// silent. Cleared after loadfile so the old track never sounds again on the way out.
-	if r, err := c.Command("set_property", "pause", false); err != nil || r.Error != "success" {
-		return nil, fail(2, "error", "mpv ipc: unpause: %v", errOr(err, r))
-	}
-	if err := c.WaitForPlaybackSuccess(data.ID, 30*time.Second); err != nil {
-		return nil, fail(4, "error", "%v", err)
+	if u, err = waitSounding(c, id, u); err != nil {
+		return nil, err
 	}
 	return &PlayResponse{Status: "ok", State: "playing", URL: u, Start: start}, nil
+}
+
+type QueueAddResponse struct {
+	Status string `json:"status"`
+	Action string `json:"action"`
+	State  string `json:"state"`
+	URL    string `json:"url"`
+	Pos    int    `json:"pos"`
+	Count  int    `json:"count"`
+}
+
+// QueueAdd appends u to mpv's in-memory playlist. A player that is idle (or not yet running)
+// starts u at once and returns when it sounds, as play does; a playing one queues u behind
+// what it has and returns at once. Idle is playlist-pos -1, read under the lock: idle-active
+// lags a loadfile, so a second add racing the first would see it still idle.
+func QueueAdd(u string) (*QueueAddResponse, error) {
+	u, dir, err := prepare(u)
+	if err != nil {
+		return nil, err
+	}
+	r := &QueueAddResponse{Status: "ok", Action: "add", URL: u}
+	c, id, err := flockAction(dir, func(c *IPCClient) (int64, error) {
+		pos := -1
+		if _, err := c.Get("playlist-pos", &pos); err != nil {
+			return 0, fail(2, "error", "mpv ipc: %v", err)
+		}
+		if pos >= 0 {
+			if _, err := loadfile(c, u, "append-play"); err != nil {
+				return 0, err
+			}
+			if _, err := c.Get("playlist-count", &r.Count); err != nil {
+				return 0, fail(2, "error", "mpv ipc: %v", err)
+			}
+			r.State, r.Pos = "queued", r.Count-1
+			return 0, nil
+		}
+		// An idle mpv keeps the tracks it has played: drop them so the queue starts at u.
+		if rr, err := c.Command("playlist-clear"); err != nil || rr.Error != "success" {
+			return 0, fail(2, "error", "mpv ipc: playlist-clear: %v", errOr(err, rr))
+		}
+		id, err := loadfile(c, u, "append-play")
+		if err != nil {
+			return 0, err
+		}
+		r.State, r.Pos, r.Count = "playing", 0, 1
+		return id, unpause(c)
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer c.Close()
+	if id > 0 {
+		if r.URL, err = waitSounding(c, id, u); err != nil {
+			return nil, err
+		}
+	}
+	return r, nil
+}
+
+type QueueItem struct {
+	Index   int    `json:"index"`
+	URL     string `json:"url"`
+	Title   string `json:"title,omitempty"`   // mpv knows it only once the entry has loaded
+	Current bool   `json:"current,omitempty"` // only the playing entry says so
+}
+
+type QueueListResponse struct {
+	Status string      `json:"status"`
+	Pos    int         `json:"pos"`
+	Count  int         `json:"count"`
+	Items  []QueueItem `json:"items"`
+}
+
+// QueueList reads mpv's playlist. Nothing running, or an idle player (whose playlist is only
+// what it has already played), is the empty queue, and like status it creates no state.
+func QueueList() (*QueueListResponse, error) {
+	empty := &QueueListResponse{Status: "ok", Pos: -1, Items: []QueueItem{}}
+	c, err := Connect()
+	if err != nil || c == nil {
+		return empty, err
+	}
+	defer c.Close()
+	pos := -1
+	if _, err := c.Get("playlist-pos", &pos); err != nil || pos < 0 {
+		return empty, nil
+	}
+	var pl []struct {
+		Filename string `json:"filename"`
+		Title    string `json:"title"`
+		Current  bool   `json:"current"`
+	}
+	if _, err := c.Get("playlist", &pl); err != nil {
+		return empty, nil // hung up mid-read: the player is exiting
+	}
+	r := &QueueListResponse{Status: "ok", Pos: pos, Count: len(pl), Items: []QueueItem{}}
+	for i, e := range pl {
+		r.Items = append(r.Items, QueueItem{Index: i, URL: e.Filename, Title: e.Title, Current: e.Current})
+	}
+	return r, nil
+}
+
+// QueueClear drops every queued entry; the one sounding plays on.
+func QueueClear() (*ControlResponse, error) {
+	c, err := activePlayer()
+	if err != nil {
+		return nil, err
+	}
+	defer c.Close()
+	r, err := c.Command("playlist-clear")
+	if err != nil {
+		return nil, fail(4, "not_playing", "player went away: %v", err)
+	}
+	if r.Error != "success" {
+		return nil, fail(4, "error", "mpv: %s", r.Error)
+	}
+	return &ControlResponse{Status: "ok", Action: "clear"}, nil
+}
+
+// activePlayer connects to a player that has something loaded: nothing running, or a player
+// still idle, is exit 4 — there is nothing for the action to act on.
+func activePlayer() (*IPCClient, error) {
+	c, err := Connect()
+	if err != nil {
+		return nil, err
+	}
+	if c == nil {
+		return nil, fail(4, "not_playing", "no player running")
+	}
+	pos := -1
+	if _, err := c.Get("playlist-pos", &pos); err != nil || pos < 0 {
+		c.Close()
+		return nil, fail(4, "not_playing", "player is idle")
+	}
+	return c, nil
 }
 
 func errOr(err error, r *IPCResponse) any {
@@ -242,7 +443,8 @@ type ControlResponse struct {
 
 // Control applies one action to the running player. Nothing running, or a player still idle,
 // is exit 4: there is nothing for the action to act on. seekMode is "relative" or "absolute"
-// and only read by seek.
+// and only read by seek. next and prev step through the queue and return once the new entry
+// sounds; past either end is exit 4 unavailable.
 func Control(action string, value float64, seekMode string) (*ControlResponse, error) {
 	var args []any
 	switch action {
@@ -257,6 +459,9 @@ func Control(action string, value float64, seekMode string) (*ControlResponse, e
 		args = []any{"seek", value, seekMode}
 	case "volume":
 		args = []any{"set_property", "volume", value}
+	case "next", "prev":
+		// weak: past either end of the queue mpv refuses instead of stopping the player.
+		args = []any{"playlist-" + action, "weak"}
 	default:
 		return nil, fail(1, "error", "unknown control action %q", action)
 	}
@@ -278,8 +483,20 @@ func Control(action string, value float64, seekMode string) (*ControlResponse, e
 	if err != nil {
 		return nil, fail(4, "not_playing", "player went away: %v", err)
 	}
-	if r.Error != "success" {
+	switch {
+	case r.Error != "success" && action == "next":
+		return nil, fail(4, "unavailable", "end of playlist")
+	case r.Error != "success" && action == "prev":
+		return nil, fail(4, "unavailable", "start of playlist")
+	case r.Error != "success":
 		return nil, fail(4, "error", "mpv: %s", r.Error)
+	case action == "next" || action == "prev":
+		if err := unpause(c); err != nil {
+			return nil, err
+		}
+		if err := c.WaitForPlaybackSuccess(-1, 30*time.Second); err != nil {
+			return nil, fail(4, "error", "%v", err)
+		}
 	}
 	return &ControlResponse{Status: "ok", Action: action}, nil
 }

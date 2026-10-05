@@ -192,3 +192,27 @@ func TestCommandRefusesUnencodableArgs(t *testing.T) {
 	case <-time.After(50 * time.Millisecond):
 	}
 }
+
+// -1 is control next/prev: no entry id to wait on, so whatever starts next is ours.
+func TestWaitForPlaybackSuccessAnyEntry(t *testing.T) {
+	cases := []struct {
+		name    string
+		wire    []string
+		wantErr string
+	}{
+		{"next entry loads", []string{ev("end-file", 1, `"reason":"stop"`), ev("start-file", 5, ""), ev("file-loaded", 0, "")}, ""},
+		{"next entry fails", []string{ev("end-file", 1, `"reason":"stop"`), ev("start-file", 5, ""),
+			ev("end-file", 5, `"reason":"error","file_error":"loading failed"`)}, "playback failed: loading failed"},
+		{"the old entry's end is not ours", []string{ev("end-file", 1, `"reason":"stop"`)}, "playback not ready after"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c, peer, _ := pipeClient(t)
+			send(peer, tc.wire...)
+			err := c.WaitForPlaybackSuccess(-1, 300*time.Millisecond)
+			if (tc.wantErr == "") != (err == nil) || (err != nil && !strings.HasPrefix(err.Error(), tc.wantErr)) {
+				t.Errorf("err = %v, want %q", err, tc.wantErr)
+			}
+		})
+	}
+}

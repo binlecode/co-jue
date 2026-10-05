@@ -79,6 +79,8 @@ type rawInfo struct {
 	} `json:"chapters"`
 	Subtitles map[string]json.RawMessage `json:"subtitles"`
 	AutoCaps  map[string]json.RawMessage `json:"automatic_captions"`
+	Type      string                     `json:"_type"`
+	Entries   []json.RawMessage          `json:"entries"`
 }
 
 // MaxCues caps every transcript, windowed or not: past it the caller gets the head and
@@ -119,14 +121,60 @@ func lastLine(s string, err error) string {
 	return err.Error()
 }
 
+// searchPrefixRe is anchored at the head: a search word further in (youtube.com/results?
+// search_query=) is a plain URL, not a search.
+var searchPrefixRe = regexp.MustCompile(`^[a-z0-9]*search[a-z0-9]*:`)
+
+// searchQuery strips mpv's ytdl:// and reports whether what is left is a yt-dlp search. Only
+// ytsearch1: and ytsearch: (both one result) are searches ting runs; any other search prefix
+// is a usage error, not a path to guess at.
+func searchQuery(u string) (string, bool, error) {
+	bare := strings.TrimPrefix(u, "ytdl://")
+	switch p := searchPrefixRe.FindString(bare); p {
+	case "":
+		return bare, false, nil
+	case "ytsearch1:", "ytsearch:":
+		return bare, true, nil
+	default:
+		return "", false, fail(1, "error", "unsupported search prefix %q (only ytsearch1: and ytsearch:)", p)
+	}
+}
+
+// normalizeForYtdlp is u as yt-dlp takes it: it refuses the ytdl:// scheme mpv needs.
+func normalizeForYtdlp(u string) (string, error) {
+	bare, _, err := searchQuery(u)
+	return bare, err
+}
+
 // dump is the one metadata extraction both verbs start from; raw is kept so transcript can
 // hand it back to yt-dlp with --load-info-json instead of extracting the page twice.
 func dump(u string) ([]byte, *rawInfo, error) {
+	u, err := normalizeForYtdlp(u)
+	if err != nil {
+		return nil, nil, err
+	}
 	raw, err := ytdlp("--dump-single-json", "--no-playlist", "--skip-download", "--", u)
 	if err != nil {
 		return nil, nil, err
 	}
+	return decodeDump(u, raw)
+}
+
+// decodeDump parses yt-dlp's record of u. A search answers with a playlist shell around its
+// one hit: the hit's own bytes replace the shell, so transcript's --load-info-json reads the
+// video and not the shell. A playlist URL is left as it is — only a search is unwrapped.
+func decodeDump(u string, raw []byte) ([]byte, *rawInfo, error) {
 	var info rawInfo
+	if err := json.Unmarshal(raw, &info); err != nil {
+		return nil, nil, fail(2, "error", "yt-dlp: unreadable JSON: %v", err)
+	}
+	if !searchPrefixRe.MatchString(u) || info.Type != "playlist" {
+		return raw, &info, nil
+	}
+	if len(info.Entries) == 0 {
+		return nil, nil, fail(4, "unavailable", "no search results for %s", u)
+	}
+	raw, info = info.Entries[0], rawInfo{}
 	if err := json.Unmarshal(raw, &info); err != nil {
 		return nil, nil, fail(2, "error", "yt-dlp: unreadable JSON: %v", err)
 	}
@@ -173,8 +221,11 @@ func ParseTime(s string) (float64, error) {
 // Transcript returns the verbatim cues of u. With hasRange only the cues that intersect
 // [start, end) come back; either way the head is capped at MaxCues.
 func Transcript(u string, start, end float64, hasRange bool) (*TranscriptResponse, error) {
+	u, err := normalizeForYtdlp(u) // ytdl:// would hide a netease host from neteaseID
+	if err != nil {
+		return nil, err
+	}
 	var r *TranscriptResponse
-	var err error
 	if id := neteaseID(u); id != "" {
 		r, err = neteaseLyrics(id)
 	} else {

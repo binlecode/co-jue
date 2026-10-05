@@ -18,7 +18,8 @@ import (
 const verbUsage = `usage: ting inspect <url>
        ting transcript <url> [--range START-END]
        ting play <url> [--start SEC]
-       ting control pause|resume|stop|seek <+SEC|-SEC|SEC|MM:SS>|volume <0-100>
+       ting queue add <url>|list|clear
+       ting control pause|resume|stop|next|prev|seek <+SEC|-SEC|SEC|MM:SS>|volume <0-100>
        ting status
        ting events [--until <EVENT>] [--timeout SEC]`
 
@@ -26,6 +27,7 @@ var verbs = map[string]func([]string) (any, error){
 	"inspect":    runInspect,
 	"transcript": runTranscript,
 	"play":       runPlay,
+	"queue":      runQueue,
 	"control":    runControl,
 	"status":     runStatus,
 	"events":     runEvents,
@@ -130,8 +132,31 @@ func runPlay(args []string) (any, error) {
 	return engine.Play(u, start)
 }
 
+func runQueue(args []string) (any, error) {
+	if len(args) == 0 {
+		return nil, usageErr("queue needs add, list or clear")
+	}
+	switch rest := args[1:]; args[0] {
+	case "add":
+		u, _, err := splitArgs(rest)
+		if err != nil {
+			return nil, err
+		}
+		return engine.QueueAdd(u)
+	case "list", "clear":
+		if len(rest) != 0 {
+			return nil, usageErr("queue " + args[0] + " takes no arguments")
+		}
+		if args[0] == "list" {
+			return engine.QueueList()
+		}
+		return engine.QueueClear()
+	}
+	return nil, usageErr("unknown queue action " + args[0])
+}
+
 // controlArgs is how many arguments each control action takes, the action included.
-var controlArgs = map[string]int{"pause": 1, "resume": 1, "stop": 1, "seek": 2, "volume": 2}
+var controlArgs = map[string]int{"pause": 1, "resume": 1, "stop": 1, "next": 1, "prev": 1, "seek": 2, "volume": 2}
 
 func runControl(args []string) (any, error) {
 	if len(args) == 0 {

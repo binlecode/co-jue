@@ -5,66 +5,88 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 )
 
-func TestEventsSnapshotAndInitialPropertySuppression(t *testing.T) {
+// eventsPeer plays mpv for eventsOn: every command is answered — get_property from prop (nil
+// is unavailable; n counts the reads of that name so far), anything else with success — and
+// once StatusOn has read time-pos, duration and volume, the script lines follow.
+func eventsPeer(t *testing.T, prop func(name string, n int) any, script ...string) *IPCClient {
+	t.Helper()
 	c, peer, cmds := pipeClient(t)
-
-	// Mock mpv responses for setup commands and event loop
 	go func() {
-		// 1. observe_property pause
-		cmds.ReadBytes('\n')
-		peer.Write([]byte(`{"request_id":1,"error":"success"}` + "\n"))
-		// 2. observe_property chapter
-		cmds.ReadBytes('\n')
-		peer.Write([]byte(`{"request_id":2,"error":"success"}` + "\n"))
-		// 3. StatusOn: idle-active
-		cmds.ReadBytes('\n')
-		peer.Write([]byte(`{"request_id":3,"error":"success","data":false}` + "\n"))
-		// 4. StatusOn: pause
-		cmds.ReadBytes('\n')
-		peer.Write([]byte(`{"request_id":4,"error":"success","data":false}` + "\n"))
-		// 5. StatusOn: path
-		cmds.ReadBytes('\n')
-		peer.Write([]byte(`{"request_id":5,"error":"success","data":"https://example.com/test.mp3"}` + "\n"))
-		// 6. StatusOn: time-pos, duration, volume
-		for i := 6; i <= 8; i++ {
-			cmds.ReadBytes('\n')
-			peer.Write([]byte(`{"request_id":` + string(rune('0'+i)) + `,"error":"success","data":42.0}` + "\n"))
+		var once sync.Once
+		reads := map[string]int{}
+		for {
+			line, err := cmds.ReadBytes('\n')
+			if err != nil {
+				return
+			}
+			var req struct {
+				Command   []any `json:"command"`
+				RequestID int64 `json:"request_id"`
+			}
+			json.Unmarshal(line, &req)
+			reply := answer(req.RequestID, nil)
+			if req.Command[0] == "get_property" {
+				name := req.Command[1].(string)
+				reads[name]++
+				if v := prop(name, reads[name]); v != nil {
+					reply = answer(req.RequestID, v)
+				} else {
+					reply = unavailable(req.RequestID)
+				}
+			}
+			if _, err := peer.Write([]byte(reply + "\n")); err != nil {
+				return
+			}
+			if reads["time-pos"] > 0 && reads["duration"] > 0 && reads["volume"] > 0 {
+				once.Do(func() { send(peer, script...) }) // a goroutine: replies keep flowing meanwhile
+			}
 		}
-
-		// Now send initial property-change from mpv (should be suppressed as duplicate)
-		peer.Write([]byte(`{"event":"property-change","id":1,"name":"pause","data":false}` + "\n"))
-
-		// Send real pause state change (should be emitted)
-		peer.Write([]byte(`{"event":"property-change","id":1,"name":"pause","data":true}` + "\n"))
-
-		// mpv responds to get_property time-pos query caused by pause event
-		cmds.ReadBytes('\n')
-		peer.Write([]byte(`{"request_id":9,"error":"success","data":45.5}` + "\n"))
-
-		// Terminate stream with timeout
 	}()
+	return c
+}
+
+// playing is a player sounding url at 42s.
+func playing(url string) func(string, int) any {
+	return func(name string, _ int) any {
+		switch name {
+		case "idle-active", "pause":
+			return false
+		case "path":
+			return url
+		}
+		return 42.0
+	}
+}
+
+func TestEventsSnapshotAndInitialPropertySuppression(t *testing.T) {
+	c := eventsPeer(t, func(name string, n int) any {
+		if name == "time-pos" && n > 1 {
+			return 45.5 // read again when the pause lands
+		}
+		return playing("https://example.com/test.mp3")(name, n)
+	},
+		// mpv's initial values on observe repeat what StatusOn read: not changes.
+		`{"event":"property-change","id":1,"name":"pause","data":false}`,
+		`{"event":"property-change","id":3,"name":"idle-active","data":false}`,
+		`{"event":"property-change","id":1,"name":"pause","data":true}`)
 
 	var buf bytes.Buffer
-	_, err := eventsOn(c, "", 0.3, &buf)
-	if err != nil {
+	if _, err := eventsOn(c, "", 0.3, &buf); err != nil {
 		t.Fatalf("eventsOn error: %v", err)
 	}
-
 	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
 	if len(lines) != 2 {
 		t.Fatalf("expected 2 lines (snapshot + paused), got %d: %v", len(lines), lines)
 	}
-
-	var snap map[string]any
+	var snap, paused map[string]any
 	json.Unmarshal([]byte(lines[0]), &snap)
 	if snap["event"] != "snapshot" || snap["state"] != "playing" {
 		t.Errorf("expected snapshot playing, got: %s", lines[0])
 	}
-
-	var paused map[string]any
 	json.Unmarshal([]byte(lines[1]), &paused)
 	if paused["event"] != "paused" || paused["time_pos"] != 45.5 {
 		t.Errorf("expected paused at 45.5, got: %s", lines[1])
@@ -72,75 +94,29 @@ func TestEventsSnapshotAndInitialPropertySuppression(t *testing.T) {
 }
 
 func TestEventsUntilModeMatching(t *testing.T) {
-	c, peer, cmds := pipeClient(t)
-
-	go func() {
-		// Setup: observe_property x 2
-		cmds.ReadBytes('\n')
-		peer.Write([]byte(`{"request_id":1,"error":"success"}` + "\n"))
-		cmds.ReadBytes('\n')
-		peer.Write([]byte(`{"request_id":2,"error":"success"}` + "\n"))
-		// StatusOn
-		cmds.ReadBytes('\n')
-		peer.Write([]byte(`{"request_id":3,"error":"success","data":false}` + "\n"))
-		cmds.ReadBytes('\n')
-		peer.Write([]byte(`{"request_id":4,"error":"success","data":false}` + "\n"))
-		cmds.ReadBytes('\n')
-		peer.Write([]byte(`{"request_id":5,"error":"success","data":"https://example.com/test.mp3"}` + "\n"))
-		for i := 6; i <= 8; i++ {
-			cmds.ReadBytes('\n')
-			peer.Write([]byte(`{"request_id":` + string(rune('0'+i)) + `,"error":"success","data":10.0}` + "\n"))
-		}
-
-		// Send end-file eof
-		peer.Write([]byte(`{"event":"end-file","reason":"eof"}` + "\n"))
-	}()
-
+	c := eventsPeer(t, playing("https://example.com/test.mp3"), `{"event":"end-file","reason":"eof"}`)
 	var buf bytes.Buffer
 	res, err := eventsOn(c, "track_ended", 2.0, &buf)
 	if err != nil {
 		t.Fatalf("eventsOn error: %v", err)
 	}
-
 	if buf.Len() != 0 {
 		t.Errorf("expected no stdout output in until mode, got: %s", buf.String())
 	}
-
 	ended, ok := res.(TrackEndedEvent)
-	if !ok {
-		t.Fatalf("expected TrackEndedEvent, got %T", res)
-	}
-	if ended.Event != "track_ended" || ended.Reason != "eof" {
-		t.Errorf("unexpected event: %+v", ended)
+	if !ok || ended.Reason != "eof" || ended.URL != "https://example.com/test.mp3" {
+		t.Errorf("got %T %+v, want track_ended eof", res, res)
 	}
 }
 
 func TestEventsUntilTimeout(t *testing.T) {
-	c, peer, cmds := pipeClient(t)
-
-	go func() {
-		cmds.ReadBytes('\n')
-		peer.Write([]byte(`{"request_id":1,"error":"success"}` + "\n"))
-		cmds.ReadBytes('\n')
-		peer.Write([]byte(`{"request_id":2,"error":"success"}` + "\n"))
-		cmds.ReadBytes('\n')
-		peer.Write([]byte(`{"request_id":3,"error":"success","data":false}` + "\n"))
-		cmds.ReadBytes('\n')
-		peer.Write([]byte(`{"request_id":4,"error":"success","data":false}` + "\n"))
-		cmds.ReadBytes('\n')
-		peer.Write([]byte(`{"request_id":5,"error":"success","data":null}` + "\n"))
-		for i := 6; i <= 8; i++ {
-			cmds.ReadBytes('\n')
-			peer.Write([]byte(`{"request_id":` + string(rune('0'+i)) + `,"error":"success","data":null}` + "\n"))
+	c := eventsPeer(t, func(name string, _ int) any {
+		if name == "idle-active" || name == "pause" {
+			return false
 		}
-	}()
-
-	var buf bytes.Buffer
-	_, err := eventsOn(c, "track_started", 0.1, &buf)
-	if err == nil {
-		t.Fatalf("expected timeout error, got nil")
-	}
-
+		return nil
+	})
+	_, err := eventsOn(c, "track_started", 0.1, &bytes.Buffer{})
 	var f *Fail
 	if !errors.As(err, &f) || f.Code != 4 || f.Status != "timeout" {
 		t.Fatalf("expected fail(4, timeout), got: %v", err)
@@ -148,44 +124,98 @@ func TestEventsUntilTimeout(t *testing.T) {
 }
 
 func TestEventsTrackEndedReasons(t *testing.T) {
-	tests := []struct {
-		mpvReason string
-		wantEvent string
-	}{
-		{"stop", "replaced"},
-		{"quit", "stopped"},
-		{"error", "error"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.mpvReason, func(t *testing.T) {
-			c, peer, cmds := pipeClient(t)
-			go func() {
-				cmds.ReadBytes('\n')
-				peer.Write([]byte(`{"request_id":1,"error":"success"}` + "\n"))
-				cmds.ReadBytes('\n')
-				peer.Write([]byte(`{"request_id":2,"error":"success"}` + "\n"))
-				cmds.ReadBytes('\n')
-				peer.Write([]byte(`{"request_id":3,"error":"success","data":false}` + "\n"))
-				cmds.ReadBytes('\n')
-				peer.Write([]byte(`{"request_id":4,"error":"success","data":false}` + "\n"))
-				cmds.ReadBytes('\n')
-				peer.Write([]byte(`{"request_id":5,"error":"success","data":"https://a.com/b.mp3"}` + "\n"))
-				for i := 6; i <= 8; i++ {
-					cmds.ReadBytes('\n')
-					peer.Write([]byte(`{"request_id":` + string(rune('0'+i)) + `,"error":"success","data":null}` + "\n"))
-				}
-				peer.Write([]byte(`{"event":"end-file","reason":"` + tt.mpvReason + `"}` + "\n"))
-			}()
-
+	for mpvReason, want := range map[string]string{"stop": "replaced", "quit": "stopped", "error": "error"} {
+		t.Run(mpvReason, func(t *testing.T) {
+			c := eventsPeer(t, playing("https://a.com/b.mp3"), `{"event":"end-file","reason":"`+mpvReason+`"}`)
 			res, err := eventsOn(c, "track_ended", 1.0, &bytes.Buffer{})
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			ended := res.(TrackEndedEvent)
-			if ended.Reason != tt.wantEvent {
-				t.Errorf("for mpv reason %q, want %q, got %q", tt.mpvReason, tt.wantEvent, ended.Reason)
+			if ended := res.(TrackEndedEvent); ended.Reason != want {
+				t.Errorf("for mpv reason %q, want %q, got %q", mpvReason, want, ended.Reason)
 			}
 		})
+	}
+}
+
+// A track that fails to load is reported under its own URL, not the one before it: mpv's
+// path is the new entry's from start-file on.
+func TestEventsTrackEndedURLFollowsStartFile(t *testing.T) {
+	c := eventsPeer(t, func(name string, n int) any {
+		if name == "path" && n > 1 {
+			return "https://a.com/next.mp3"
+		}
+		return playing("https://a.com/first.mp3")(name, n)
+	},
+		`{"event":"end-file","reason":"eof","playlist_entry_id":1}`,
+		`{"event":"start-file","playlist_entry_id":2}`,
+		`{"event":"end-file","reason":"error","playlist_entry_id":2,"file_error":"loading failed"}`)
+	var buf bytes.Buffer
+	if _, err := eventsOn(c, "", 0.3, &buf); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	want := `{"event":"track_ended","url":"https://a.com/next.mp3","reason":"error","error":"loading failed"}`
+	if len(lines) != 3 || lines[2] != want {
+		t.Errorf("got %v\nwant the last line %s", lines, want)
+	}
+}
+
+func TestEventsQueueEnded(t *testing.T) {
+	c := eventsPeer(t, playing("/a.wav"),
+		`{"event":"end-file","reason":"eof","playlist_entry_id":1}`,
+		`{"event":"start-file","playlist_entry_id":2}`,
+		`{"event":"file-loaded"}`,
+		`{"event":"end-file","reason":"eof","playlist_entry_id":2}`,
+		`{"event":"idle"}`,
+		`{"event":"property-change","id":3,"name":"idle-active","data":true}`)
+	res, err := eventsOn(c, "queue_ended", 2.0, &bytes.Buffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := json.Marshal(res); string(b) != `{"event":"queue_ended"}` {
+		t.Errorf("got %s, want queue_ended", b)
+	}
+}
+
+// Going idle because the last entry was skipped past (playlist-next force) or replaced is
+// not the queue playing out.
+func TestEventsQueueEndedNotOnStop(t *testing.T) {
+	c := eventsPeer(t, playing("/a.wav"),
+		`{"event":"end-file","reason":"stop","playlist_entry_id":1}`,
+		`{"event":"property-change","id":3,"name":"idle-active","data":true}`)
+	_, err := eventsOn(c, "queue_ended", 0.3, &bytes.Buffer{})
+	var f *Fail
+	if !errors.As(err, &f) || f.Status != "timeout" {
+		t.Errorf("err = %v, want a timeout: no queue_ended after a stop", err)
+	}
+}
+
+func TestEventsQueueEndedWhileIdle(t *testing.T) {
+	c := eventsPeer(t, func(name string, _ int) any { return name == "idle-active" })
+	_, err := eventsOn(c, "queue_ended", 2.0, &bytes.Buffer{})
+	var f *Fail
+	if !errors.As(err, &f) || f.Code != 4 || f.Status != "not_playing" || f.Msg != "player is idle" {
+		t.Errorf("err = %v, want exit 4 not_playing player is idle", err)
+	}
+}
+
+func TestEventsQueueEndedPlayerExits(t *testing.T) {
+	c, peer, cmds := pipeClient(t)
+	go func() {
+		for i := int64(1); ; i++ {
+			if _, err := cmds.ReadBytes('\n'); err != nil {
+				return
+			}
+			peer.Write([]byte(answer(i, false) + "\n"))
+			if i == 9 { // 3 observes and StatusOn's 6 reads
+				peer.Close()
+			}
+		}
+	}()
+	_, err := eventsOn(c, "queue_ended", 2.0, &bytes.Buffer{})
+	var f *Fail
+	if !errors.As(err, &f) || f.Code != 4 || f.Msg != "player exited" {
+		t.Errorf("err = %v, want exit 4 player exited", err)
 	}
 }

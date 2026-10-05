@@ -230,3 +230,46 @@ func TestClip(t *testing.T) {
 		t.Errorf("short transcript: %d cues, truncated %v; want 5, false", len(got), tr)
 	}
 }
+
+func TestNormalizeForYtdlp(t *testing.T) {
+	pass := map[string]string{
+		"ytsearch1:周杰伦 晴天":          "ytsearch1:周杰伦 晴天",
+		"ytsearch:foo":              "ytsearch:foo",
+		"ytdl://ytsearch1:foo":      "ytsearch1:foo",
+		"ytdl://https://youtu.be/x": "https://youtu.be/x",
+		// "search" past the head is a plain URL, not a search prefix.
+		"https://www.youtube.com/results?search_query=foo": "https://www.youtube.com/results?search_query=foo",
+		"/tmp/research.wav": "/tmp/research.wav",
+	}
+	for in, want := range pass {
+		if got, err := normalizeForYtdlp(in); err != nil || got != want {
+			t.Errorf("normalizeForYtdlp(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	for _, in := range []string{"scsearch:foo", "ytsearch5:foo", "ytsearchall:foo", "ytdl://scsearch1:foo", "bilisearch:foo"} {
+		var f *Fail
+		if got, err := normalizeForYtdlp(in); !errors.As(err, &f) || f.Code != 1 {
+			t.Errorf("normalizeForYtdlp(%q) = %q, %v; want exit 1", in, got, err)
+		}
+	}
+}
+
+func TestDecodeDumpSearch(t *testing.T) {
+	hit := `{"id":"dQw4w9WgXcQ","title":"Never Gonna Give You Up","language":"en","subtitles":{"en":[]}}`
+	raw, info, err := decodeDump("ytsearch1:rick", []byte(`{"_type":"playlist","id":"rick","title":"rick","entries":[`+hit+`]}`))
+	if err != nil || info.ID != "dQw4w9WgXcQ" || info.Language != "en" || string(raw) != hit {
+		t.Errorf("search hit = %s, %+v, %v; want the entry's own bytes and fields", raw, info, err)
+	}
+
+	var f *Fail
+	if _, _, err := decodeDump("ytsearch:nothing", []byte(`{"_type":"playlist","entries":[]}`)); !errors.As(err, &f) || f.Code != 4 || f.Status != "unavailable" {
+		t.Errorf("empty search err = %v, want exit 4 unavailable", err)
+	}
+
+	// A playlist URL is not a search: its record is returned as yt-dlp gave it.
+	list := `{"_type":"playlist","id":"PL1","title":"mix","entries":[` + hit + `]}`
+	raw, info, err = decodeDump("https://www.youtube.com/playlist?list=PL1", []byte(list))
+	if err != nil || info.ID != "PL1" || string(raw) != list {
+		t.Errorf("playlist URL = %s, %+v, %v; want it untouched", raw, info, err)
+	}
+}
