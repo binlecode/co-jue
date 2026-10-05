@@ -206,9 +206,11 @@ func waitSounding(c *IPCClient, id int64, u string) (string, error) {
 	if err := c.WaitForPlaybackSuccess(id, 30*time.Second); err != nil {
 		return "", fail(4, "error", "%v", err)
 	}
-	var path string
-	if ok, _ := c.Get("path", &path); ok && path != "" {
-		u = path
+	if !c.Superseded() {
+		var path string
+		if ok, _ := c.Get("path", &path); ok && path != "" {
+			u = path
+		}
 	}
 	return u, nil
 }
@@ -478,6 +480,9 @@ func Control(action string, value float64, seekMode string) (*ControlResponse, e
 		if _, err := c.Get("idle-active", &isIdle); err != nil || isIdle {
 			return nil, fail(4, "not_playing", "player is idle")
 		}
+	}
+	if action == "next" || action == "prev" {
+		c.ClearEvents()
 	}
 	r, err := c.Command(args...)
 	if err != nil {

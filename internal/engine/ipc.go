@@ -18,6 +18,7 @@ type IPCClient struct {
 	mu         sync.Mutex // one reader and one writer at a time over the whole connection
 	seq        int64
 	eventQueue []map[string]any
+	superseded bool
 }
 
 type IPCResponse struct {
@@ -34,6 +35,21 @@ func newIPCClient(c net.Conn) *IPCClient {
 }
 
 func (c *IPCClient) Close() error { return c.conn.Close() }
+
+// ClearEvents drops any asynchronous events buffered so far.
+func (c *IPCClient) ClearEvents() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.eventQueue = nil
+}
+
+// Superseded reports whether the last WaitForPlaybackSuccess call completed because
+// another play replaced this one rather than because our entry loaded.
+func (c *IPCClient) Superseded() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.superseded
+}
 
 // NextEvent pops a queued asynchronous event or reads the next one from mpv.
 func (c *IPCClient) NextEvent(deadline time.Time) (map[string]any, error) {
@@ -132,6 +148,7 @@ func (c *IPCClient) WaitForPlaybackSuccess(entryID int64, timeout time.Duration)
 	defer c.conn.SetReadDeadline(time.Time{}) // a later Command must not inherit this deadline
 
 	sawStart := false
+	c.superseded = false
 	for {
 		for i := 0; i < len(c.eventQueue); i++ {
 			ev := c.eventQueue[i]
@@ -144,6 +161,7 @@ func (c *IPCClient) WaitForPlaybackSuccess(entryID int64, timeout time.Duration)
 				// play replaced ours while it was still queued, and mpv drops such an entry
 				// without a start-file or end-file of its own.
 				c.eventQueue = c.eventQueue[i:]
+				c.superseded = true
 				return nil
 			case name == "start-file" && ours:
 				sawStart, entryID = true, int64(evID)
@@ -151,6 +169,7 @@ func (c *IPCClient) WaitForPlaybackSuccess(entryID int64, timeout time.Duration)
 				i = -1
 			case name == "file-loaded" && sawStart:
 				c.eventQueue = c.eventQueue[i+1:]
+				c.superseded = false
 				return nil
 			case name == "end-file" && int64(evID) == entryID:
 				reason, _ := ev["reason"].(string)
@@ -158,6 +177,7 @@ func (c *IPCClient) WaitForPlaybackSuccess(entryID int64, timeout time.Duration)
 				i = -1
 				switch reason {
 				case "stop":
+					c.superseded = true
 					return nil // a newer play replaced this one: not a failure of this call
 				case "redirect":
 					// The URL expanded into new entries (a playlist): the next start-file is ours.
