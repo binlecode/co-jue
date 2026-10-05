@@ -207,6 +207,25 @@ func waitSounding(c *IPCClient, id int64, u string) (string, error) {
 		return "", fail(4, "error", "%v", err)
 	}
 	if !c.Superseded() {
+		targetID := c.LoadedEntryID()
+		var items []struct {
+			ID       int64  `json:"id"`
+			Filename string `json:"filename"`
+		}
+		if ok, _ := c.Get("playlist", &items); ok && len(items) > 0 {
+			matched := false
+			for _, item := range items {
+				if targetID <= 0 || item.ID == targetID {
+					if item.Filename != "" {
+						return item.Filename, nil
+					}
+					matched = true
+				}
+			}
+			if matched || targetID > 0 {
+				return u, nil
+			}
+		}
 		var path string
 		if ok, _ := c.Get("path", &path); ok && path != "" {
 			u = path

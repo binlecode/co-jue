@@ -13,12 +13,14 @@ import (
 // with command replies on the same stream, so a reply is matched by request_id and every
 // event read on the way is queued for WaitForPlaybackSuccess rather than dropped.
 type IPCClient struct {
-	conn       net.Conn
-	reader     *bufio.Reader
-	mu         sync.Mutex // one reader and one writer at a time over the whole connection
-	seq        int64
-	eventQueue []map[string]any
-	superseded bool
+	conn          net.Conn
+	reader        *bufio.Reader
+	mu            sync.Mutex // one reader and one writer at a time over the whole connection
+	seq           int64
+	eventQueue    []map[string]any
+	superseded    bool
+	activeEntryID int64
+	loadedEntryID int64
 }
 
 type IPCResponse struct {
@@ -49,6 +51,14 @@ func (c *IPCClient) Superseded() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.superseded
+}
+
+// LoadedEntryID returns the playlist entry id that finished loading in the last
+// successful WaitForPlaybackSuccess call (or 0 if superseded or none).
+func (c *IPCClient) LoadedEntryID() int64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.loadedEntryID
 }
 
 // NextEvent pops a queued asynchronous event or reads the next one from mpv.
@@ -149,6 +159,8 @@ func (c *IPCClient) WaitForPlaybackSuccess(entryID int64, timeout time.Duration)
 
 	sawStart := false
 	c.superseded = false
+	c.activeEntryID = 0
+	c.loadedEntryID = 0
 	for {
 		for i := 0; i < len(c.eventQueue); i++ {
 			ev := c.eventQueue[i]
@@ -165,11 +177,13 @@ func (c *IPCClient) WaitForPlaybackSuccess(entryID int64, timeout time.Duration)
 				return nil
 			case name == "start-file" && ours:
 				sawStart, entryID = true, int64(evID)
+				c.activeEntryID = int64(evID)
 				c.eventQueue = c.eventQueue[i+1:]
 				i = -1
 			case name == "file-loaded" && sawStart:
 				c.eventQueue = c.eventQueue[i+1:]
 				c.superseded = false
+				c.loadedEntryID = c.activeEntryID
 				return nil
 			case name == "end-file" && int64(evID) == entryID:
 				reason, _ := ev["reason"].(string)
