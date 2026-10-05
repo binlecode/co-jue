@@ -18,6 +18,11 @@
 #   H  grounding to artifact  a timestamped verbatim citation for the library; when there are no
 #                             words to cite, inspect still answers with the map
 #   I  event contract         push beacons, snapshot, eof trigger, edge deduplication, zero zombie
+#   J  transient queue        add from cold / while playing, list, next/prev and their ends, clear,
+#                             play replaces the queue, racing adds from cold: one mpv, none lost
+#   K  query resolution       ytsearch1: plays, inspects and transcribes as the watch URL it finds;
+#                             other search prefixes are exit 1; old URL/file contracts hold
+#   L  queue-ended perception one wait for a whole queue to play out; idle and stopped are exit 4
 #
 # Usage: bash tests/test_suite.sh        exit 0 all green, 1 a failure or a broken suite
 
@@ -789,6 +794,232 @@ block_i() {
     check "zero residual player in block i" test -z "$(mpv_of)"
 }
 
+# silence <path> <secs>: a 48 kHz stereo 16-bit silent wav of that length.
+silence() {
+    local n=$((48000 * 4 * $2))
+    { printf 'RIFF'; le32 $((36 + n)); printf 'WAVEfmt '; le32 16; printf '\x01\x00\x02\x00'
+      le32 48000; le32 192000; printf '\x04\x00\x10\x00data'; le32 "$n"; head -c "$n" /dev/zero; } >"$1"
+}
+
+# ---- J: transient queue and playlist lifecycle ----------------------------------------------
+# The queue is mpv's own in-memory playlist: add starts or appends, list reads it, next/prev
+# step through it and refuse past either end, clear keeps what sounds, play replaces it all.
+block_j() {
+    local rt="$TMPDIR/ting-$UIDN" pid i bad
+    export WAV1="$TMPDIR/one.wav" WAV2="$TMPDIR/two.wav" WAV3="$TMPDIR/three.wav"
+    for i in "$WAV1" "$WAV2" "$WAV3"; do ln "$WAV" "$i" 2>/dev/null || cp "$WAV" "$i"; done
+
+    # Nothing running: list is the empty queue and, like status, writes nothing.
+    v queue list
+    expect "no player: queue list is empty, pos -1, exit 0" 0 '.status=="ok" and .pos==-1 and .count==0 and .items==[]'
+    v queue clear
+    expect "no player: queue clear is not_playing, exit 4" 4 '.status=="not_playing" and .error=="no player running"'
+    v queue shuffle
+    expect "usage: unknown queue action is exit 1" 1 '.status=="error"'
+    check "queue list and clear left no runtime dir behind" test ! -e "$rt"
+
+    v queue add "$WAV1"
+    expect "queue add from cold: starts at once, playing, pos 0, count 1" 0 \
+        '.status=="ok" and .action=="add" and .state=="playing" and .url==$ENV.WAV1 and .pos==0 and .count==1'
+    pid=$(mpv_of)
+    v queue add "$WAV2"
+    expect "queue add while playing: queued behind it, pos 1, count 2" 0 \
+        '.action=="add" and .state=="queued" and .url==$ENV.WAV2 and .pos==1 and .count==2'
+    v queue list
+    expect "queue list: pos 0, count 2, entry 0 current, entry 1 queued" 0 \
+        '.pos==0 and .count==2 and .items[0].url==$ENV.WAV1 and .items[0].current==true
+         and .items[1].url==$ENV.WAV2 and .items[1].index==1'
+    expect "queue list: a queued entry carries no current:false and no title" 0 \
+        '(.items[1]|keys) == ["index","url"]'
+    check "queue add did not touch the track that sounds" st '.state=="playing" and .url==$ENV.WAV1'
+
+    v control next
+    expect "control next: exit 0" 0 '.status=="ok" and .action=="next"'
+    check "control next: track two plays" poll 3 st '.state=="playing" and .url==$ENV.WAV2 and .time_pos>=0'
+    v control next
+    expect "control next past the end: unavailable, end of playlist, exit 4" 4 \
+        '.status=="unavailable" and .error=="end of playlist"'
+    check "refused next leaves track two playing" st '.state=="playing" and .url==$ENV.WAV2'
+    v control prev
+    expect "control prev: exit 0" 0 '.status=="ok" and .action=="prev"'
+    check "control prev: track one plays again" poll 3 st '.state=="playing" and .url==$ENV.WAV1'
+    v control prev
+    expect "control prev past the start: unavailable, start of playlist, exit 4" 4 \
+        '.status=="unavailable" and .error=="start of playlist"'
+
+    # pause is the player's: a next taken while paused must still sound.
+    "$BIN" control pause >/dev/null
+    check "paused before stepping on" poll 3 st '.state=="paused"'
+    v queue add "$WAV3"
+    expect "queue add while paused: queued, pos 2, count 3" 0 '.state=="queued" and .pos==2 and .count==3'
+    v control next
+    expect "control next while paused: exit 0" 0 '.action=="next"'
+    check "next while paused: track two plays, unpaused, playhead moving" \
+        poll 3 st '.state=="playing" and .url==$ENV.WAV2 and .time_pos>0.3'
+
+    v queue clear
+    expect "queue clear: exit 0" 0 '.status=="ok" and .action=="clear"'
+    v queue list
+    expect "after clear: only the sounding track is left, current" 0 \
+        '.count==1 and .pos==0 and .items[0].url==$ENV.WAV2 and .items[0].current==true'
+    check "after clear: track two still playing" st '.state=="playing" and .url==$ENV.WAV2'
+
+    "$BIN" queue add "$WAV1" >/dev/null
+    v play "$WAV3"
+    expect "play over a queue: playing track three, exit 0" 0 '.state=="playing" and .url==$ENV.WAV3'
+    v queue list
+    expect "play replaced the whole queue: one entry, track three" 0 \
+        '.count==1 and .pos==0 and .items[0].url==$ENV.WAV3 and .items[0].current==true'
+    DETAIL="was $pid, now $(mpv_of | tr '\n' ' ')"
+    check "the queue lived in the one mpv throughout" test "$(mpv_of)" = "$pid"
+
+    v control stop
+    expect "control stop: exit 0" 0 '.action=="stop"'
+    check "stop: mpv gone, and the queue with it" poll 3 gone "$pid"
+    v queue list
+    expect "after stop: queue list is empty again" 0 '.pos==-1 and .count==0 and .items==[]'
+
+    # Six adds racing from cold: one mpv; exactly one started it, five queued; none lost.
+    for i in 1 2 3 4 5 6; do ln "$WAV" "$TMPDIR/race$i.wav" 2>/dev/null || cp "$WAV" "$TMPDIR/race$i.wav"; done
+    for i in 1 2 3 4 5 6; do "$BIN" queue add "$TMPDIR/race$i.wav" >"$TMPDIR/race$i.out" 2>&1 & done
+    wait
+    bad=
+    for i in 1 2 3 4 5 6; do
+        [[ $(wc -l <"$TMPDIR/race$i.out") -eq 1 ]] && jq -e '.status=="ok" and .action=="add"' "$TMPDIR/race$i.out" >/dev/null 2>&1 \
+            || bad+="add $i: $(cat "$TMPDIR/race$i.out") "
+    done
+    DETAIL=$bad
+    check "6 queue adds racing from cold: all ok, one envelope each" test -z "$bad"
+    DETAIL="$(mpv_of | tr '\n' ' ')"
+    check "cold add race: flock let exactly one mpv start" one_mpv
+    pid=$(mpv_of)
+    DETAIL="$(cat "$TMPDIR"/race*.out)"
+    check "cold add race: exactly one add started playback, five queued" \
+        test "$(cat "$TMPDIR"/race*.out | jq -s '[.[] | select(.state=="playing")] | length')" -eq 1 \
+          -a "$(cat "$TMPDIR"/race*.out | jq -s '[.[] | select(.state=="queued")] | length')" -eq 5
+    v queue list
+    export RACE="$TMPDIR/race"
+    expect "cold add race: the queue holds all six, each once" 0 \
+        '.count==6 and ([.items[].url] | sort) == ([range(1;7)] | map($ENV.RACE + "\(.).wav"))'
+    v control stop
+    expect "after the add race: stop, exit 0" 0 '.action=="stop"'
+    check "after the add race: mpv exited" poll 3 gone "$pid"
+}
+
+# ---- K: explicit query-to-play resolution ---------------------------------------------------
+# A song named, not linked: ytsearch1: goes to yt-dlp as is and to mpv behind ytdl://, and
+# comes back as the watch URL it resolved to. Any other search prefix is the caller's mistake.
+QUERY="ytsearch1:Never Gonna Give You Up"
+block_k() {
+    local pid
+    fetch kinspect inspect "$QUERY" &
+    fetch ktranscript transcript "$QUERY" --range 18-30 &
+    fetch kplain inspect "https://www.youtube.com/watch?v=dQw4w9WgXcQ&search_query=ytsearch5:foo" &
+
+    "$BIN" play "$WAV" >/dev/null && "$BIN" control volume 0 >/dev/null   # keep the suite silent
+    pid=$(mpv_of)
+    v play "$QUERY"
+    expect "play ytsearch1: a query: playing, the envelope gives the watch URL" 0 \
+        '.status=="ok" and .state=="playing" and .url=="https://www.youtube.com/watch?v=dQw4w9WgXcQ"'
+    check "status: the query resolved to the watch URL, sounding at volume 0" \
+        poll 10 st '.state=="playing" and .url=="https://www.youtube.com/watch?v=dQw4w9WgXcQ" and .duration>200 and .volume==0'
+    v queue add "ytsearch1:Rick Astley Together Forever"
+    expect "queue add a query while playing: queued as the ytdl:// search" 0 \
+        '.state=="queued" and .url=="ytdl://ytsearch1:Rick Astley Together Forever" and .pos==1 and .count==2'
+    v queue list
+    expect "queue list: the sounding query titled, the queued one as given" 0 \
+        '(.items[0].title|length>0) and .items[0].current==true and .items[1].url=="ytdl://ytsearch1:Rick Astley Together Forever"'
+    v control stop
+    expect "control stop: exit 0" 0 '.action=="stop"'
+    check "mpv gone after stop" poll 3 gone "$pid"
+    wait
+
+    load kinspect
+    expect "inspect ytsearch1: the first hit, unwrapped: 11-char id, title, duration" 0 \
+        '.status=="ok" and .id=="dQw4w9WgXcQ" and (.id|test("^[A-Za-z0-9_-]{11}$")) and (.title|test("Never Gonna Give You Up"))
+         and .duration>200 and (has("entries")|not) and (has("_type")|not)'
+    load ktranscript
+    expect "transcript ytsearch1: the hit's human track, cues in [18,30)" 0 \
+        '.status=="ok" and .is_auto==false and .lang=="en" and (.segments|length)>0
+         and all(.segments[]; .start<30 and .end>18) and ([.segments[].text]|join(" ")|test("strangers to love"))'
+    load kplain
+    expect "a watch URL whose query string says search: passes, not a search prefix" 0 \
+        '.status=="ok" and .id=="dQw4w9WgXcQ"'
+
+    # Rejected before any network or player: exit 1 on every verb that takes a URL.
+    v inspect "ytsearch5:foo"
+    expect "inspect ytsearch5: is exit 1, unsupported search prefix" 1 '.status=="error" and (.error|test("unsupported search prefix"))'
+    v transcript "scsearch:foo"
+    expect "transcript scsearch: is exit 1" 1 '.status=="error" and (.error|test("unsupported search prefix"))'
+    v play "scsearch:foo"
+    expect "play scsearch: is exit 1" 1 '.status=="error" and (.error|test("unsupported search prefix"))'
+    v queue add "ytdl://ytsearch5:foo"
+    expect "queue add ytdl://ytsearch5: is exit 1" 1 '.status=="error" and (.error|test("unsupported search prefix"))'
+    check "refused queries started no mpv" test -z "$(mpv_of)"
+
+    # The contracts the queries must not loosen.
+    v inspect notaurl
+    expect "regression: inspect a non-URL is still exit 1" 1 '.status=="error" and (.error|test("not a valid URL"))'
+    v play "$TMPDIR/missing.wav"
+    expect "regression: play a missing file is still exit 4" 4 '.status=="error" and (.error|test("playback"))'
+    pid=$(mpv_of)
+    v control stop
+    expect "stop the player the missing file left idle: exit 0" 0 '.action=="stop"'
+    check "mpv gone after stop" poll 3 gone "$pid"
+}
+
+# ---- L: queue-ended perception --------------------------------------------------------------
+# The agent queues a set and waits once for the whole of it to play out, not per track.
+block_l() {
+    local s1="$TMPDIR/short1.wav" s2="$TMPDIR/short2.wav" pid bg
+    silence "$s1" 2
+    silence "$s2" 2
+
+    v events --until queue_ended --timeout 1
+    expect "no player: events --until queue_ended is not_playing, exit 4" 4 \
+        '.status=="not_playing" and .error=="no player running"'
+
+    v queue add "$s1"
+    expect "queue add short track one from cold: playing" 0 '.state=="playing" and .pos==0'
+    pid=$(mpv_of)
+    v queue add "$s2"
+    expect "queue add short track two: queued behind it" 0 '.state=="queued" and .pos==1 and .count==2'
+
+    "$BIN" events --until queue_ended --timeout 10 >"$TMPDIR/qend.ev" 2>&1 &
+    bg=$!
+    wait $bg
+    RC=$?
+    OUT=$(cat "$TMPDIR/qend.ev")
+    expect "events --until queue_ended: fires once both tracks play out, exit 0" 0 '. == {"event":"queue_ended"}'
+
+    v status
+    expect "after queue_ended: the player is idle" 0 '.state=="idle"'
+    v queue list
+    expect "after queue_ended: queue list is empty, not the played history" 0 '.pos==-1 and .count==0 and .items==[]'
+    v events --until queue_ended --timeout 1
+    expect "idle player: events --until queue_ended is not_playing, player is idle, exit 4" 4 \
+        '.status=="not_playing" and .error=="player is idle"'
+    v queue clear
+    expect "idle player: queue clear is not_playing, exit 4" 4 '.status=="not_playing" and .error=="player is idle"'
+    v control next
+    expect "idle player: control next is not_playing, exit 4" 4 '.status=="not_playing"'
+
+    # A queue the agent stops is not a queue that ended: the wait ends with player exited.
+    v queue add "$WAV"
+    expect "queue add on the idle player: starts afresh at pos 0, count 1" 0 '.state=="playing" and .pos==0 and .count==1'
+    "$BIN" events --until queue_ended --timeout 10 >"$TMPDIR/qstop.ev" 2>&1 &
+    bg=$!
+    sleep 0.3
+    "$BIN" control stop >/dev/null
+    wait $bg
+    RC=$?
+    OUT=$(cat "$TMPDIR/qstop.ev")
+    expect "stop mid-queue: queue_ended wait ends not_playing, player exited, exit 4" 4 \
+        '.status=="not_playing" and .error=="player exited"'
+    check "mpv gone after stop" poll 3 gone "$pid"
+    check "zero residual player in block l" test -z "$(mpv_of)"
+}
+
 # ---- run ------------------------------------------------------------------------------------
 START=$SECONDS
 block a block_a &
@@ -804,13 +1035,17 @@ block f block_f &
 block g block_g &
 block h block_h &
 block i block_i &
+block j block_j &
+block k block_k &
+block l block_l &
 wait
 
 PASS=0 FAIL=0
 for blk in "a:A  security boundary" "b:B  ingest contract + E-a study workflow" "c:C  playback state machine" \
     "d:D  concurrency" "eb:E-b background listening" "ec:E-c wait, what did he just say" \
     "ed:E-d autonomous DJ next-track" "ee:E-e AirPods pinch & rewind" "ef:E-f bilingual lyrics grounding" \
-    "f:F  token budget" "g:G  acoustic ergonomics" "h:H  grounding to artifact" "i:I  event contract"; do
+    "f:F  token budget" "g:G  acoustic ergonomics" "h:H  grounding to artifact" "i:I  event contract" \
+    "j:J  transient queue" "k:K  query resolution" "l:L  queue-ended perception"; do
     echo "=== ${blk#*:} ==="
     [[ -s "$RUN/${blk%%:*}.res" ]] || { echo "  (block reported nothing)"; FAIL=$((FAIL + 1)); continue; }
     while IFS='|' read -r verdict name detail; do
