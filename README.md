@@ -82,7 +82,6 @@ bash tests/test_suite.sh
 ## 架构正本与规范
 
 - **系统架构正本**：[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-- **第一性原理调研**：[`docs/RESEARCH-agent-media-engine-refactor.md`](docs/RESEARCH-agent-media-engine-refactor.md)
 - **演进全表与更新日志**：[`CHANGELOG.md`](CHANGELOG.md)
 - **Agent 交互手册**：[`docs/USER_MANUAL.md`](docs/USER_MANUAL.md) · [认知击穿幻灯版](docs/USER_MANUAL-slides.html)
 - **Agent Skill 规范**：[`SKILL.md`](SKILL.md)
