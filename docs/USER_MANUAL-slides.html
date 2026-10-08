@@ -666,10 +666,57 @@
       </section>
 
       <!-- ===================================================================
-           SLIDE 06: 知识资产沉淀 (ASSET FLOW)
+           SLIDE 06: 视觉感知破壁 (FRAME PERCEPTION)
            =================================================================== -->
       <section class="slide" data-index="6">
-        <div class="kicker">06 / SCENARIO 04 · KNOWLEDGE CRYSTALLIZATION</div>
+        <div class="kicker">06 / SCENARIO 07 · FRAME PERCEPTION</div>
+        <h2 class="title">视觉破壁：告别“盲人摸象”，直视架构拓扑与代码屏幕</h2>
+        <p class="lead">长程技术演讲的关键事实大量残留在 PPT、白板与终端上；端侧单帧感知让 Agent 真正睁开双眼。</p>
+
+        <div class="grid-2">
+          <div class="slab">
+            <div class="slab-header">
+              <span class="slab-title">纯文本大模型的“认知断层”</span>
+              <span class="stamp-tag tag-rust">盲人摸象</span>
+            </div>
+            <div class="slab-body">
+              <p><b>演讲者口述</b>：“<i>大家请看这张架构图，左侧调度器直接穿透网络栈连入环形缓冲区...</i>”</p>
+              <div class="asphalt-box">
+                ❌ <b>纯文本 Agent 困境</b>：<br>
+                口述中只有一句“如图所示”，大模型陷入信息黑洞，开始基于通用预训练产生二手幻想。<br><br>
+                💡 <b>Case 1 真实战例 (3Blue1Brown)</b>：<br>
+                口述通篇仅提及 “<i>specifically a number between zero and one</i>”，未念出具体数字；纯文本模型在数值追问上全军覆没。
+              </div>
+              <p>• <b>断层根因</b>：高密度技术信息在音频轨与视觉轨之间天然非对称分布。</p>
+            </div>
+          </div>
+
+          <div class="slab">
+            <div class="slab-header">
+              <span class="slab-title">jue frame 视听融合去幻觉</span>
+              <span class="stamp-tag tag-blue">法庭级证据</span>
+            </div>
+            <div class="slab-body">
+              <p><b>Agent 执行</b>：<span class="c-cmd">jue frame &lt;url&gt;</span> <span class="c-arg">--at 180 --width 960</span></p>
+              <div class="asphalt-box">
+                ⚡ <b>毫秒级瞬态抽帧</b>：<br>
+                - <b>冷启动 2.5s / 热命中 0.5s</b>（纯 Go 32 分片直链缓存）<br>
+                - <b>极轻产物</b>：单帧仅 <b>16.2 KB</b>，双边等比外框约束锁定在 <b>~690 Tokens</b><br><br>
+                👁 <b>Agent 睁眼直视 (read_image)</b>：<br>
+                - 准确读取浅蓝圆圈内的浮点数 <b>0.8</b><br>
+                - 精确提取 LaTeX 排版：<b>Neuron → Thing that holds a number</b><br>
+                - <b>双轨交付</b>：人类端交付带 <span class="c-arg">&amp;t=180s</span> 外网直达链接，彻底规避 Web GUI 裂图
+              </div>
+              <p>• <b>闭环收益</b>：以几十 KB 的极简开销，换取 100% 确定性的声画互验事实证据链。</p>
+            </div>
+          </div>
+        </div>
+      </section>
+      <!-- ===================================================================
+           SLIDE 07: 知识资产沉淀 (ASSET FLOW)
+           =================================================================== -->
+      <section class="slide" data-index="7">
+        <div class="kicker">07 / SCENARIO 04 · KNOWLEDGE CRYSTALLIZATION</div>
         <h2 class="title">从瞬态流媒体，到终身知识资产</h2>
         <p class="lead">普通人听播客听过就忘；协同大脑将研读切片沉淀为 co-library 终身可检索的客观资产。</p>
 
@@ -712,8 +759,8 @@
       <!-- ===================================================================
            SLIDE 07: 告别轮询 (AUTONOMOUS BEACON)
            =================================================================== -->
-      <section class="slide" data-index="7">
-        <div class="kicker">07 / SCENARIO 05 · AUTONOMOUS BEACON</div>
+      <section class="slide" data-index="8">
+        <div class="kicker">08 / SCENARIO 05 · AUTONOMOUS BEACON</div>
         <h2 class="title">告别轮询：事件信标与零开销续播</h2>
         <p class="lead">如何当好自动续播 DJ？坚决不搞死循环轮询。mpv 原生 IPC 广播直连，曲毕瞬间平滑接力。</p>
 
@@ -763,8 +810,8 @@
       <!-- ===================================================================
            SLIDE 08: 异常降级自愈 (RESILIENCE & CONTRACT)
            =================================================================== -->
-      <section class="slide" data-index="8">
-        <div class="kicker">08 / RESILIENCE & CONTRACT</div>
+      <section class="slide" data-index="9">
+        <div class="kicker">09 / RESILIENCE & CONTRACT</div>
         <h2 class="title">绝不向智能体抛出未经处理的异常</h2>
         <p class="lead">真实网络与多媒体底层极其脆弱。四级退出码与机器信封确立优雅降级梯级。</p>
 
@@ -800,8 +847,8 @@
       <!-- ===================================================================
            SLIDE 09: 极致细腰底线 (SYSTEM INVARIANTS)
            =================================================================== -->
-      <section class="slide" data-index="9">
-        <div class="kicker">09 / SYSTEM INVARIANTS</div>
+      <section class="slide" data-index="10">
+        <div class="kicker">10 / SYSTEM INVARIANTS</div>
         <h2 class="title">极致细腰：锁定单一最优解，拒绝二房东守护</h2>
         <p class="lead">前沿最佳实践不是无脑多驱动抽象，而是锁死最优原语，在确定性上做到极致。</p>
 
@@ -846,8 +893,8 @@
       <!-- ===================================================================
            SLIDE 10: 终极心智宣言 (THE MANIFESTO)
            =================================================================== -->
-      <section class="slide" data-index="10">
-        <div class="kicker">10 / THE MANIFESTO</div>
+      <section class="slide" data-index="11">
+        <div class="kicker">11 / THE MANIFESTO</div>
         <h2 class="title">动嘴编排、动手急停、分章切片、可信存证</h2>
         <p class="lead">智能体时代的端侧微外设新秩序：以纯粹细腰缝合高维认知与底层声学。</p>
 
