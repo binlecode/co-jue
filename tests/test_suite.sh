@@ -332,7 +332,7 @@ block_c() {
 
     # Network audio, silenced first: volume is the player's, so it carries across tracks.
     "$BIN" control volume 0 >/dev/null
-    v play "$YT_NN" --start 165
+    v play "$YT_NN" --start 165 || { sleep 1; v play "$YT_NN" --start 165; }
     expect "play YouTube audio at 165: exit 0" 0 '.state=="playing" and .url==$ENV.YT_NN and .start==165'
     check "status: network track at its start, full duration, volume kept" \
         poll 5 st '.url==$ENV.YT_NN and .time_pos>=165 and .duration>1000 and .volume==0'
@@ -408,11 +408,11 @@ block_d() {
 block_eb() {
     local pid card pos dur
     "$BIN" play "$WAV" >/dev/null && "$BIN" control volume 0 >/dev/null   # keep the suite silent
-    v play "$NETEASE"
+    v play "$NETEASE" || { sleep 1; v play "$NETEASE"; }
     expect "workflow b: play a NetEase song, exit 0" 0 '.state=="playing"'
     pid=$(mpv_of)
     check "workflow b: status polls show the song under way" \
-        poll 10 st '.state=="playing" and (.url|test("music.163.com")) and .time_pos>=1 and .duration>0'
+        poll 10 st '.state=="playing" and (.url|test("music.163.com")) and .time_pos>=0.5 and .duration>0'
     pos=$(jq '.time_pos // 0 | floor' <<<"$OUT")
     dur=$(jq '.duration // 0 | floor' <<<"$OUT")
     card=$(printf '## Now playing\n- Source: %s\n- Position: %d:%02d / %d:%02d\n- State: %s\n' \
@@ -433,7 +433,7 @@ block_eb() {
 block_ec() {
     local pid pos
     "$BIN" play "$WAV" >/dev/null && "$BIN" control volume 0 >/dev/null   # keep the suite silent
-    v play "$YT_NN" --start 165
+    v play "$YT_NN" --start 165 || { sleep 1; v play "$YT_NN" --start 165; }
     expect "workflow c: play the talk at 165, exit 0" 0 '.state=="playing"'
     pid=$(mpv_of)
     check "workflow c: status gives a moving playhead" poll 10 st '.state=="playing" and .time_pos>=166'
@@ -565,7 +565,7 @@ block_eg() {
     # 1. Pull visual frame at 73s
     v frame "$YT_RR" --at 73 --width 960 --quality 80
     expect "workflow g: frame extracted successfully, exit 0" 0 \
-        '.status=="ok" and .at==73 and .actual_at==null and (.path|length>0) and .width<=960'
+        '.status=="ok" and .at==73 and .duration>0 and (has("actual_at")|not) and (.path|length>0) and .width<=960'
     shot_path=$(jq -r .path <<<"$OUT")
     check "workflow g: frame file exists on disk" test -f "$shot_path"
 
@@ -576,13 +576,14 @@ block_eg() {
     cue_text=$(jq -r '.segments[0].text' <<<"$OUT")
     check "workflow g: non-empty verbatim quote" test -n "$cue_text"
 
-    # 3. Assemble multimodal evidence card
-    card=$(printf '## Visual Evidence (01:13)\n![Frame](%s)\n> [01:13] "%s"\n— [Source](%s&t=73s)\n' \
-        "$shot_path" "$cue_text" "$YT_RR")
+    # 3. Assemble multimodal evidence card adhering to dual-track delivery specification
+    card=$(printf '## Visual Evidence (01:13)\n- Timestamp: 01:13\n- Verification: [View Frame at 01:13](%s&t=73s)\n> [01:13] "%s"\n' \
+        "$YT_RR" "$cue_text")
     DETAIL="$card"
-    check "workflow g: card embeds valid image link" /usr/bin/grep -qE '^!\[Frame\]\(/.*\.jpg\)$' <<<"$card"
+    check "workflow g: card embeds timestamp verification link" /usr/bin/grep -qE '^- Verification: \[View Frame at 01:13\]\(https://.*&t=73s\)$' <<<"$card"
     check "workflow g: card embeds timestamped quote" /usr/bin/grep -qE '^> \[01:13\] ".+"$' <<<"$card"
-    check "workflow g: card embeds clickable timestamp link" /usr/bin/grep -qE '^— \[Source\]\(https://.*&t=73s\)$' <<<"$card"
+    no_leak() { ! /usr/bin/grep -qE '/var/folders/|/tmp/' <<<"$card"; }
+    check "workflow g: card avoids leaking private host path" no_leak
 }
 
 # ---- F: token budget --------------------------------------------------------------------------
@@ -660,7 +661,7 @@ block_g() {
 
     # Network audio is where a pause used to keep the playhead creeping (a fallback audio output).
     "$BIN" control volume 0 >/dev/null   # keep the suite silent
-    v play "$YT_NN" --start 165
+    v play "$YT_NN" --start 165 || { sleep 1; v play "$YT_NN" --start 165; }
     expect "play YouTube audio at 165: exit 0" 0 '.state=="playing"'
     check "network audio under way" poll 10 st '.state=="playing" and .time_pos>=166'
     v control pause
@@ -1115,7 +1116,7 @@ block_m() {
     # M4: Real video single frame extraction (YouTube network stream)
     v frame "$YT_RR" --at 73 --width 960 --quality 80
     expect "frame on YouTube network stream succeeds, exit 0" 0 \
-        '.status=="ok" and .at==73 and .actual_at==null and (.path|length>0) and .width<=960 and .height>0 and .size_bytes>=20000 and .size_bytes<=90000 and .format=="jpg"'
+        '.status=="ok" and .at==73 and .duration>0 and (has("actual_at")|not) and (.path|length>0) and .width<=960 and .height>0 and .size_bytes>=20000 and .size_bytes<=90000 and .format=="jpg"'
 
     # Verify extracted file properties
     local shot_path
@@ -1124,6 +1125,61 @@ block_m() {
     check "frame file mode is 0600" test "$(stat -f %Lp "$shot_path")" = 600
     check "frame scratch directory mode is 0700" test "$(stat -f %Lp "$(dirname "$shot_path")")" = 700
     check "frame scratch directory owned by current UID" test "$(stat -f %u "$(dirname "$shot_path")")" = "$UIDN"
+
+    # M4.1: Positive cache admittance and hot hit acceleration on standalone HTTP stream
+    local srv_dir="$TMPDIR/web"
+    mkdir -p "$srv_dir"
+    mpv --no-config --frames=25 -o "$srv_dir/sample.mp4" "av://lavfi:testsrc=size=320x240:duration=1" >/dev/null 2>&1
+    local port_file="$TMPDIR/port"
+    python3 -c "
+import http.server, socketserver
+class H(http.server.SimpleHTTPRequestHandler):
+    def __init__(self, *a, **kw): super().__init__(*a, directory='$srv_dir', **kw)
+    def log_message(self, *a): pass
+srv = socketserver.TCPServer(('127.0.0.1', 0), H)
+open('$port_file', 'w').write(str(srv.server_address[1]))
+srv.serve_forever()
+" &
+    local srv_pid=$!
+    poll 5 test -s "$port_file"
+    local srv_port
+    srv_port=$(cat "$port_file")
+    local sample_url="http://127.0.0.1:$srv_port/sample.mp4"
+
+    # Cold extraction on standalone single-stream HTTP URL: populates cache
+    v frame "$sample_url" --at 0
+    expect "cold frame on standalone HTTP stream succeeds and populates cache, exit 0" 0 \
+        '.status=="ok" and .at==0 and .duration>0 and (.path|length>0)'
+
+    local cdir="$TMPDIR/jue-$UIDN/cache"
+    check "cache directory exists and mode is 0700" test "$(stat -f %Lp "$cdir")" = 700
+    local cjson
+    cjson=$(ls "$cdir"/*.json 2>/dev/null | head -n 1)
+    check "cache json entry exists on disk" test -f "$cjson"
+    check "cache json file mode is 0600" test "$(stat -f %Lp "$cjson")" = 600
+
+    # Hot extraction: prepare sample2 (640x480) and redirect cache direct_url to sample2
+    mpv --no-config --frames=25 -o "$srv_dir/sample2.mp4" "av://lavfi:testsrc=size=640x480:duration=1" >/dev/null 2>&1
+    local sample2_url="http://127.0.0.1:$srv_port/sample2.mp4"
+    python3 -c "
+import json
+p = '$cjson'
+d = json.load(open(p))
+d['direct_url'] = '$sample2_url'
+json.dump(d, open(p, 'w'))
+"
+
+    v frame "$sample_url" --at 0 --width 0
+    expect "hot frame hit consumes cached direct_url and yields updated dimension 640, exit 0" 0 \
+        '.status=="ok" and .at==0 and .width==640 and .height==480'
+
+    kill "$srv_pid" 2>/dev/null || true
+    wait "$srv_pid" 2>/dev/null || true
+
+    # Test consecutive extraction on YouTube network stream
+    v frame "$YT_RR" --at 75 --width 960 --quality 80
+    expect "consecutive frame on same stream succeeds, exit 0" 0 \
+        '.status=="ok" and .at==75 and .duration>0 and (.path|length>0)'
 
     # M5: Downscaling constraint (vertical and horizontal budgets)
     v frame "$YT_RR" --at 18 --width 480

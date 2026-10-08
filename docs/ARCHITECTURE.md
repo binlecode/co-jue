@@ -249,7 +249,7 @@ mpv 启动时配置 `--input-media-keys=yes`。在 macOS 上原生接管全局�
 {"status":"unavailable","error":"no original-language subtitles for https://..."}
 
 // 单帧视觉感知 (jue frame --at 73)
-{"status":"ok","url":"https://...","at":73.0,"actual_at":null,"path":"/tmp/jue-501/scratch-frame-123/frame_73s.jpg","width":960,"height":540,"size_bytes":43490,"format":"jpg"}
+{"status":"ok","url":"https://...","at":73.0,"duration":213.0,"path":"/tmp/jue-501/scratch-frame-123/frame_73s.jpg","width":960,"height":540,"size_bytes":43490,"format":"jpg"}
 
 // 媒体无有效视频轨
 {"status":"unavailable","error":"media contains no video stream"}
@@ -297,6 +297,18 @@ mpv 启动时配置 `--input-media-keys=yes`。在 macOS 上原生接管全局�
 - 运行时在 `$TMPDIR/jue-<uid>/` 下创建模式为 `0700` 的专用临时目录 `scratch-frame-*`；
 - 图片文件生成后由 Go 侧显式调用 `os.Chmod(targetPath, 0600)` 确立权限；
 - 每次创建 scratch 目录时就地同步执行 `syncOpportunisticGC`（门控：至多 30 次进程组存活探测、耗时上限 50ms；未过期、无 pgid 或 pgid 损坏的目录跳过且不计入配额）；仅对 `time.Since > 1h` 且包含有效 `0600` `pgid` 文件、且负 PID 探测返回 `ESRCH` 确认消亡的过期目录执行清理，存活或损坏目录安全跳过。
+
+### 6.5 短期流直链缓存引擎与毫秒级寻址加速 (`cache.go`)
+
+在长视频密集连续抽帧研读场景中，为消除每次调用重复拉取网页与解析 Manifest 的 2.5s 冷启动损耗，系统引入纯 Go 标准库实现的流直链短期缓存机制（`$TMPDIR/jue-<uid>/cache/`，10m TTL）：
+- **固定分片稳定锁桶与非阻塞排他锁 (LOCK_NB)**：缓存读写与失效删除均通过固定 32 分片的稳定身份锁池（`flock LOCK_NB on cache/shard_xx.lock`）保护。锁文件身份永恒稳定且绝不 unlink，彻底根除 flock 句柄复用竞态与无界锁累积；争抢时立即跳过可选缓存维护，直接走冷启动解流，绝不发生锁阻塞等待，绝不侵蚀主时间预算；GC 仅对过期条目计数，未过期条目直接跳过，彻底根除扫描饥饿；
+- **严格准入四大法定证据链**：
+  1. 解复用器格式白名单：严格匹配单媒体封装白名单（`mov,mp4,m4a,3gp,3g2,mj2` 或 `matroska,webm` 等），坚决拒收 `edl://`、HLS/DASH 自适应分段清单流；
+  2. 点播有限正时长证据：`${=duration}` 必须存在、有限且严格大于零；
+  3. 目标必须以 `http(s)` 开头；
+  4. 鉴权依赖检测通道：通过 `stream-lavf-o` 明确检测动态 Cookie 注入，存在私有 Cookie 依赖坚决拒绝准入；单条无歧义 Referer 与 User-Agent 原样结构化保存并在热命中时通过 `--http-header-fields` 与 `--user-agent` 完整透传给 mpv，确保脱离 ytdl 后 100% 具备独立可复播性；无法完整取得证据时坚定跳过写缓存，直接走冷启动解流；
+- **指纹校验防 TOCTOU 竞态**：条目内置内容版本指纹（`Fingerprint`）；失效清除时在条目锁内重新读取磁盘条目，核验指纹与当前失败直链完全吻合才执行 unlink，彻底消除并发下 A 读 B 改 A 删的竞态；
+- **调用级绝对 Deadline 机制**：顶层显式划分子进程执行截止时刻 `workDeadline := callDeadline.Add(-200ms)`，子进程执行与等待严格死锁在 17.3s 调度预算内，留足 200ms 核心交付硬预算至 17.5s 物理硬上限；若预算不足直接拦截返回超时 Exit 2，严禁预算耗尽强启新进程。
 
 ---
 

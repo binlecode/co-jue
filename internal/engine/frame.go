@@ -5,8 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"image"
-	_ "image/jpeg"
+	"image/jpeg"
 	"math"
 	"os"
 	"os/exec"
@@ -22,12 +21,14 @@ import (
 )
 
 // FrameResult is the single-line JSON envelope for the frame verb.
-// actual_at is explicitly *float64 (nil serializes to JSON null) to avoid false precision.
+// actual_at is explicitly *float64 (omitempty when nil) to avoid false precision.
+// duration carries the total media duration in seconds when detected.
 type FrameResult struct {
 	Status    string   `json:"status"`
 	URL       string   `json:"url"`
 	At        float64  `json:"at"`
-	ActualAt  *float64 `json:"actual_at"` // nil (serializes to JSON null)
+	Duration  float64  `json:"duration,omitempty"`
+	ActualAt  *float64 `json:"actual_at,omitempty"`
 	Path      string   `json:"path"`
 	Width     int      `json:"width"`
 	Height    int      `json:"height"`
@@ -45,7 +46,7 @@ var (
 	// writePgidFile is the pgid identifier file writer, swappable for testing failure injection.
 	writePgidFile = os.WriteFile
 
-	// Production time budget parameters, swappable for testing.
+	// Production time budget parameters, strictly verified by invariants.
 	frameTimeout      = 15 * time.Second
 	frameWaitDelay    = 2 * time.Second
 	frameTeardownPoll = 500 * time.Millisecond
@@ -71,9 +72,6 @@ func parseDurationFromOutput(out string) (float64, bool) {
 // syncOpportunisticGC scans runtimeDir for expired scratch-frame-* directories
 // created over ttl ago whose process group has completely terminated.
 // It is strictly bounded: at most 30 liveness probes and 50ms execution time.
-// Only entries that reach the process-group probe spend the budget; young, foreign or
-// pgid-less/corrupt entries are skipped without counting (and retained), so a stable head
-// of such directories cannot starve the reapable ones behind it.
 func syncOpportunisticGC(runtimeDir string, ttl time.Duration) {
 	deadline := time.Now().Add(50 * time.Millisecond)
 	f, err := os.Open(runtimeDir)
@@ -82,56 +80,122 @@ func syncOpportunisticGC(runtimeDir string, ttl time.Duration) {
 	}
 	defer f.Close()
 
-	entries, err := f.ReadDir(-1)
-	if err != nil {
-		return
-	}
-
 	checked := 0
-	for _, entry := range entries {
+	for {
 		if checked >= 30 || time.Now().After(deadline) {
 			break
 		}
-		name := entry.Name()
-		if !strings.HasPrefix(name, "scratch-frame-") {
-			continue
+		entries, err := f.ReadDir(30)
+		if err != nil || len(entries) == 0 {
+			break
 		}
-		dirPath := filepath.Join(runtimeDir, name)
-		info, err := entry.Info()
-		if err != nil || !info.IsDir() {
-			continue
-		}
-		if time.Since(info.ModTime()) <= ttl {
-			continue
-		}
+		for _, entry := range entries {
+			if checked >= 30 || time.Now().After(deadline) {
+				break
+			}
+			name := entry.Name()
+			if !strings.HasPrefix(name, "scratch-frame-") {
+				continue
+			}
+			dirPath := filepath.Join(runtimeDir, name)
+			info, err := entry.Info()
+			if err != nil || !info.IsDir() {
+				continue
+			}
+			if time.Since(info.ModTime()) <= ttl {
+				continue
+			}
 
-		// Strictly verify pgid file attributes: regular file, not a symlink, exactly mode 0600
-		pgidFile := filepath.Join(dirPath, "pgid")
-		fi, err := os.Lstat(pgidFile)
-		if err != nil || !fi.Mode().IsRegular() || fi.Mode()&os.ModeSymlink != 0 || fi.Mode().Perm() != 0600 {
-			continue
-		}
-		data, err := os.ReadFile(pgidFile)
-		if err != nil {
-			continue
-		}
-		pgidStr := strings.TrimSpace(string(data))
-		dirPgid, err := strconv.Atoi(pgidStr)
-		if err != nil || dirPgid <= 0 {
-			continue
-		}
-		checked++
+			pgidFile := filepath.Join(dirPath, "pgid")
+			fi, err := os.Lstat(pgidFile)
+			if err != nil || !fi.Mode().IsRegular() || fi.Mode()&os.ModeSymlink != 0 || fi.Mode().Perm() != 0600 {
+				continue
+			}
+			data, err := os.ReadFile(pgidFile)
+			if err != nil {
+				continue
+			}
+			pgidStr := strings.TrimSpace(string(data))
+			dirPgid, err := strconv.Atoi(pgidStr)
+			if err != nil || dirPgid <= 0 {
+				continue
+			}
+			checked++
 
-		// Verify that the whole process group is dead: must receive syscall.ESRCH
-		if err := syscall.Kill(-dirPgid, 0); errors.Is(err, syscall.ESRCH) {
-			_ = os.RemoveAll(dirPath)
+			if err := syscall.Kill(-dirPgid, 0); errors.Is(err, syscall.ESRCH) {
+				_ = os.RemoveAll(dirPath)
+			}
 		}
 	}
+
+	// Also opportunistically clean expired cache files
+	opportunisticCacheGC(filepath.Join(runtimeDir, "cache"), ttl, deadline)
+}
+
+// executeOneShotMPV launches a one-shot mpv subprocess under an isolated process group.
+// It manages the process lifecycle, reaping and termination, but does NOT remove scratch.
+func executeOneShotMPV(parentCtx context.Context, deadline time.Time, args []string, scratch string) (outStr string, waitErr error, dead bool, timedOut bool, err error) {
+	ctx, cancel := context.WithDeadline(parentCtx, deadline)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "mpv", args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.WaitDelay = frameWaitDelay
+	cmd.Cancel = func() error {
+		if cmd.Process != nil {
+			return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		}
+		return nil
+	}
+
+	stdout := &firstEntryGuard{}
+	var stderr bytes.Buffer
+	cmd.Stdout = stdout
+	cmd.Stderr = &stderr
+
+	var pgid int
+	defer func() {
+		if pgid > 0 {
+			_ = syscall.Kill(-pgid, syscall.SIGKILL)
+			deadline := time.Now().Add(frameTeardownPoll)
+			for time.Now().Before(deadline) {
+				if err := syscall.Kill(-pgid, 0); errors.Is(err, syscall.ESRCH) {
+					dead = true
+					break
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+		}
+	}()
+
+	if err := cmd.Start(); err != nil {
+		return "", nil, true, false, fail(2, "error", "failed to start mpv: %v", err)
+	}
+	pgid = cmd.Process.Pid
+	stdout.pgid.Store(int64(pgid))
+	if err := writePgidFile(filepath.Join(scratch, "pgid"), []byte(strconv.Itoa(pgid)), 0600); err != nil {
+		_ = syscall.Kill(-pgid, syscall.SIGKILL)
+		_ = cmd.Wait()
+		return "", nil, false, false, fail(2, "error", "write pgid file: %v", err)
+	}
+
+	waitErr = cmd.Wait()
+	out := append(stdout.Bytes(), stderr.Bytes()...)
+	outStr = string(out)
+
+	if ctx.Err() == context.DeadlineExceeded {
+		return outStr, waitErr, dead, true, nil
+	}
+	return outStr, waitErr, dead, false, nil
 }
 
 // Frame captures a single visual frame from rawURL at seconds at, scaled to width
 // with JPEG compression quality.
 func Frame(rawURL string, at float64, width int, quality int) (*FrameResult, error) {
+	// Call-level absolute deadlines
+	callDeadline := time.Now().Add(17500 * time.Millisecond)
+	workDeadline := callDeadline.Add(-200 * time.Millisecond)
+
 	// 1. Parameter validation: at >= 0 && at < 1e8, no NaN/Inf; width 0-3840; quality 1-100
 	if math.IsNaN(at) || math.IsInf(at, 0) || at < 0 || at >= 1e8 {
 		return nil, fail(1, "error", "invalid --at value: %v", at)
@@ -164,121 +228,70 @@ func Frame(rawURL string, at float64, width int, quality int) (*FrameResult, err
 	}
 	syncOpportunisticGC(rDir, time.Hour)
 
-	scratch, err := os.MkdirTemp(rDir, "scratch-frame-")
-	if err != nil {
-		return nil, fail(2, "error", "create scratch dir: %v", err)
-	}
-	if err := os.Chmod(scratch, 0700); err != nil {
-		_ = os.RemoveAll(scratch)
-		return nil, fail(2, "error", "chmod scratch dir: %v", err)
+	createScratch := func() (string, error) {
+		s, err := os.MkdirTemp(rDir, "scratch-frame-")
+		if err != nil {
+			return "", fail(2, "error", "create scratch dir: %v", err)
+		}
+		if err := os.Chmod(s, 0700); err != nil {
+			_ = os.RemoveAll(s)
+			return "", fail(2, "error", "chmod scratch dir: %v", err)
+		}
+		return s, nil
 	}
 
-	// 5. One-shot mpv argument assembly
-	args := []string{
-		"--no-config", "--no-audio", "--no-sub", "--audio-display=no",
-		"--frames=1",
-		"--loop-playlist=no",
-		fmt.Sprintf("--start=%f", at),
-		"--hr-seek=yes",
-		`--ytdl-format=bv*[height<=720]/b[height<=720]`,
-		"--demuxer-max-bytes=8MiB",
-		"--demuxer-readahead-secs=0",
-		"--vo=image",
-		"--vo-image-format=jpg",
-		fmt.Sprintf("--vo-image-jpeg-quality=%d", quality),
-		fmt.Sprintf("--vo-image-outdir=%s", scratch),
-		"--term-playing-msg=DURATION:${=duration}",
-	}
+	vfFilter := ""
 	if width > 0 {
-		vfFilter := fmt.Sprintf("lavfi=[scale=w='min(%d,iw)':h='min(%d,ih)':force_original_aspect_ratio=decrease,scale=w='trunc(iw/2)*2':h='trunc(ih/2)*2']", width, width)
-		args = append(args, "--vf="+vfFilter)
+		vfFilter = fmt.Sprintf("lavfi=[scale=w='min(%d,iw)':h='min(%d,ih)':force_original_aspect_ratio=decrease,scale=w='trunc(iw/2)*2':h='trunc(ih/2)*2']", width, width)
 	}
-	args = append(args, "--", targetURL)
 
-	// 6. Subprocess setup with isolated process group. mpv's own pgid keeps the terminal's
-	// Ctrl-C from reaching it, so SIGINT/SIGTERM on jue cancel ctx and Cancel kills the group.
 	sigCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	ctx, cancel := context.WithTimeout(sigCtx, frameTimeout)
-	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "mpv", args...)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.WaitDelay = frameWaitDelay
-	cmd.Cancel = func() error {
-		if cmd.Process != nil {
-			return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	buildArgs := func(targetOutDir, mediaTarget string, noYtdl bool, headers map[string]string, ua string) []string {
+		a := []string{
+			"--no-config", "--no-audio", "--no-sub", "--audio-display=no",
+			"--frames=1",
+			"--loop-playlist=no",
+			fmt.Sprintf("--start=%f", at),
+			"--hr-seek=yes",
+			"--demuxer-max-bytes=8MiB",
+			"--demuxer-readahead-secs=0",
+			"--vo=image",
+			"--vo-image-format=jpg",
+			fmt.Sprintf("--vo-image-jpeg-quality=%d", quality),
+			fmt.Sprintf("--vo-image-outdir=%s", targetOutDir),
+			"--term-playing-msg=DURATION:${=duration}\nSTREAM_URL:${stream-open-filename}\nFILE_FORMAT:${file-format}\nHTTP_HEADERS:${file-local-options/http-header-fields}\nUSER_AGENT:${file-local-options/user-agent}\nLAVF_OPTS:${file-local-options/stream-lavf-o}",
 		}
-		return nil
-	}
-
-	stdout := &firstEntryGuard{}
-	var stderr bytes.Buffer
-	cmd.Stdout = stdout
-	cmd.Stderr = &stderr
-
-	var pgid int
-	var success bool
-
-	// Unified teardown: broadcast SIGKILL, poll ESRCH up to frameTeardownPoll, remove scratch only if !success && dead
-	defer func() {
-		if pgid > 0 {
-			_ = syscall.Kill(-pgid, syscall.SIGKILL)
-			var dead bool
-			deadline := time.Now().Add(frameTeardownPoll)
-			for time.Now().Before(deadline) {
-				if err := syscall.Kill(-pgid, 0); errors.Is(err, syscall.ESRCH) {
-					dead = true
-					break
+		if noYtdl {
+			a = append(a, "--no-ytdl")
+			if headers != nil {
+				if ref := headers["Referer"]; ref != "" {
+					a = append(a, "--http-header-fields=Referer: "+ref)
 				}
-				time.Sleep(10 * time.Millisecond)
 			}
-			if !success && dead {
-				_ = os.RemoveAll(scratch)
+			if ua != "" {
+				a = append(a, fmt.Sprintf("--user-agent=%s", ua))
 			}
+		} else {
+			a = append(a, `--ytdl-format=bv*[height<=720]/b[height<=720]`)
 		}
-	}()
-
-	if err := cmd.Start(); err != nil {
-		_ = os.RemoveAll(scratch)
-		return nil, fail(2, "error", "failed to start mpv: %v", err)
-	}
-	pgid = cmd.Process.Pid
-	stdout.pgid.Store(int64(pgid))
-	if err := writePgidFile(filepath.Join(scratch, "pgid"), []byte(strconv.Itoa(pgid)), 0600); err != nil {
-		_ = syscall.Kill(-pgid, syscall.SIGKILL)
-		_ = cmd.Wait() // 显式回收直接子进程，避免僵尸进程阻塞 ESRCH 探测
-		return nil, fail(2, "error", "write pgid file: %v", err)
+		if vfFilter != "" {
+			a = append(a, "--vf="+vfFilter)
+		}
+		a = append(a, "--", mediaTarget)
+		return a
 	}
 
-	waitErr := cmd.Wait()
-	out := append(stdout.Bytes(), stderr.Bytes()...)
-	outStr := string(out)
-
-	// 7. Interrupt / timeout check: Exit 2
-	if sigCtx.Err() != nil {
-		return nil, fail(2, "error", "interrupted")
-	}
-	if ctx.Err() == context.DeadlineExceeded {
-		return nil, fail(2, "error", "stream fetch timeout (15s)")
-	}
-
-	// 8. Positive evidence: media contains no video stream (Exit 4). A frame already on disk
-	// wins over log text: a title or file name may itself contain "Video: none".
-	srcPath := filepath.Join(scratch, "00000001.jpg")
-	if !nonEmptyFile(srcPath) && (strings.Contains(outStr, "No video or audio streams selected") || strings.Contains(outStr, "Video: none")) {
-		return nil, fail(4, "unavailable", "media contains no video stream")
-	}
-
-	// 9. Duration gate: if reliable duration is known and at >= duration, request is out of range (Exit 4)
-	dur, hasDur := parseDurationFromOutput(outStr)
-	if hasDur && at >= dur {
-		return nil, fail(4, "unavailable", "timestamp out of range: requested %.2fs >= duration %.2fs", at, dur)
-	}
-
-	// 10. Artifact processing: check for 00000001.jpg
-	if nonEmptyFile(srcPath) {
-		targetPath := filepath.Join(scratch, fmt.Sprintf("frame_%.0fs.jpg", at))
+	deliverArtifact := func(targetOutDir string, dur float64) (*FrameResult, error) {
+		if time.Until(callDeadline) <= 0 {
+			return nil, fail(2, "error", "delivery deadline exceeded")
+		}
+		srcPath := filepath.Join(targetOutDir, "00000001.jpg")
+		if !nonEmptyFile(srcPath) {
+			return nil, nil
+		}
+		targetPath := filepath.Join(targetOutDir, fmt.Sprintf("frame_%.0fs.jpg", at))
 		if err := os.Rename(srcPath, targetPath); err != nil {
 			return nil, fail(2, "error", "failed to rename frame: %v", err)
 		}
@@ -289,46 +302,203 @@ func Frame(rawURL string, at float64, width int, quality int) (*FrameResult, err
 		if err != nil {
 			return nil, fail(2, "error", "failed to open frame: %v", err)
 		}
-		cfg, _, err := image.DecodeConfig(f)
+		img, err := jpeg.Decode(f)
 		_ = f.Close()
 		if err != nil {
-			return nil, fail(2, "error", "failed to decode frame header: %v", err)
+			return nil, fail(2, "error", "failed to decode complete frame: %v", err)
 		}
 		fi, err := os.Stat(targetPath)
 		if err != nil {
 			return nil, fail(2, "error", "failed to stat frame: %v", err)
 		}
+		if time.Until(callDeadline) <= 0 {
+			return nil, fail(2, "error", "delivery deadline exceeded")
+		}
 
-		success = true
+		b := img.Bounds()
 		return &FrameResult{
 			Status:    "ok",
 			URL:       rawURL,
 			At:        at,
+			Duration:  dur,
 			ActualAt:  nil,
 			Path:      targetPath,
-			Width:     cfg.Width,
-			Height:    cfg.Height,
+			Width:     b.Dx(),
+			Height:    b.Dy(),
 			SizeBytes: fi.Size(),
 			Format:    "jpg",
 		}, nil
 	}
 
-	// 11. No image generated and not clearly out of range: conservative Exit 2 for stream EOF or network error.
+	// 5. Check cache for direct stream URL (network URLs only)
+	isNetwork := strings.HasPrefix(targetURL, "http://") || strings.HasPrefix(targetURL, "https://") || strings.HasPrefix(targetURL, "ytdl://")
+	var entry *StreamCacheEntry
+	var hit bool
+	if isNetwork {
+		entry, hit = getStreamCache(targetURL)
+	}
+	if hit && entry != nil {
+		// Zero-duration safe range gate
+		if entry.Duration > 0 && at >= entry.Duration {
+			return nil, fail(4, "unavailable", "timestamp out of range: requested %.2fs >= duration %.2fs", at, entry.Duration)
+		}
+
+		// Hot attempt budget: min(2s, remaining)
+		rem := time.Until(workDeadline) - 2500*time.Millisecond
+		if rem > 0 {
+			hotScratch, sErr := createScratch()
+			if sErr != nil {
+				return nil, sErr
+			}
+
+			hotTimeout := 2 * time.Second
+			if rem < hotTimeout {
+				hotTimeout = rem
+			}
+			hotDeadline := time.Now().Add(hotTimeout)
+			teardownReserve := frameWaitDelay + frameTeardownPoll
+			if hotDeadline.After(workDeadline.Add(-teardownReserve)) {
+				hotDeadline = workDeadline.Add(-teardownReserve)
+			}
+			hotArgs := buildArgs(hotScratch, entry.DirectURL, true, entry.HTTPHeaders, entry.UserAgent)
+			outStr, waitErr, hotDead, timedOut, launchErr := executeOneShotMPV(sigCtx, hotDeadline, hotArgs, hotScratch)
+			if launchErr != nil {
+				if hotDead {
+					_ = os.RemoveAll(hotScratch)
+				}
+				return nil, launchErr
+			}
+
+			dur, _ := parseDurationFromOutput(outStr)
+			if dur <= 0 {
+				dur = entry.Duration
+			}
+
+			// Do NOT deliver artifact if hot process timed out or crashed (prevents corrupt partial JPEG)
+			if !timedOut && waitErr == nil {
+				res, err := deliverArtifact(hotScratch, dur)
+				if err == nil && res != nil {
+					return res, nil // Hot hit success!
+				}
+				// Deliver artifact failed (corrupt JPEG or delivery timeout): invalidate stale cache and fallback to cold
+				deleteStreamCache(targetURL, entry.Fingerprint)
+			}
+
+			// Clean up failed hot scratch strictly if process group completely terminated
+			if hotDead {
+				_ = os.RemoveAll(hotScratch)
+			}
+
+			// Artifact absent: check if this was a definitive business error
+			if strings.Contains(outStr, "No video or audio streams selected") || strings.Contains(outStr, "Video: none") {
+				return nil, fail(4, "unavailable", "media contains no video stream")
+			}
+			if dur > 0 && at >= dur {
+				return nil, fail(4, "unavailable", "timestamp out of range: requested %.2fs >= duration %.2fs", at, dur)
+			}
+
+			// If hot attempt failed due to network / 403 / timedOut, safely invalidate and fallback to cold
+			if timedOut || strings.Contains(outStr, "403") || strings.Contains(outStr, "Failed to open") || strings.Contains(outStr, "Server returned 403") {
+				deleteStreamCache(targetURL, entry.Fingerprint)
+			}
+		}
+	}
+
+	// 6. Cold attempt with independent fresh scratch directory
+	remWork := time.Until(workDeadline) - 2500*time.Millisecond
+	if remWork <= 0 {
+		return nil, fail(2, "error", "work deadline exceeded")
+	}
+	coldTimeout := frameTimeout
+	if remWork < coldTimeout {
+		coldTimeout = remWork
+	}
+	coldDeadline := time.Now().Add(coldTimeout)
+	teardownReserve := frameWaitDelay + frameTeardownPoll
+	if coldDeadline.After(workDeadline.Add(-teardownReserve)) {
+		coldDeadline = workDeadline.Add(-teardownReserve)
+	}
+
+	coldScratch, sErr := createScratch()
+	if sErr != nil {
+		return nil, sErr
+	}
+
+	coldArgs := buildArgs(coldScratch, targetURL, false, nil, "")
+	outStr, waitErr, coldDead, timedOut, launchErr := executeOneShotMPV(sigCtx, coldDeadline, coldArgs, coldScratch)
+	if launchErr != nil {
+		if coldDead {
+			_ = os.RemoveAll(coldScratch)
+		}
+		return nil, launchErr
+	}
+	if sigCtx.Err() != nil {
+		if coldDead {
+			_ = os.RemoveAll(coldScratch)
+		}
+		return nil, fail(2, "error", "interrupted")
+	}
+	if timedOut {
+		if coldDead {
+			_ = os.RemoveAll(coldScratch)
+		}
+		return nil, fail(2, "error", "stream fetch timeout")
+	}
+
+	// Positive evidence: media contains no video stream (Exit 4)
+	srcPath := filepath.Join(coldScratch, "00000001.jpg")
+	if !nonEmptyFile(srcPath) && (strings.Contains(outStr, "No video or audio streams selected") || strings.Contains(outStr, "Video: none")) {
+		if coldDead {
+			_ = os.RemoveAll(coldScratch)
+		}
+		return nil, fail(4, "unavailable", "media contains no video stream")
+	}
+
+	// Duration gate
+	dur, hasDur := parseDurationFromOutput(outStr)
+	if hasDur && at >= dur {
+		if coldDead {
+			_ = os.RemoveAll(coldScratch)
+		}
+		return nil, fail(4, "unavailable", "timestamp out of range: requested %.2fs >= duration %.2fs", at, dur)
+	}
+
+	// Artifact delivery
+	res, err := deliverArtifact(coldScratch, dur)
+	if err != nil {
+		if coldDead {
+			_ = os.RemoveAll(coldScratch)
+		}
+		return nil, err
+	}
+	if res != nil {
+		// Populate cache if positive single-stream proof is satisfied and budget allows
+		if time.Until(callDeadline) > 0 {
+			if dURL, headers, ua, ok := parseStreamURLFromOutput(outStr); ok {
+				_ = putStreamCache(targetURL, dURL, dur, headers, ua)
+			}
+		}
+		if time.Until(callDeadline) <= 0 {
+			if coldDead {
+				_ = os.RemoveAll(coldScratch)
+			}
+			return nil, fail(2, "error", "delivery deadline exceeded")
+		}
+		return res, nil
+	}
+
 	_ = waitErr
+	if coldDead {
+		_ = os.RemoveAll(coldScratch)
+	}
 	return nil, fail(2, "error", "frame capture failed: stream ended or network error")
 }
 
-// nonEmptyFile reports whether path is a regular file holding at least one byte.
 func nonEmptyFile(path string) bool {
 	fi, err := os.Stat(path)
 	return err == nil && fi.Mode().IsRegular() && fi.Size() > 0
 }
 
-// firstEntryGuard buffers mpv's stdout and stops a playlist after its first entry:
-// --frames=1 is per file, so mpv would go on to decode every entry. mpv prints
-// "Playing: " as each entry starts; the second such line kills the process group
-// whether or not the first entry produced a frame, so an audio-only or failed first
-// entry never falls through to a later one.
 type firstEntryGuard struct {
 	mu   sync.Mutex
 	buf  bytes.Buffer
@@ -349,8 +519,6 @@ func (g *firstEntryGuard) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// countLinePrefix counts lines of b that begin with prefix, so a prefix embedded
-// mid-line (e.g. in a file name) is not mistaken for a new entry.
 func countLinePrefix(b, prefix []byte) int {
 	n := bytes.Count(b, append([]byte{'\n'}, prefix...))
 	if bytes.HasPrefix(b, prefix) {

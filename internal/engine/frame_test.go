@@ -2,6 +2,7 @@ package engine
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"image"
@@ -538,5 +539,141 @@ func TestFrameProductionTimeoutBudget(t *testing.T) {
 	totalHardLimit := frameTimeout + frameWaitDelay + frameTeardownPoll
 	if totalHardLimit != 17500*time.Millisecond {
 		t.Errorf("total physical hard limit = %v, want 17.5s", totalHardLimit)
+	}
+
+	// Verify two-attempt budget partition:
+	// Hot: 2.0s work + 2.5s teardown = 4.5s
+	// Cold: 10.3s work + 2.5s teardown = 12.8s
+	// Total dispatch budget = 4.5s + 12.8s = 17.3s
+	// Dedicated delivery budget = 200ms
+	// Grand total strictly equals 17.5s (17500ms)
+	hotWork := 2 * time.Second
+	hotTeardown := frameWaitDelay + frameTeardownPoll
+	coldWork := 10300 * time.Millisecond
+	coldTeardown := frameWaitDelay + frameTeardownPoll
+	deliveryBudget := 200 * time.Millisecond
+
+	totalCalculated := hotWork + hotTeardown + coldWork + coldTeardown + deliveryBudget
+	if totalCalculated != 17500*time.Millisecond {
+		t.Errorf("partition budget sum = %v, want 17500ms", totalCalculated)
+	}
+}
+
+func TestFrameEnvelopeEnrichment(t *testing.T) {
+	// Case 1: Duration present, ActualAt nil -> serializes duration, omits actual_at
+	res := &FrameResult{
+		Status:    "ok",
+		URL:       "https://example.com/video.mp4",
+		At:        73.0,
+		Duration:  1120.0,
+		ActualAt:  nil,
+		Path:      "/tmp/frame.jpg",
+		Width:     960,
+		Height:    540,
+		SizeBytes: 42000,
+		Format:    "jpg",
+	}
+	data, err := json.Marshal(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(data)
+	if !strings.Contains(s, `"duration":1120`) {
+		t.Errorf("expected JSON to contain duration, got %s", s)
+	}
+	if strings.Contains(s, "actual_at") {
+		t.Errorf("expected actual_at to be omitted when nil, got %s", s)
+	}
+
+	// Case 2: ActualAt non-nil (0.0) -> serialized properly
+	zero := 0.0
+	res2 := &FrameResult{
+		Status:   "ok",
+		At:       0.0,
+		ActualAt: &zero,
+	}
+	data2, err := json.Marshal(res2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data2), `"actual_at":0`) {
+		t.Errorf("expected actual_at:0 to be present, got %s", string(data2))
+	}
+}
+
+func TestFrameHotFailureFallbackToCold(t *testing.T) {
+	isolate(t)
+	targetURL := "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
+	// Install stub mpv: if --no-ytdl is passed (hot attempt), simulate HTTP 403 failure;
+	// otherwise (cold fallback), copy JPEG and emit DURATION.
+	stubScript := `
+for a; do
+	if [ "$a" = "--no-ytdl" ]; then
+		/bin/rm -f "$OUT/00000001.jpg"
+		echo "Failed to open direct stream: Server returned 403"
+		exit 2
+	fi
+done
+echo 'DURATION:120.0'
+`
+	stubFrameMPV(t, stubScript)
+
+	// Seed stale cache entry into the active isolated test TMPDIR
+	if err := putStreamCache(targetURL, "https://invalid.example.test/expired.mp4", 120.0, nil, "TestUA"); err != nil {
+		t.Fatalf("putStreamCache failed: %v", err)
+	}
+	if _, hit := getStreamCache(targetURL); !hit {
+		t.Fatal("expected seeded cache to be present")
+	}
+
+	res, err := Frame(targetURL, 10, 0, 80)
+	if err != nil {
+		t.Fatalf("expected successful fallback to cold, got %v", err)
+	}
+	if res.Width != 64 || res.Height != 48 {
+		t.Errorf("unexpected frame dimensions %+v", res)
+	}
+
+	// Verify the stale entry was invalidated
+	if _, hit := getStreamCache(targetURL); hit {
+		t.Error("expected stale cache entry to be deleted after hot failure")
+	}
+}
+
+func TestFrameHotCorruptJPEGRecoversViaCold(t *testing.T) {
+	isolate(t)
+	targetURL := "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
+	// If --no-ytdl is passed (hot attempt), write a corrupt 10-byte truncated JPEG;
+	// otherwise (cold fallback), copy real JPEG.
+	stubScript := `
+for a; do
+	if [ "$a" = "--no-ytdl" ]; then
+		printf "corruptjpg" > "$OUT/00000001.jpg"
+		echo 'DURATION:120.0'
+		exit 0
+	fi
+done
+echo 'DURATION:120.0'
+`
+	stubFrameMPV(t, stubScript)
+
+	// Seed cache entry
+	if err := putStreamCache(targetURL, "https://cdn.example.test/stream.mp4", 120.0, nil, "TestUA"); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := Frame(targetURL, 10, 0, 80)
+	if err != nil {
+		t.Fatalf("expected recovery via cold fallback, got %v", err)
+	}
+	if res.Width != 64 || res.Height != 48 {
+		t.Errorf("unexpected frame dimensions %+v", res)
+	}
+
+	// Verify corrupted cache entry was invalidated
+	if _, hit := getStreamCache(targetURL); hit {
+		t.Error("expected corrupt cache entry to be invalidated")
 	}
 }

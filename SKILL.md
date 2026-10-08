@@ -56,7 +56,7 @@ jue transcript "ytsearch1:Never Gonna Give You Up" --range 18-30
 - **`queue add` 的 `state`**：`playing`（播放器原本空闲，已起播并等到出声，`pos:0, count:1`）或 `queued`（已追加到队尾，立即返回）。
 - **队列是瞬态的**：它就是 mpv 的内存播放列表，`stop` 或 mpv 退出即消失，不落盘；全部放完后队列视为空，再 `add` 从头开始。`queue list` 里尚未轮到的条目没有 `title`，只有 `current` 项带 `current: true`。
 - **300 条上限**：`transcript` 无论是否带 `--range`，超过 300 条只返回前 300 条并标 `truncated: true`，此时收窄时间窗再取。
-- **单帧视觉感知**：`jue frame` 输出单行紧凑信封（包含 `path`, `width`, `height`, `size_bytes`, `actual_at:null`），图片落盘于 0700 沙箱中（模式 0600），Agent 获取后直接以 `path` 传给 `read_image`；无视频轨或超出时长如实返回退出码 4 `unavailable`。
+- **单帧视觉感知**：`jue frame` 输出单行紧凑信封（包含 `path`, `duration`, `width`, `height`, `size_bytes`，`actual_at` 为 nil 时自动收缩）；图片落盘于 0700 沙箱中（模式 0600）。**双轨交付铁律**：Agent 内部直接以 `path` 传给 `read_image` 读图；面向人类交付时严禁在 Markdown 贴本地 `/var/folders/` 路径（避免 Web GUI 裂图），必须提供外网直达时间戳链接（`&t=...s`）。无视频轨或超出时长如实返回退出码 4 `unavailable`。
 
 ---
 
@@ -70,6 +70,7 @@ jue transcript "ytsearch1:Never Gonna Give You Up" --range 18-30
 6. **歌单连播交给队列**：用户要多首连续播放时，一次性用 `jue queue add` 把整组曲目压进队列（第一首起播，其余排队），由 mpv 自行接力，Agent 输出卡片后即可结束本轮，无需挂在后台等待曲毕。`play` 会替换整个队列，往已有歌单里加歌必须用 `queue add`。
 7. **事件感知与续添**：严禁用死循环轮询 `status`（消耗 Token 并产生迟滞）。需要在队列放完时续添新歌，调用 `jue events --until queue_ended` 单次阻塞等待；只关心单曲边界时用 `--until track_ended`（`reason: "eof"` 为自然放毕）。
 8. **检索前缀按需使用**：用户只给歌名或主题时，可直接用 `ytsearch1:<歌手 歌名>` 起播或排队，省掉一轮 `web_search`；需要 B 站/网易云源，或对结果准确性要求高时，仍应先确认直链。起播后以信封返回的规范 URL 为准写入卡片。
+9. **视觉双轨交付与时钟中心锚定**：依据字幕推导抽帧时，建议取中点偏后 60% 位（`at = start + (end-start)*0.60`）作为推荐候选避开转场过渡态（显式指定时点绝对优先）；交付卡片必须提供外网直达时戳链接，严禁在 Markdown 贴本地私有临时图片路径。
 
 ---
 
@@ -81,8 +82,8 @@ jue transcript "ytsearch1:Never Gonna Give You Up" --range 18-30
 
 1. 执行 `jue inspect <url>` 获取章节路标与总时长，锁定问题处于哪个章节；
 2. 执行 `jue transcript <url> --range 14:00-18:00` 提取该窗口的逐字原话；
-3. 执行 `jue frame <url> --at 14:05` 瞬态抓取该秒数关键帧，调用内置工具 `read_image` 研读 PPT/架构图；
-4. **回答用户**：先给出高层概括，再引用 1~2 条带时间戳的关键原话（如 `[14:25] "架构的核心在于状态与事件解耦"`），图文并茂并附带跳转时间链接；
+3. 执行 `jue frame <url> --at 14:05` 瞬态抓取关键帧（建议结合字幕采用 60% 推荐候选时点），调用内置工具 `read_image` 研读 PPT/架构图；
+4. **回答用户**：先给出高层概括，再引用 1~2 条带时间戳的关键原话（如 `[14:25] "架构的核心在于状态与事件解耦"`），附带原画关键要点与跳转时间链接；
 5. **沉淀到 co-library**：如果用户需要留存，按照标准资源格式整理（来源 URL、作者、章节大纲、核心论据与原话证据），经 `/brain-storm` 审议后写入 `~/co-library/30-resources/`。
 
 ### b) 背景伴随听歌

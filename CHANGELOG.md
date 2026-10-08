@@ -23,8 +23,17 @@
 
 ## [2.1.0] - 2026-10-07
 
-**跨平台结构化转录：WebVTT/SRT 通用清洗、Podcast 2.0 RSS 与 ID3v2 章节；浏览器 Cookie 透传（落地 RESEARCH-transcript-protocols-and-sources 阶段 1–3）。**
+**跨平台结构化转录（WebVTT/SRT、Podcast 2.0 RSS、ID3v2 章节）与端侧视觉感知信封富化、流直链缓存加速与人机交付闭环（完结吸收 PLAN-frame-perception-polishing-and-cache）。**
 
+- **视觉信封富化与噪音消除**：`FrameResult` 补入 `duration`（秒，底层解析到时回填；为 0 时收缩），`actual_at` 增加 `omitempty` 标签（为 nil 时彻底收缩，杜绝 Token 浪费与模型对时钟漂移的虚假猜忌）。
+- **短期流直链缓存引擎与毫秒级寻址加速 (`internal/engine/cache.go`)**：
+  - 纯 Go 标准库与固定 32 分片稳定排他锁池（`flock LOCK_NB on cache/shard_xx.lock`，永不 unlink 消除 inode 复用竞态与无界累积），零锁争抢等待，不侵蚀执行预算；GC 仅对过期条目计数，彻底消除扫描饥饿；
+  - 严格准入四大法定证据链：解复用器单媒体封装白名单（`mov,mp4,m4a,3gp,3g2,mj2` 或 `matroska,webm` 等，坚决拒收 `edl://`、HLS/DASH 自适应分段清单流）；点播有限正时长证据；通过 `stream-lavf-o` 检测私有 Cookie 注入并拒存；单条无歧义 Referer 与 User-Agent 原样结构化保存并在热命中时通过 `--http-header-fields` 与 `--user-agent` 完整透传，确保脱离 ytdl 后 100% 独立可复播；
+  - 锁内指纹校验安全删除（`deleteStreamCache` 校验 `failedFingerprint`），彻底根除并发 A 读 B 写 A 删的 TOCTOU 竞态；
+  - 调用级统一绝对 Deadline 机制：顶层划分 `workDeadline := callDeadline.Add(-200ms)`，子进程执行与等待严格死锁在 17.3s 调度预算内，留足 200ms 核心交付硬预算至 17.5s 物理硬上限；
+  - GC 联动：改变一次性 `ReadDir(-1)` 为分批读取 `f.ReadDir(30)`，并顺手清理过期的 `cache/*.json`。
+- **人机双轨交付与时钟中心锚定启发式**：`SKILL.md` 与 `docs/USER_MANUAL.md` 规范机器端本地 `path` 调 `read_image` 读图 vs 人类端外网直达时戳链接 `&t=` 交付范式（严禁在 Markdown 贴本地 `/var/folders/` 临时路径防裂图）；字幕推导抽帧建议取 60% 中点偏后候选时点避开转场未定型态。
+- **测试套件扩充与全量回归**：`tests/test_suite.sh` 新增 `Block E-g`（视觉帧感知与多模态证据卡片装配工作流，7 项断言）；`Block M` 补齐 `.duration>0`、`has("actual_at") | not`、0700 缓存目录与 0600 缓存 JSON 检查、独立单流正向准入、缓存条目重定向热命中消费验证；全套 13 块 273 项断言 100% 绿灯全绿！
 - **浏览器 Cookie 透传（仅 `--cookies-from-browser`，零 cookies 文件落盘）**：每次 yt-dlp 调用透传 `--cookies-from-browser <JUE_COOKIES_FROM_BROWSER>`，未设置默认 `chrome`，`none`/`off` 关闭；浏览器名非法 exit 1，Cookie 库缺失/锁定/无权限归一为 exit 2 并给出出路提示；错误行优先取 yt-dlp 的 `ERROR:` 行，不再被 Python traceback 尾行顶替。登录态下 YouTube 按账号返回 `language`，同一视频可能改选人工轨（端到端套件默认以 `none` 校验匿名契约）。
 - **WebVTT / SRT 流式 FSM 清洗**：`parseVTT` / `parseSRT` 共用 5 状态逐行扫描（Header/Skip/Time/Text/Flush）；`NOTE`（须完整词边界：`NOTE`、`NOTE ` 或 `NOTE\t`，`NOTEBOOK-1` 之类 Cue 标识符照常保留）/`STYLE`/`REGION` 块整块跳过直到空行，块内形似时间轴的行也不发射；`[HH:]MM:SS` 点号/逗号毫秒；单 pass 只剥离合法标签 `<[/]?[a-zA-Z]...>` 与 karaoke `<[0-9]{1,2}:...>`，`x < 10 and y > 5` 等比较运算原文保留，再反转义实体；多行以空格拼接、空 Cue 过滤、相邻同文残影合并（与 json3 共用 `appendCue`）。
 - **Podcast 2.0 RSS**：`transcript` 对 feed 形 URL（`.xml`/`.rss`、`feed`/`rss` 路径段、`feeds.` 主机）或 yt-dlp 无果而服务器回 XML 的 URL，以 `encoding/xml` 解包最新一期：优先 channel `<language>` 原语种（含 `en-US` 等子标签前缀匹配，缺省 `language` 属性视为 channel 语种）的 `<podcast:transcript>`，`text/vtt` 先于 SRT，无原语种轨才退化为首个 VTT/SRT，防机翻轨顶替原话；兜底 `<content:encoded>` 时间戳大纲（Substack 的目录 + 全稿双遍时取全稿）。
