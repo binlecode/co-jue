@@ -12,20 +12,22 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/binlecode/co-ting/internal/engine"
+	"github.com/binlecode/co-jue/internal/engine"
 )
 
-const verbUsage = `usage: ting inspect <url>
-       ting transcript <url> [--range START-END]
-       ting play <url> [--start SEC]
-       ting queue add <url>|list|clear
-       ting control pause|resume|stop|next|prev|seek <+SEC|-SEC|SEC|MM:SS>|volume <0-100>
-       ting status
-       ting events [--until <EVENT>] [--timeout SEC]`
+const verbUsage = `usage: jue inspect <url>
+       jue transcript <url> [--range START-END]
+       jue frame <url> --at <time> [--width N] [--quality N]
+       jue play <url> [--start SEC]
+       jue queue add <url>|list|clear
+       jue control pause|resume|stop|next|prev|seek <+SEC|-SEC|SEC|MM:SS>|volume <0-100>
+       jue status
+       jue events [--until <EVENT>] [--timeout SEC]`
 
 var verbs = map[string]func([]string) (any, error){
 	"inspect":    runInspect,
 	"transcript": runTranscript,
+	"frame":      runFrame,
 	"play":       runPlay,
 	"queue":      runQueue,
 	"control":    runControl,
@@ -116,6 +118,41 @@ func runTranscript(args []string) (any, error) {
 		}
 	}
 	return engine.Transcript(u, start, end, has)
+}
+
+func runFrame(args []string) (any, error) {
+	u, flags, err := splitArgs(args, "--at", "--width", "--quality")
+	if err != nil {
+		return nil, err
+	}
+	atStr, ok := flags["--at"]
+	if !ok {
+		return nil, usageErr("--at is required")
+	}
+	at, err := engine.ParseTime(atStr)
+	if err != nil {
+		return nil, usageErr("bad value for --at: " + atStr)
+	}
+
+	width := 960
+	if wStr, ok := flags["--width"]; ok {
+		w, err := strconv.Atoi(wStr)
+		if err != nil || w < 0 || w > 3840 {
+			return nil, usageErr("bad value for --width: " + wStr)
+		}
+		width = w
+	}
+
+	quality := 80
+	if qStr, ok := flags["--quality"]; ok {
+		q, err := strconv.Atoi(qStr)
+		if err != nil || q < 1 || q > 100 {
+			return nil, usageErr("bad value for --quality: " + qStr)
+		}
+		quality = q
+	}
+
+	return engine.Frame(u, at, width, quality)
 }
 
 func runPlay(args []string) (any, error) {

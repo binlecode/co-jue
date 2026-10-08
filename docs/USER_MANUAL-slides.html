@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ting —— 智能体视听微外设 · 认知击穿手册 (Post-App Paradigm)</title>
+  <title>jue —— 智能体视听微外设 · 认知击穿手册 (Post-App Paradigm)</title>
   <style>
     /* ==========================================================================
        POST-INDUSTRIAL RAW CONCRETE & FLAT EDITORIAL MINIMALISM
@@ -501,7 +501,7 @@
     |                                                           |         ^
     | (紧急暂停 / 即刻静音)                                      | (调度外设) | (主动事件信标)
     v                                                           v         | events (曲毕/换章)
-物理按键 (AirPods 耳机柄 / 键盘 F8) -----------------------------> ting (后台无头单实例 mpv)
+物理按键 (AirPods 耳机柄 / 键盘 F8) -----------------------------> jue (后台无头单实例 mpv)
   [ 0ms 延迟 · 零 Token 开销 ]          (原生直通硬件急停)         [ 本地声卡 · 毫秒级 Unix Socket ]
                                                                 |
                                                                 +---> 触发 paused 即刻反哺 Agent
@@ -538,7 +538,7 @@
       <section class="slide" data-index="3">
         <div class="kicker">03 / VALUE MATRIX</div>
         <h2 class="title">听歌只是附赠品，证据才是主战场</h2>
-        <p class="lead">传统播放器以“出声”为终点；ting 的万倍杠杆在于：将数小时长音频瞬间转化为可核验的事实原件。</p>
+        <p class="lead">传统播放器以“出声”为终点；jue 的万倍杠杆在于：将数小时长音频瞬间转化为可核验的事实原件。</p>
 
         <div class="grid-3">
           <div class="slab slab-contrast">
@@ -608,9 +608,9 @@
             </div>
             <div class="slab-body">
               <div class="asphalt-box">
-                <span class="c-dim">$</span> <span class="c-cmd">ting inspect</span> <span class="c-arg">"https://..."</span><br>
+                <span class="c-dim">$</span> <span class="c-cmd">jue inspect</span> <span class="c-arg">"https://..."</span><br>
                 <span class="c-out">{"status":"ok","chapters":[{"start":3510,"title":"Token陷阱"}]}</span><br><br>
-                <span class="c-dim">$</span> <span class="c-cmd">ting play</span> <span class="c-arg">"https://..." --start 3510</span><br>
+                <span class="c-dim">$</span> <span class="c-cmd">jue play</span> <span class="c-arg">"https://..." --start 3510</span><br>
                 <span class="c-out">{"status":"ok","state":"playing","start":3510}</span>
               </div>
               <p>• <b>字段投影</b>：内存过滤 150KB 原始流媒体协议代码，仅交付 5 个核心属性；</p>
@@ -637,7 +637,7 @@
             <div class="slab-body">
               <p><b>你</b>：“*第 15 分钟关于动态分页，作者具体怎么说的？引用原话。*”</p>
               <div class="asphalt-box">
-                <span class="c-dim">$</span> <span class="c-cmd">ting transcript</span> <span class="c-arg">&lt;url&gt; --range 14:00-17:30</span><br>
+                <span class="c-dim">$</span> <span class="c-cmd">jue transcript</span> <span class="c-arg">&lt;url&gt; --range 14:00-17:30</span><br>
                 <span class="c-out">&gt; [15:12] "Static pre-allocation causes 70% memory waste."</span><br>
                 <span class="c-cmd">&gt; — 来源超链接：https://...&t=912s</span>
               </div>
@@ -655,9 +655,9 @@
               <p><b>你</b>：“*停一下，刚才那句话说了什么？*”</p>
               <div class="asphalt-box">
                 1. 暂停 mpv ➔ 锁定播放头秒数 (如 845s)<br>
-                2. <span class="c-cmd">ting transcript</span> <span class="c-arg">--range 830-850</span> 提取前后原话<br>
+                2. <span class="c-cmd">jue transcript</span> <span class="c-arg">--range 830-850</span> 提取前后原话<br>
                 3. 回答用户刚才原句，询问是否倒回去听<br>
-                4. 用户确认 ➔ <span class="c-cmd">ting control seek -15</span> 恢复流转
+                4. 用户确认 ➔ <span class="c-cmd">jue control seek -15</span> 恢复流转
               </div>
               <p>• <b>时空解耦</b>：播放头时间戳与原文字幕时间轴实时对齐，彻底终结听课走神痛点。</p>
             </div>
@@ -700,7 +700,7 @@
               <span class="stamp-tag tag-green">资产流动</span>
             </div>
             <div class="slab-body">
-              <p>• <b>第一步：ting 物理取证</b>：提供无机翻污染的秒级时间戳引用；</p>
+              <p>• <b>第一步：jue 物理取证</b>：提供无机翻污染的秒级时间戳引用；</p>
               <p>• <b>第二步：Agent 现地合成</b>：提炼核心观点，组装标准资产卡片；</p>
               <p>• <b>第三步：co-library 入库</b>：沉淀入 <code>30-resources/</code>，写入 FTS5 联邦索引；</p>
               <p>• <b>第四步：终身可验</b>：点击引用链接直接跳转原视频该秒数现场复核。</p>
@@ -739,7 +739,7 @@
             <div class="slab-body">
               <p>“<b>放两首轻音乐，连续伴随播放。</b>”</p>
               <p>起播 Track 1 后，Agent 执行：<br>
-              <code>ting events --until track_ended</code> 挂起等待。</p>
+              <code>jue events --until track_ended</code> 挂起等待。</p>
               <p>放毕瞬间捕获 <code>eof</code>，即刻平滑起播 Track 2，<b>0 轮询开销，曲目无缝衔接</b>。</p>
             </div>
           </div>

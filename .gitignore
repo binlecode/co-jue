@@ -6,5 +6,5 @@ __pycache__/
 .wrangler/
 # The single binary and distribution artifacts
 /bin/
-/ting
+/jue
 /dist/

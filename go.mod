@@ -1,3 +1,3 @@
-module github.com/binlecode/co-ting
+module github.com/binlecode/co-jue
 
 go 1.26.0

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tests/test_suite.sh — ting end-to-end contract and workflow suite.
+# tests/test_suite.sh — jue end-to-end contract and workflow suite.
 #
 # Zero mocks: the real binary, a real mpv over its real socket, real yt-dlp against the real
 # sites. Each block runs under its own TMPDIR, so it owns its runtime dir and its own mpv and
@@ -33,11 +33,11 @@ abort() { echo "suite error: $*" >&2; exit 1; }
 for b in go mpv yt-dlp jq; do command -v "$b" >/dev/null || abort "$b not on PATH"; done
 
 base=${TMPDIR:-/tmp}
-RUN=$(mktemp -d "${base%/}/ting-suite.XXXXXX") || abort "mktemp failed"
-UIDN=$(id -u)
+RUN=$(mktemp -d "${base%/}/jue-suite.XXXXXX") || abort "mktemp failed"
+export UIDN=$(id -u)
 
 # Every mpv this suite starts listens on a socket under $RUN: these PIDs are ours alone.
-our_mpv() { pgrep -f "input-ipc-server=$RUN/"; }
+our_mpv() { pgrep -f "input-ipc-server=$RUN/|--vo-image-outdir=$RUN/"; }
 cleanup() {
     local p
     p=$(jobs -p); [[ -n $p ]] && kill $p 2>/dev/null
@@ -47,8 +47,8 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT TERM
 
-BIN="$RUN/ting"
-(cd "$REPO" && go build -o "$BIN" ./cmd/ting) || abort "go build failed"
+BIN="$RUN/jue"
+(cd "$REPO" && go build -o "$BIN" ./cmd/jue) || abort "go build failed"
 
 # 60 s of 48 kHz stereo 16-bit silence: long enough to steer, inaudible, and the shape of a
 # real music track (mpv routes mono through a different macOS audio output).
@@ -57,6 +57,10 @@ le32() { local i; for i in 0 8 16 24; do printf "\\x$(printf %02x $((($1 >> i) &
 n=$((48000 * 4 * 60))
 { printf 'RIFF'; le32 $((36 + n)); printf 'WAVEfmt '; le32 16; printf '\x01\x00\x02\x00'
   le32 48000; le32 192000; printf '\x04\x00\x10\x00data'; le32 "$n"; head -c "$n" /dev/zero; } >"$WAV"
+
+# A logged-in YouTube answers per account (its reported language, so the track jue picks):
+# the contract is checked against the anonymous answer unless the caller says otherwise.
+export JUE_COOKIES_FROM_BROWSER="${JUE_COOKIES_FROM_BROWSER:-none}"
 
 export YT_NN="https://www.youtube.com/watch?v=aircAruvnKk"   # 3Blue1Brown: chapters, en-orig ASR
 YT_RR="https://www.youtube.com/watch?v=dQw4w9WgXcQ"          # human English subtitles
@@ -68,7 +72,7 @@ RES=/dev/null
 pass() { printf 'ok|%s\n' "$1" >>"$RES"; }
 failc() { printf 'FAIL|%s|%s\n' "$1" "$2" >>"$RES"; }
 
-# v <args...>: run ting; OUT is its stdout, RC its exit code.
+# v <args...>: run jue; OUT is its stdout, RC its exit code.
 v() { OUT=$("$BIN" "$@" 2>/dev/null); RC=$?; }
 
 # expect <name> <rc> <jq predicate>: the last v exited rc with exactly one JSON line on
@@ -105,9 +109,10 @@ holds_still() {
     sleep 0.3
     st ".time_pos==$a" || { DETAIL="time_pos $a, 0.3 s later: $OUT"; return 1; }
 }
-mpv_of() { pgrep -f "input-ipc-server=$TMPDIR/ting-$UIDN/mpv.sock"; }
+mpv_of() { pgrep -f "input-ipc-server=$TMPDIR/jue-$UIDN/mpv.sock"; }
 one_mpv() { [[ $(mpv_of | wc -l) -eq 1 ]]; }
 gone() { ! ps -p "$1" >/dev/null; }
+no_mpv() { test -z "$(mpv_of)"; }
 empty_dir() { [[ -z $(ls -A "$1") ]]; }
 
 # Each block runs in its own subshell, under its own TMPDIR, reporting to its own file.
@@ -124,7 +129,7 @@ block() {
 
 # ---- A: security boundary ----------------------------------------------------------------
 block_a() {
-    local rt="$TMPDIR/ting-$UIDN"
+    local rt="$TMPDIR/jue-$UIDN"
 
     # SemVer parity and version reporting
     local expected_ver
@@ -132,8 +137,8 @@ block_a() {
     local ver_out
     ver_out="$("$BIN" --version)"
     DETAIL="$ver_out"
-    check "version matches VERSION file ($expected_ver)" test "$ver_out" = "ting $expected_ver"
-    check "version follows semver format" bash -c "echo '$ver_out' | grep -qE '^ting [0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'"
+    check "version matches VERSION file ($expected_ver)" test "$ver_out" = "jue $expected_ver"
+    check "version follows semver format" bash -c "echo '$ver_out' | grep -qE '^jue [0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'"
     unset DETAIL
 
     v status
@@ -264,7 +269,7 @@ block_b() {
          and all(.segments[]; .start<30 and .end>20)
          and .segments[0].text=="初めてのルーブルは" and .segments[0].start==20.542'
 
-    local rt="$TMPDIR/ting-$UIDN"
+    local rt="$TMPDIR/jue-$UIDN"
     DETAIL="$(ls -A "$rt" 2>&1)"
     check "transcript left no scratch dir behind" test -z "$(ls -A "$rt" | /usr/bin/grep scratch-)"
     DETAIL="$(stat -f %Lp "$rt" 2>&1)"
@@ -273,7 +278,7 @@ block_b() {
 
 # ---- C: playback state machine ------------------------------------------------------------
 block_c() {
-    local rt="$TMPDIR/ting-$UIDN" pid t1
+    local rt="$TMPDIR/jue-$UIDN" pid t1
     v play "$WAV"
     expect "play local audio from cold: playing, exit 0" 0 '.status=="ok" and .state=="playing" and .url==$ENV.WAV'
     DETAIL="$(stat -f %Lp "$rt")"
@@ -452,7 +457,7 @@ block_ec() {
 
 # ---- E-d: autonomous DJ next-track (Event Beacon push) ---------------------------------------
 # Human: "Play background tracks continuously."
-# Agent starts Track 1, sets a non-polling wait with `ting events --until track_ended`,
+# Agent starts Track 1, sets a non-polling wait with `jue events --until track_ended`,
 # catches eof naturally without polling status, and immediately transitions to Track 2.
 block_ed() {
     local pid w1 w2
@@ -551,6 +556,35 @@ block_ef() {
     check "workflow f: mpv gone after stop" poll 3 gone "$pid"
 }
 
+# ---- E-g: visual frame perception & multimodal grounding ----------------------------------
+# The human asks about a visual slide at timestamp T: the agent inspects the chapter, pulls
+# the verbatim quote around it, extracts the single visual frame, and assembles a multimodal
+# Markdown card containing the image path and verbatim evidence.
+block_eg() {
+    local rt="$TMPDIR/jue-$UIDN" card shot_path cue_text
+    # 1. Pull visual frame at 73s
+    v frame "$YT_RR" --at 73 --width 960 --quality 80
+    expect "workflow g: frame extracted successfully, exit 0" 0 \
+        '.status=="ok" and .at==73 and .actual_at==null and (.path|length>0) and .width<=960'
+    shot_path=$(jq -r .path <<<"$OUT")
+    check "workflow g: frame file exists on disk" test -f "$shot_path"
+
+    # 2. Pull verbatim transcript window [60, 80)
+    v transcript "$YT_RR" --range 60-80
+    expect "workflow g: transcript window pulled, exit 0" 0 \
+        '.status=="ok" and (.segments|length>0)'
+    cue_text=$(jq -r '.segments[0].text' <<<"$OUT")
+    check "workflow g: non-empty verbatim quote" test -n "$cue_text"
+
+    # 3. Assemble multimodal evidence card
+    card=$(printf '## Visual Evidence (01:13)\n![Frame](%s)\n> [01:13] "%s"\n— [Source](%s&t=73s)\n' \
+        "$shot_path" "$cue_text" "$YT_RR")
+    DETAIL="$card"
+    check "workflow g: card embeds valid image link" /usr/bin/grep -qE '^!\[Frame\]\(/.*\.jpg\)$' <<<"$card"
+    check "workflow g: card embeds timestamped quote" /usr/bin/grep -qE '^> \[01:13\] ".+"$' <<<"$card"
+    check "workflow g: card embeds clickable timestamp link" /usr/bin/grep -qE '^— \[Source\]\(https://.*&t=73s\)$' <<<"$card"
+}
+
 # ---- F: token budget --------------------------------------------------------------------------
 # An envelope lands verbatim in an agent's context window, so every byte that is not a fact is
 # a token spent on nothing. The bound is derived, not measured: per chapter or cue the framing
@@ -639,7 +673,7 @@ block_g() {
 }
 
 # ---- H: grounding to artifact ------------------------------------------------------------------
-# The agent turns ting's facts into something a human keeps: a library citation whose link lands
+# The agent turns jue's facts into something a human keeps: a library citation whose link lands
 # on the quoted words; and, where a source has no words to quote, an honest card built from the
 # map instead of a dead end.
 mmss() { printf '%d:%02d' $(($1 / 60)) $(($1 % 60)); }
@@ -791,7 +825,7 @@ block_i() {
     expect "stop event: receives track_ended with reason stopped" 0 \
         '.event=="track_ended" and .reason=="stopped"'
 
-    check "zero residual player in block i" test -z "$(mpv_of)"
+    check "zero residual player in block i" poll 3 no_mpv
 }
 
 # silence <path> <secs>: a 48 kHz stereo 16-bit silent wav of that length.
@@ -805,7 +839,7 @@ silence() {
 # The queue is mpv's own in-memory playlist: add starts or appends, list reads it, next/prev
 # step through it and refuse past either end, clear keeps what sounds, play replaces it all.
 block_j() {
-    local rt="$TMPDIR/ting-$UIDN" pid i bad
+    local rt="$TMPDIR/jue-$UIDN" pid i bad
     export WAV1="$TMPDIR/one.wav" WAV2="$TMPDIR/two.wav" WAV3="$TMPDIR/three.wav"
     for i in "$WAV1" "$WAV2" "$WAV3"; do ln "$WAV" "$i" 2>/dev/null || cp "$WAV" "$i"; done
 
@@ -1020,6 +1054,100 @@ block_l() {
     check "zero residual player in block l" test -z "$(mpv_of)"
 }
 
+# ---- M: visual frame perception contract --------------------------------------------------
+block_m() {
+    local rt="$TMPDIR/jue-$UIDN"
+    # M1: Syntax and parameter validation gates
+    v frame "$YT_RR"
+    expect "usage: frame without --at is exit 1" 1 '.status=="error" and (.error|test("--at is required"))'
+
+    v frame "$YT_RR" --at abc
+    expect "usage: frame with invalid time format is exit 1" 1 '.status=="error"'
+
+    v frame "$YT_RR" --at 1e999
+    expect "usage: frame with Inf time is exit 1" 1 '.status=="error"'
+
+    v frame "$YT_RR" --at 10 --quality 105
+    expect "usage: frame with quality > 100 is exit 1" 1 '.status=="error"'
+
+    v frame "$YT_RR" --at 10 --width 5000
+    expect "usage: frame with width > 3840 is exit 1" 1 '.status=="error"'
+
+    v frame "$YT_RR" --at 10 --foo bar
+    expect "usage: frame with unknown flag is exit 1" 1 '.status=="error"'
+
+    v frame "ytsearch5:video" --at 10
+    expect "usage: unsupported search prefix is exit 1" 1 '.status=="error"'
+
+    v frame "--option-inject" --at 10
+    expect "URL option injection safely rejected by CLI with exit 1" 1 '.status=="error"'
+
+    v frame --at 10 -- "--fake-mpv-option"
+    expect "URL option isolated by -- to mpv and fails as missing file, exit 2" 2 '.status=="error"'
+
+    # M2: Pure audio rejection with affirmative evidence (exit 4)
+    v frame "$WAV" --at 5
+    expect "frame on pure audio WAV is unavailable, exit 4" 4 \
+        '.status=="unavailable" and .error=="media contains no video stream"'
+    check "pure audio failure left no scratch dir" test -z "$(ls -A "$rt" 2>/dev/null | /usr/bin/grep scratch-frame-)"
+
+    local sample_mp3="/Users/binle/workspace_genai/deepseek-harness/tmp/downloads/Midnight Glows.mp3"
+    if [[ -f "$sample_mp3" ]]; then
+        v frame "$sample_mp3" --at 5
+        expect "frame on MP3 audio rejected via audio-display=no, exit 4" 4 \
+            '.status=="unavailable" and .error=="media contains no video stream"'
+        check "MP3 audio failure left no scratch dir" test -z "$(ls -A "$rt" 2>/dev/null | /usr/bin/grep scratch-frame-)"
+    fi
+
+    # Truncated media without duration evidence conservatively returns exit 2
+    printf 'ftypmp42\x00\x00' > "$TMPDIR/truncated.mp4"
+    v frame "$TMPDIR/truncated.mp4" --at 10
+    expect "truncated media without duration evidence returns exit 2" 2 \
+        '.status=="error" and .error=="frame capture failed: stream ended or network error"'
+    check "truncated media failure left no scratch dir" test -z "$(ls -A "$rt" 2>/dev/null | /usr/bin/grep scratch-frame-)"
+
+    # M3: Out of range duration gate (exit 4)
+    v frame "$YT_RR" --at 99999
+    expect "frame past video duration is unavailable, exit 4" 4 \
+        '.status=="unavailable" and (.error|test("timestamp out of range"))'
+    check "out of range failure left no scratch dir" test -z "$(ls -A "$rt" 2>/dev/null | /usr/bin/grep scratch-frame-)"
+
+    # M4: Real video single frame extraction (YouTube network stream)
+    v frame "$YT_RR" --at 73 --width 960 --quality 80
+    expect "frame on YouTube network stream succeeds, exit 0" 0 \
+        '.status=="ok" and .at==73 and .actual_at==null and (.path|length>0) and .width<=960 and .height>0 and .size_bytes>=20000 and .size_bytes<=90000 and .format=="jpg"'
+
+    # Verify extracted file properties
+    local shot_path
+    shot_path=$(echo "$OUT" | jq -r .path)
+    check "frame output file exists on disk" test -f "$shot_path"
+    check "frame file mode is 0600" test "$(stat -f %Lp "$shot_path")" = 600
+    check "frame scratch directory mode is 0700" test "$(stat -f %Lp "$(dirname "$shot_path")")" = 700
+    check "frame scratch directory owned by current UID" test "$(stat -f %u "$(dirname "$shot_path")")" = "$UIDN"
+
+    # M5: Downscaling constraint (vertical and horizontal budgets)
+    v frame "$YT_RR" --at 18 --width 480
+    expect "frame with explicit width 480 scales properly" 0 \
+        '.status=="ok" and .width<=480 and .height<=480 and .height>0'
+
+    v frame "av://lavfi:testsrc=size=1080x1920:duration=1" --at 0 --width 960
+    expect "frame on portrait stream scales to 540x960" 0 \
+        '.status=="ok" and .width==540 and .height==960'
+
+    v frame "av://lavfi:testsrc=size=1280x720:duration=1" --at 0 --width 0
+    expect "frame with width 0 keeps exact original resolution 1280x720" 0 \
+        '.status=="ok" and .width==1280 and .height==720'
+
+    # M6: Explicit search prefix query resolution
+    v frame "ytsearch1:Never Gonna Give You Up" --at 10
+    expect "frame with ytsearch1 prefix succeeds, exit 0" 0 \
+        '.status=="ok" and (.path|length>0)'
+
+    # M7: Zero leftover processes in block m (covers both one-shot vo-image and IPC mpv, plus yt-dlp query process)
+    check "zero residual mpv in block m" poll 3 bash -c '! pgrep -f "vo-image-outdir=$TMPDIR|input-ipc-server=$TMPDIR" >/dev/null'
+    check "zero residual yt-dlp in block m" poll 3 bash -c "! pgrep -u $UIDN -f '[y]t-dlp.*Never Gonna Give You Up' >/dev/null"
+}
+
 # ---- run ------------------------------------------------------------------------------------
 START=$SECONDS
 block a block_a &
@@ -1031,6 +1159,7 @@ block ec block_ec &
 block ed block_ed &
 block ee block_ee &
 block ef block_ef &
+block eg block_eg &
 block f block_f &
 block g block_g &
 block h block_h &
@@ -1038,14 +1167,17 @@ block i block_i &
 block j block_j &
 block k block_k &
 block l block_l &
+block m block_m &
 wait
 
 PASS=0 FAIL=0
 for blk in "a:A  security boundary" "b:B  ingest contract + E-a study workflow" "c:C  playback state machine" \
     "d:D  concurrency" "eb:E-b background listening" "ec:E-c wait, what did he just say" \
     "ed:E-d autonomous DJ next-track" "ee:E-e AirPods pinch & rewind" "ef:E-f bilingual lyrics grounding" \
+    "eg:E-g visual frame perception & artifact assembly" \
     "f:F  token budget" "g:G  acoustic ergonomics" "h:H  grounding to artifact" "i:I  event contract" \
-    "j:J  transient queue" "k:K  query resolution" "l:L  queue-ended perception"; do
+    "j:J  transient queue" "k:K  query resolution" "l:L  queue-ended perception" \
+    "m:M  frame perception contract"; do
     echo "=== ${blk#*:} ==="
     [[ -s "$RUN/${blk%%:*}.res" ]] || { echo "  (block reported nothing)"; FAIL=$((FAIL + 1)); continue; }
     while IFS='|' read -r verdict name detail; do

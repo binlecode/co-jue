@@ -12,13 +12,13 @@ import (
 	"time"
 )
 
-// runtimeDir is $TMPDIR/ting-<uid>/, the only place a socket, lock or scratch file lives.
+// runtimeDir is $TMPDIR/jue-<uid>/, the only place a socket, lock or scratch file lives.
 // The socket in it is a remote control for this user's audio, so before anything is opened
 // there the directory must be a real directory (not a symlink planted by someone else),
 // owned by this uid and mode exactly 0700. With create false an absent directory is
 // errNoDir: status and control never create state.
 func runtimeDir(create bool) (string, error) {
-	dir := filepath.Join(os.TempDir(), fmt.Sprintf("ting-%d", os.Getuid()))
+	dir := filepath.Join(os.TempDir(), fmt.Sprintf("jue-%d", os.Getuid()))
 	if create {
 		if err := os.Mkdir(dir, 0700); err != nil && !errors.Is(err, os.ErrExist) {
 			return "", fail(2, "error", "create %s: %v", dir, err)
@@ -84,17 +84,26 @@ func Connect() (*IPCClient, error) {
 	return c, nil
 }
 
-// flockAction runs fn on the one player, starting it if need be, all under ting.lock: the
+// flockAction runs fn on the one player, starting it if need be, all under jue.lock: the
 // lock spans dial-or-spawn and fn's commands, so two plays or queue adds racing from a cold
 // start yield one mpv and neither sees the other's half-done playlist. The lock is released
 // on return; an entryID > 0 is a track still loading, for the caller to wait on outside the
 // lock with the connection it is handed (and closes).
 func flockAction(dir string, fn func(c *IPCClient) (entryID int64, err error)) (*IPCClient, int64, error) {
-	lock, err := os.OpenFile(filepath.Join(dir, "ting.lock"), os.O_CREATE|os.O_RDWR, 0600)
+	lock, err := os.OpenFile(filepath.Join(dir, "jue.lock"), os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return nil, 0, fail(2, "error", "open lock: %v", err)
 	}
 	defer lock.Close() // closing the descriptor releases the flock
+	fi, err := lock.Stat()
+	if err != nil {
+		return nil, 0, fail(2, "error", "stat lock %s: %v", filepath.Join(dir, "jue.lock"), err)
+	}
+	if fi.Mode().Perm() != 0600 {
+		if err := lock.Chmod(0600); err != nil {
+			return nil, 0, fail(2, "error", "chmod 0600 lock %s: %v", filepath.Join(dir, "jue.lock"), err)
+		}
+	}
 	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
 		return nil, 0, fail(2, "error", "flock: %v", err)
 	}

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# .githooks/pre-push — pre-push gate for ting
+# .githooks/pre-push — pre-push gate for jue
 # Prevents force-pushing to main, and ensures v* tags match the root VERSION file.
 set -euo pipefail
 

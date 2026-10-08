@@ -1,12 +1,12 @@
-# CHANGELOG — co-ting (ting) 架构演进与版本变更历史
+# CHANGELOG — co-jue (jue) 架构演进与版本变更历史
 
-`co-ting`（二进制命令 `ting`）是 `co` 生态面向 AI Agent 的轻量端侧视听感知与播放微外设。系统经历了从早期 Gen-1 终端 TUI 播放器到 Gen-2 纯 Go 100% Agentic 微外设的根本性跃迁。
+`co-jue`（二进制命令 `jue`，前身 `co-ting`）是 `co` 生态面向 AI Agent 的轻量端侧视听感知与播放微外设。系统经历了从早期 Gen-1 终端 TUI 播放器到 Gen-2 纯 Go 100% Agentic 视听感知微外设的根本性跃迁。
 
 依据全域统一文档分类法规约（`ARCH-doc-taxonomy.md`），系统演进历史、阶段全表（Stage chronicles）与版本更新日志一律集中收拢于本文件。
 
 ---
 
-## 系统阶段演进全表 (Stages 0–3)
+## 系统阶段演进全表 (Stages 0–4)
 
 | 阶段 (Stage) | 对应版本 | 时间节点 | 触发原因 | 核心架构动作 | 揭示的核心原则 |
 |---|---|---|---|---|---|
@@ -14,10 +14,43 @@
 | **Stage 1** | `v1.0.0` | 2026-10-03 | 跃迁至“可抛弃客户端软件”范式（Post-App Paradigm），确立 **The Agent is the UX** | 彻底清退 2.4 万行旧 Shell 脚本与 TUI 历史负债；重构为 ~1,000 行纯 Go 标准库极简静态单二进制；依赖严格锁定为 `yt-dlp` 与 `mpv` 双原语；交付 4 大原子动词（`inspect`, `transcript`, `play`, `control`/`status`）；开启 `mpv --input-media-keys=yes` 原生打通 macOS 键盘媒体键与 AirPods 耳机暂停键；确立四级退出码与单行紧凑 JSON 信封 | **Agent 本身就是唯一的端侧播放 UX**；微外设应当做极致细腰、极低 Token 消耗与事实证据去幻觉，拒绝客户端界面与本地数据库包袱。 |
 | **Stage 2** | `v1.1.0` | 2026-10-04 | 统一 `co` 生态命名规范，实现零远端 CI 的本地工程闭环与驱动级加固 | 仓名正名并收容至 `workspace_genai/co-ting/`；确立 SemVer 单一真源与 `.githooks` 本地门禁；交付多架构静态交叉编译与发布脚本 `scripts/release.sh`；交付原子化安装与卸载脚本 `install.sh`；加固 macOS CoreAudio 暂停（`audio-format s16`）与 IPC 解交错；交付 9 块 131 项零 Mock 端到端测试套件；编写人机协同操作手册与认知击穿演示幻灯片 | **本地能做的绝不推给 GitHub**；全生命周期在宿主机闭环；微外设质量由确定性端到端测试与硬件契约把关。 |
 | **Stage 3** | `v1.2.0` | 2026-10-05 | Turn-based Agent 回显后即挂起，无法常驻后台接力续播；语义点歌被单 URL 强校验阻断 | 暴露 mpv 原生瞬态内存播放列表（`queue add/list/clear`、`control next/prev`），零持久化；显式 `ytsearch1:` 检索前缀复用 yt-dlp 原生检索，零自研爬虫；新增 `queue_ended` 事件；废除 ~1,400 行人工魔数，改行 Need-based 零冗余原则；端到端套件扩至 12 块 232 项 | **连续性下沉到播放器而非 Agent**：Agent 一次性编排歌单后即可离场，队列由 mpv 内存自驱动，随进程生灭；规模由需要决定，而非由数字决定。 |
+| **Stage 4** | `v2.0.0` | 2026-10-06 | 视觉感知完全缺席，长视频技术研读遭遇物理泥潭；系统命名与语义升维重锚 | 命名全域蜕变升维为 `co-jue`（`jue` / 觉），无须兼容彻底大改；交付原子动词 `jue frame` 单帧视觉感知（One-shot mpv `--vo=image` 零常驻内存）；独立进程组与负 PID 广播 SIGKILL 统一收割；lavfi 双边等比外框滤镜（横竖屏均为 ~690 Tokens）；0700 沙箱与同步机会式 GC；端到端物理回归套件扩充至 13 块 255+ 项全绿 | **命名是容器，能力是流体**；从听觉单维扩展为视听觉知全模态；感知平面与执行平面动静彻底隔离。 |
+| **Stage 5** | `v2.1.0` | 2026-10-07 | 认知信源扩展：跨平台结构化转录协议、免 Cookie 规范与海外顶级 IT/AI 信源拓扑落地 | 泛化 WebVTT/SRT 5 状态 FSM 清洗；下沉 Podcast 2.0 RSS 与 ID3v2 章节解包；落地方案 A 纯日常浏览器 Cookie 透传（零落盘文件）；全量端到端扩展至 267 项断言 | **开放协议标准化下沉，动态风控坚守底线**；静态协议入标准库，会话缓存留浏览器，只读凭证库绝不污染。 |
 
 ---
 
 ## 版本更新日志 (SemVer Releases)
+
+## [2.1.0] - 2026-10-07
+
+**跨平台结构化转录：WebVTT/SRT 通用清洗、Podcast 2.0 RSS 与 ID3v2 章节；浏览器 Cookie 透传（落地 RESEARCH-transcript-protocols-and-sources 阶段 1–3）。**
+
+- **浏览器 Cookie 透传（仅 `--cookies-from-browser`，零 cookies 文件落盘）**：每次 yt-dlp 调用透传 `--cookies-from-browser <JUE_COOKIES_FROM_BROWSER>`，未设置默认 `chrome`，`none`/`off` 关闭；浏览器名非法 exit 1，Cookie 库缺失/锁定/无权限归一为 exit 2 并给出出路提示；错误行优先取 yt-dlp 的 `ERROR:` 行，不再被 Python traceback 尾行顶替。登录态下 YouTube 按账号返回 `language`，同一视频可能改选人工轨（端到端套件默认以 `none` 校验匿名契约）。
+- **WebVTT / SRT 流式 FSM 清洗**：`parseVTT` / `parseSRT` 共用 5 状态逐行扫描（Header/Skip/Time/Text/Flush）；`NOTE`（须完整词边界：`NOTE`、`NOTE ` 或 `NOTE\t`，`NOTEBOOK-1` 之类 Cue 标识符照常保留）/`STYLE`/`REGION` 块整块跳过直到空行，块内形似时间轴的行也不发射；`[HH:]MM:SS` 点号/逗号毫秒；单 pass 只剥离合法标签 `<[/]?[a-zA-Z]...>` 与 karaoke `<[0-9]{1,2}:...>`，`x < 10 and y > 5` 等比较运算原文保留，再反转义实体；多行以空格拼接、空 Cue 过滤、相邻同文残影合并（与 json3 共用 `appendCue`）。
+- **Podcast 2.0 RSS**：`transcript` 对 feed 形 URL（`.xml`/`.rss`、`feed`/`rss` 路径段、`feeds.` 主机）或 yt-dlp 无果而服务器回 XML 的 URL，以 `encoding/xml` 解包最新一期：优先 channel `<language>` 原语种（含 `en-US` 等子标签前缀匹配，缺省 `language` 属性视为 channel 语种）的 `<podcast:transcript>`，`text/vtt` 先于 SRT，无原语种轨才退化为首个 VTT/SRT，防机翻轨顶替原话；兜底 `<content:encoded>` 时间戳大纲（Substack 的目录 + 全稿双遍时取全稿）。
+- **ID3v2 章节**：`inspect` 对 `.mp3`/`.m4a`/`.aac` 直链且 yt-dlp 未给章节时，以 `Range: bytes=0-262143` 探测 ID3v2.3/2.4 `CHAP` + `TIT2`，毫秒级章节；探测失败不影响信封。
+- **`frame` 防御加固**：成功判定以物理产物为先，`00000001.jpg` 已落盘且非空时，日志里（如文件名/标题）出现 `Video: none` 不再误判 exit 4；显式 `--loop-playlist=no`，且第一项帧落盘后一旦 mpv 开始下一条目（stdout 行首 `Playing:`，文件名内嵌的同名串不计）即收割进程组，播放列表只抽首项；机会式 GC 改为读全目录、只对真正执行进程组探测的目录计数（至多 30 次或 50ms），根除前部未过期或 pgid 缺失/损坏目录造成的饥饿。
+- **`install.sh` 死 socket 自愈**：`control stop` 后 socket 仍在、但无进程以其为 `--input-ipc-server` 时判定为崩溃残留，移除并继续安装；仍有活进程持有才中止。旧 ting 与 jue 两条停止路径合并为 `stop_daemon`。
+
+## [2.0.0] - 2026-10-06
+
+**全域蜕变升维 co-jue (jue)；端侧流式时空单帧视觉感知 (Frame Perception) 落地与双平面动静隔离。**
+
+- **命名与语义升维蜕变（完结吸收 PLAN-jue-metamorphosis-and-frame-perception）**：
+  - 彻底告别 `co-ting`（ting/听），全域升维为 **`co-jue`（jue/觉，Auditory & Visual Perception Peripheral for AI Agents）**；
+  - 贯彻“无须兼容，彻底改”：删除所有别名与过渡期软链接，模块路径更新为 `github.com/binlecode/co-jue`，CLI 二进制单一收敛为 `jue`，运行时沙箱目录切换为 `$TMPDIR/jue-<uid>/`（严格目录权限 `0700`），互斥锁收敛为 `jue.lock`（文件权限 `0600`）；
+  - 全局 Skill 资产正名为 `jue`，更新触发词与提示词契约。
+- **端侧单帧视觉感知 (`jue frame <url> --at <time> [--width N] [--quality N]`)**：
+  - 纯 Go 标准库与仅调用 mpv 原语，零 ffmpeg，零外部 C 库；
+  - **动静彻底隔离**：坚持瞬态 One-shot mpv `--vo=image` 模型，秒级抽取并退出，常驻内存增量为 0，杜绝常驻守护开启视频导致内存暴增或切流冲垮音频伴播；
+  - **独立进程组与统一收割**：配置 `cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}`，统一收尾路径（`defer`）向独立进程组广播 SIGKILL，并在 500ms 内显式轮询探测 `syscall.Kill(-pgid, 0)` 确认收到 `ESRCH` 消亡后才删除目录；配置 `cmd.WaitDelay = 2 * time.Second` 杜绝后代管道写端死锁；总预算锁定为 17.5s 物理硬上限；
+  - **双边等比外框约束**：装配 lavfi 滤镜 `--vf=lavfi=[scale=w='min(N,iw)':h='min(N,ih)':force_original_aspect_ratio=decrease,scale=w='trunc(iw/2)*2':h='trunc(ih/2)*2']`，横屏（960x540）与竖屏（540x960）Token 预算严格对称一致（均为约 690 Tokens），单张 JPG 体积稳定在 30KB~80KB；
+  - **沙箱与机会式 GC**：临时目录模式 `0700`，图片落盘显式 `os.Chmod(targetPath, 0600)`；启动时落盘 `0600` 的 `pgid` 文件，每次调用触发有界同步机会式 GC 扫描并清理过期无存活进程的 frame 目录；
+  - **肯定证据四级退出码**：纯音频/无视频轨 Exit 4；明确时长越界 Exit 4；缺乏可靠时长流异常保守返回 Exit 2；参数非法 Exit 1；依赖缺失/超时 Exit 2。
+- **全量物理回归扩充**：
+  - 本地回归套件升级为 13 块 255+ 项零 Mock 端到端断言，新增 Block M 视觉帧感知契约实测全绿。
+
+---
 
 ## [1.2.0] - 2026-10-05
 

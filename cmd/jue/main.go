@@ -5,7 +5,7 @@ import (
 	"os"
 )
 
-var version = "1.2.0"
+var version = "2.1.0"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -19,7 +19,7 @@ func main() {
 		os.Exit(0)
 	}
 	if cmd == "-V" || cmd == "-v" || cmd == "--version" || cmd == "version" {
-		fmt.Printf("ting %s\n", version)
+		fmt.Printf("jue %s\n", version)
 		os.Exit(0)
 	}
 
@@ -27,6 +27,6 @@ func main() {
 		os.Exit(runVerb(run, os.Args[2:]))
 	}
 
-	fmt.Fprintf(os.Stderr, "ting: unknown command %q\n\n%s\n", cmd, verbUsage)
+	fmt.Fprintf(os.Stderr, "jue: unknown command %q\n\n%s\n", cmd, verbUsage)
 	os.Exit(1)
 }

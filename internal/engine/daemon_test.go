@@ -19,7 +19,7 @@ func isolate(t *testing.T) (base, dir string) {
 	t.Helper()
 	base = t.TempDir()
 	t.Setenv("TMPDIR", base)
-	return base, filepath.Join(base, fmt.Sprintf("ting-%d", os.Getuid()))
+	return base, filepath.Join(base, fmt.Sprintf("jue-%d", os.Getuid()))
 }
 
 func wantRefused(t *testing.T, err error, msg string) {
@@ -137,7 +137,7 @@ type fakeMPV struct {
 
 func startFakeMPV(t *testing.T, reply func(cmd []any, id int64) []string) *fakeMPV {
 	t.Helper()
-	base, err := os.MkdirTemp("/tmp", "ting-t")
+	base, err := os.MkdirTemp("/tmp", "jue-t")
 	if err != nil {
 		t.Fatal(err)
 	}
