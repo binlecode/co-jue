@@ -428,7 +428,7 @@
         <span>POST-APP AUDIO PERIPHERAL</span>
       </div>
       <div>POST-INDUSTRIAL CONCRETE MANIFESTO · V1.2.0</div>
-      <div class="slide-counter" id="slideIndicator">01 / 10</div>
+      <div class="slide-counter" id="slideIndicator">01 / 12</div>
     </header>
 
     <!-- Main Canvas -->
@@ -757,10 +757,54 @@
       </section>
 
       <!-- ===================================================================
-           SLIDE 07: 告别轮询 (AUTONOMOUS BEACON)
+           SLIDE 08: 声学让位与设备感知 (ACOUSTIC DUCKING & TELEMETRY)
            =================================================================== -->
       <section class="slide" data-index="8">
-        <div class="kicker">08 / SCENARIO 05 · AUTONOMOUS BEACON</div>
+        <div class="kicker">08 / SCENARIO 08 · ACOUSTIC DUCKING & TELEMETRY</div>
+        <h2 class="title">声学让位与设备感知：包络归播放器，策略归智能体</h2>
+        <p class="lead">语音 Agent 边放音乐边对话的第一性矛盾：伴听沉浸感 vs 识别清晰度。微外设独占增益级，内生看门狗保障故障自愈。</p>
+
+        <div class="grid-3">
+          <div class="slab">
+            <div class="slab-header">
+              <span class="slab-title">毫秒级声学闪避</span>
+              <span class="stamp-tag tag-blue">control duck</span>
+            </div>
+            <div class="slab-body">
+              <p>语音 Agent 开口时执行 <code>jue control duck on</code>，音乐在 0.2s 内以<b>20ms 升余弦插值</b>平滑降至 20%；说完执行 <code>off</code> 渐显恢复。</p>
+              <p>独占独立增益级 <code>volume-gain</code>，与用户主音量严格正交，互不污染。</p>
+            </div>
+          </div>
+
+          <div class="slab slab-contrast">
+            <div class="slab-header">
+              <span class="slab-title">30s 播放器内生看门狗</span>
+              <span class="stamp-tag tag-rust" style="border-color: #D67262; color: #D67262;">故障自愈</span>
+            </div>
+            <div class="slab-body">
+              <p>恢复定时器走物理墙钟，<b>活在 mpv 内部瞬态 Lua 助手里</b>，绝不依赖 Agent 轮询。</p>
+              <p>即使 Agent 崩溃、掉线或遗漏 <code>off</code> 指令，最后一次调用 30s 后<b>必定自驱动平滑回弹</b>，音乐绝不被卡在低电平！</p>
+            </div>
+          </div>
+
+          <div class="slab">
+            <div class="slab-header">
+              <span class="slab-title">CoreAudio 动态设备遥测</span>
+              <span class="stamp-tag tag-green">热插拔感知</span>
+            </div>
+            <div class="slab-body">
+              <p>插上有线耳机、连接/断开 AirPods 或插入 USB 声卡时，<code>events</code> 派发 <code>audio_device_changed</code>。</p>
+              <p>首条通知自动确立基线，排序指纹消除换序误报，Agent 随时获知耳机就绪状态。</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================================================================
+           SLIDE 09: 告别轮询 (AUTONOMOUS BEACON)
+           =================================================================== -->
+      <section class="slide" data-index="9">
+        <div class="kicker">09 / SCENARIO 05 · AUTONOMOUS BEACON</div>
         <h2 class="title">告别轮询：事件信标与零开销续播</h2>
         <p class="lead">如何当好自动续播 DJ？坚决不搞死循环轮询。mpv 原生 IPC 广播直连，曲毕瞬间平滑接力。</p>
 
@@ -808,12 +852,12 @@
       </section>
 
       <!-- ===================================================================
-           SLIDE 08: 异常降级自愈 (RESILIENCE & CONTRACT)
+           SLIDE 10: 上游风控对抗与四级退出码 (RESILIENCE & RISK CONTROL CONTRACT)
            =================================================================== -->
-      <section class="slide" data-index="9">
-        <div class="kicker">09 / RESILIENCE & CONTRACT</div>
-        <h2 class="title">绝不向智能体抛出未经处理的异常</h2>
-        <p class="lead">真实网络与多媒体底层极其脆弱。四级退出码与机器信封确立优雅降级梯级。</p>
+      <section class="slide" data-index="10">
+        <div class="kicker">10 / RESILIENCE & RISK CONTROL CONTRACT</div>
+        <h2 class="title">坚守确定性：上游风控对抗与四级退出码契约</h2>
+        <p class="lead">外部平台反爬不是网络故障，而是业务确凿终态。精准错误边界划分，彻底根除盲目重试风暴。</p>
 
         <div class="grid-2">
           <div class="slab">
@@ -823,32 +867,31 @@
             </div>
             <div class="slab-body">
               <p>• <b>0 (Success)</b>：正常起播、播控成功、事件捕获命中；</p>
-              <p>• <b>1 (Usage Error)</b>：参数格式错、非媒体 URL（引导模型自纠错）；</p>
-              <p>• <b>2 (Infra Failure)</b>：依赖缺失、0700 目录安全拦截、网络中断；</p>
-              <p>• <b>4 (Business Not Ready)</b>：媒体无字幕 (<code>unavailable</code>)、未播放喊控制 (<code>not_playing</code>)、事件超时 (<code>timeout</code>)。</p>
+              <p>• <b>1 (Usage Error)</b>：参数格式错、非媒体 URL（模型自纠错，严禁重试）；</p>
+              <p>• <b>2 (Transport / Infra)</b>：底层工具缺失、Cookie 库锁、DNS 闪断（<b>唯一允许有界指数退避重试</b>）；</p>
+              <p>• <b>4 (Application / Risk)</b>：媒体物理缺失（<code>unavailable</code>，已删/私有/无字幕）；上游风控阻断（<code>error</code>，HTTP 429/Bot 挑战/地区封锁，<b>确凿终态 Fast-fail 绝不重试！</b>）。</p>
             </div>
           </div>
 
           <div class="slab">
             <div class="slab-header">
-              <span class="slab-title">智能体全自动自愈与降级</span>
-              <span class="stamp-tag tag-rust">优雅降级</span>
+              <span class="slab-title">流解析韧性与 Deno 边界</span>
+              <span class="stamp-tag tag-rust">解密韧性</span>
             </div>
             <div class="slab-body">
-              <p>• <b>B 站视频无公开字幕 (Code 4)</b>：自动降级为提取 Chapters 章节大纲；</p>
-              <p>• <b>网易云纯音乐无词 (Code 4)</b>：主动告知为器乐纯音乐，照常起播不报错；</p>
-              <p>• <b>非法参数 / 坏链接 (Code 1)</b>：输出单行 JSON，引导用户口述歌名代查；</p>
-              <p>• <b>未播放喊快进 (Code 4)</b>：友好提醒“当前没有在放，请直接吩咐歌名”。</p>
+              <p>• <b>YouTube n-sig / PO-Token 挑战</b>：算法混淆持续演进，未解密流会被 Google Video CDN 实施 <b>~50kbps 隐式限速惩罚</b>，击穿 30s 起播契约；</p>
+              <p>• <b>外部依赖锁定不变</b>：严格锁定 yt-dlp + mpv，零自研逆向破解；</p>
+              <p>• <b>Deno 宿主增强</b>：推荐宿主安装 <code>deno</code> 承担 JS 运行时求解器，<code>brew install deno</code> 提供满血 YouTube 流解析韧性。</p>
             </div>
           </div>
         </div>
       </section>
 
       <!-- ===================================================================
-           SLIDE 09: 极致细腰底线 (SYSTEM INVARIANTS)
+           SLIDE 11: 极致细腰底线 (SYSTEM INVARIANTS)
            =================================================================== -->
-      <section class="slide" data-index="10">
-        <div class="kicker">10 / SYSTEM INVARIANTS</div>
+      <section class="slide" data-index="11">
+        <div class="kicker">11 / SYSTEM INVARIANTS</div>
         <h2 class="title">极致细腰：锁定单一最优解，拒绝二房东守护</h2>
         <p class="lead">前沿最佳实践不是无脑多驱动抽象，而是锁死最优原语，在确定性上做到极致。</p>
 
@@ -885,29 +928,31 @@
         </div>
 
         <div class="schematic-board" style="margin-top: 18px;">
-端到端测试套件 (tests/test_suite.sh)：A 安全边界 · B 感知契约 · C 状态机 · D 并发争抢 · E 6大工作流 · F Token预算 · G 声学人机 · H 资产落地 · I 事件感知
-10 大测试块无 Mock 并行驱动，166 项物理断言 10 秒全绿通过。
+端到端物理回归套件 (tests/test_suite.sh)：六大能力平面（Boundary · Ingest · Playback · Acoustic · Events · Workflows）
+20 大测试块无 Mock 并行驱动，333 项物理断言 45 秒全绿通过。
         </div>
       </section>
 
       <!-- ===================================================================
-           SLIDE 10: 终极心智宣言 (THE MANIFESTO)
+           SLIDE 12: 终极心智宣言 (THE MANIFESTO)
            =================================================================== -->
-      <section class="slide" data-index="11">
-        <div class="kicker">11 / THE MANIFESTO</div>
+      <section class="slide" data-index="12">
+        <div class="kicker">12 / THE MANIFESTO</div>
         <h2 class="title">动嘴编排、动手急停、分章切片、可信存证</h2>
         <p class="lead">智能体时代的端侧微外设新秩序：以纯粹细腰缝合高维认知与底层声学。</p>
 
         <div class="grid-2">
           <div class="slab slab-contrast">
             <div class="slab-header">
-              <span class="slab-title">智能体微外设四句法则</span>
+              <span class="slab-title">智能体微外设六句法则</span>
               <span class="stamp-tag" style="border-color: #ECEAE4; color: #ECEAE4;">心智模型</span>
             </div>
             <div class="slab-body" style="font-size: 14.5px; line-height: 2;">
               <p>• <b>听歌动嘴</b>：想听什么直接说，两行卡片看着爽；</p>
               <p>• <b>暂停动手</b>：捏按耳机最灵光，零秒静音不用等；</p>
+              <p>• <b>边听边聊</b>：Agent 开口音乐让，说完音乐自己回；</p>
               <p>• <b>长篇问点</b>：不用通篇读字幕，报个分钟抓原话；</p>
+              <p>• <b>视听互验</b>：口述如图不用慌，抽帧直视架构网；</p>
               <p>• <b>沉淀知识</b>：关键证据随手存，自动归入知识库。</p>
             </div>
           </div>
