@@ -1,13 +1,13 @@
 # RESEARCH —— 面向 co-s2s 全双工声学协同的毫秒级音频闪避（Ducking）与动态设备遥测
 
-本文针对实时语音 Agent（`co-s2s`）与本地视听微外设（`co-jue` / `co-ting`）并发运行时的声学冲突第一性矛盾进行工程级深度调研与机理实测，确立基于 mpv 原生机制的毫秒级音频闪避（Audio Ducking）与 CoreAudio 动态设备遥测落地方案。
+本文针对实时语音 Agent（`co-s2s`）与本地视听微外设（`co-jue`）并发运行时的声学冲突第一性矛盾进行工程级深度调研与机理实测，确立基于 mpv 原生机制的毫秒级音频闪避（Audio Ducking）与 CoreAudio 动态设备遥测落地方案。
 
 ---
 
 ## 1. 调研背景与对标对象
 
 ### 1.1 第一性矛盾：伴听沉浸感 vs 语音识别/合成清晰度
-在 `co` 智能体人机交互生态中，`co-jue`（收容于 `co-ting` 仓，对外提供 `jue` 单二进制 CLI）负责无头流式视听播放，`co-s2s` 负责全双工本地实时语音交互。两者在单机共存时暴露以下声学冲突：
+在 `co` 智能体人机交互生态中，`co-jue`（收容于 `co-jue` 仓，对外提供 `jue` 单二进制 CLI）负责无头流式视听播放，`co-s2s` 负责全双工本地实时语音交互。两者在单机共存时暴露以下声学冲突：
 
 1. **ASR 串音污染（Acoustic Crosstalk）**：当用户开口说话时，若扬声器播放的背景音乐维持 100% 音量，背景人声与乐器谐波直接混入麦克风输入流，导致 VAD 频繁误触、Whisper/ASR 词错误率（WER）从 <5% 急剧恶化至 >35%。
 2. **人声掩蔽效应（Auditory Masking）**：当 Agent 发声（TTS 合成音频输出）时，全动态范围的音乐会遮蔽人声的高频细节与辅音辨识度，降低陪伴交互的可懂度。
@@ -95,10 +95,10 @@ static OSStatus hotplug_cb(AudioObjectID id, UInt32 naddr,
 
 | 功能维度 | 当前现状（Current Implementation） | 目标态（Target State） | 关键影响文件与锚点 |
 |---|---|---|---|
-| **音量控制模式** | 仅支持瞬间阶跃 `volume <0-100>`，无平滑过渡 | 支持原子渐变 Ducking（Attack/Hold/Release 曲线），防爆音插值 | [verbs.go:196-235](cmd/jue/verbs.go#L196-L235 "::@0e6a8d02") · [daemon.go:479-498](internal/engine/daemon.go#L479-L498 "::@3b361874") |
-| **协同指令原子性** | 外部需先后调用两次 CLI（降音/恢复），存在时钟抖动与失步风险 | 单条 CLI 即可触发原子定长闪避，或支持边缘触发 `duck on/off` | [verbs.go:196-235](cmd/jue/verbs.go#L196-L235 "::@0e6a8d02") |
+| **音量控制模式** | 仅支持瞬间阶跃 `volume <0-100>`，无平滑过渡 | 支持原子渐变 Ducking（Attack/Hold/Release 曲线），防爆音插值 | [verbs.go:196-240](cmd/jue/verbs.go#L196-L240 "::@9a92b4ac") · [daemon.go:506-525](internal/engine/daemon.go#L506-L525 "::@3b361874") |
+| **协同指令原子性** | 外部需先后调用两次 CLI（降音/恢复），存在时钟抖动与失步风险 | 单条 CLI 即可触发原子定长闪避，或支持边缘触发 `duck on/off` | [verbs.go:196-240](cmd/jue/verbs.go#L196-L240 "::@9a92b4ac") |
 | **异常防护看门狗** | 无恢复机制，若调用方异常崩溃，音量永久停滞在压低状态 | 内置 30s 自动释放 Watchdog，保证背景音乐声学生命线自愈 | 嵌入式 `co-duck.lua` 状态机 |
-| **声学设备遥测** | `events` 仅订阅 `pause`, `chapter`, `idle-active`，无设备感知 | `events` 纳管 `audio-device-list`，广播耳机/扬声器切换事件 | [events.go:15-22](internal/engine/events.go#L15-L22 "::@3c4e8fde") · [events.go:95-103](internal/engine/events.go#L95-L103 "::@c29711dc") |
+| **声学设备遥测** | `events` 仅订阅 `pause`, `chapter`, `idle-active`，无设备感知 | `events` 纳管 `audio-device-list`，广播耳机/扬声器切换事件 | [events.go:15-23](internal/engine/events.go#L15-L23 "::@ac0aad8b") · [events.go:102-110](internal/engine/events.go#L102-L110 "::@5d0b3148") |
 
 ---
 

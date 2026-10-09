@@ -123,21 +123,50 @@ func cookieArgs() []string {
 	return []string{"--cookies-from-browser", b}
 }
 
-// ytdlpFail classifies a failed yt-dlp run: a URL it cannot read at all, or a browser it does
-// not know, is the caller's mistake (exit 1); anything else is the tool or the network (exit 2).
-// A browser store yt-dlp cannot read (missing, locked, no permission) is named as such, with
-// the way out, instead of whatever line its traceback happened to end on.
+// ytdlpFail classifies a failed yt-dlp run into deterministic exit codes:
+//   - 1 (usage): invalid URL or unknown cookies browser.
+//   - 4 (unavailable): media does not exist, removed, or private.
+//   - 4 (error): upstream rate-limit (429), bot verification, or geo-block (terminal, no retry).
+//   - 2 (error): transient transport/socket failures or local cookie storage faults (retryable).
 func ytdlpFail(stderr string, err error) *Fail {
 	line := lastLine(stderr, err)
+	lower := strings.ToLower(stderr)
+
+	// 1. Caller mistakes (Exit 1)
 	switch {
 	case strings.Contains(stderr, "is not a valid URL") || strings.Contains(stderr, "Unsupported URL"):
 		return fail(1, "error", "yt-dlp: %s", line)
 	case strings.Contains(stderr, "unsupported browser specified for cookies"):
 		return fail(1, "error", "yt-dlp: %s (check JUE_COOKIES_FROM_BROWSER)", line)
-	case strings.Contains(stderr, "failed to load cookies") || strings.Contains(stderr, "cookies database") ||
-		strings.Contains(stderr, "database is locked"):
+	}
+
+	// 2. Local cookie storage faults (Exit 2)
+	if strings.Contains(stderr, "failed to load cookies") || strings.Contains(stderr, "cookies database") ||
+		strings.Contains(stderr, "database is locked") {
 		return fail(2, "error", "yt-dlp: cannot read browser cookies: %s (set JUE_COOKIES_FROM_BROWSER to another browser, or none)", line)
 	}
+
+	// 3. Upstream media does not exist / unavailable (Exit 4, unavailable)
+	if strings.Contains(lower, "video is unavailable") ||
+		strings.Contains(lower, "video unavailable") ||
+		strings.Contains(lower, "private video") ||
+		strings.Contains(lower, "has been removed") ||
+		strings.Contains(lower, "copyright claim") {
+		return fail(4, "unavailable", "yt-dlp: %s", line)
+	}
+
+	// 4. Upstream anti-scraping / rate limits / access restrictions (Exit 4, error, non-retryable)
+	if strings.Contains(lower, "http error 429") ||
+		strings.Contains(lower, "too many requests") ||
+		strings.Contains(lower, "confirm you're not a bot") ||
+		strings.Contains(lower, "confirm you are not a bot") ||
+		strings.Contains(lower, "sign in to view this video") ||
+		strings.Contains(lower, "geo-restricted") ||
+		strings.Contains(lower, "available in your country") {
+		return fail(4, "error", "yt-dlp: upstream blocked or rate limited: %s", line)
+	}
+
+	// 5. Raw transport errors or unhandled tool failures (Exit 2, retryable)
 	return fail(2, "error", "yt-dlp: %s", line)
 }
 

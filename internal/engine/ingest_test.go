@@ -195,18 +195,27 @@ func TestYtdlpFail(t *testing.T) {
 	cases := []struct {
 		stderr string
 		code   int
+		status string
 	}{
-		{"ERROR: [generic] 'notaurl' is not a valid URL", 1},
-		{"ERROR: Unsupported URL: https://example.com/", 1},
-		{"ERROR: [youtube] x: Video unavailable", 2},
-		{"ERROR: Unable to download webpage: <urlopen error [Errno 8]>", 2},
-		{"yt-dlp: error: unsupported browser specified for cookies: \"nosuch\"", 1},
-		{"ERROR: could not find chrome cookies database in \"/x\"", 2},
-		{"ERROR: failed to load cookies", 2},
+		{"ERROR: [generic] 'notaurl' is not a valid URL", 1, "error"},
+		{"ERROR: Unsupported URL: https://example.com/", 1, "error"},
+		{"ERROR: [youtube] x: Video unavailable", 4, "unavailable"},
+		{"ERROR: [youtube] x: Private video. Sign in if you have permissions to watch", 4, "unavailable"},
+		{"ERROR: [youtube] x: This video has been removed for violating Terms of Service", 4, "unavailable"},
+		{"ERROR: [youtube] x: This video is no longer available due to a copyright claim", 4, "unavailable"},
+		{"ERROR: [youtube] x: HTTP Error 429: Too Many Requests", 4, "error"},
+		{"ERROR: [youtube] x: Sign in to confirm you're not a bot", 4, "error"},
+		{"ERROR: [youtube] x: The uploader has not made this video available in your country", 4, "error"},
+		{"ERROR: [youtube] x: This video is only available to Music Premium members: sign in to view this video", 4, "error"},
+		{"ERROR: Unable to download webpage: <urlopen error [Errno 8]>", 2, "error"},
+		{"yt-dlp: error: unsupported browser specified for cookies: \"nosuch\"", 1, "error"},
+		{"ERROR: could not find chrome cookies database in \"/x\"", 2, "error"},
+		{"ERROR: failed to load cookies", 2, "error"},
 	}
 	for _, c := range cases {
-		if f := ytdlpFail("WARNING: noise\n"+c.stderr+"\n", errors.New("exit status 1")); f.Code != c.code || !strings.HasPrefix(f.Msg, "yt-dlp: ") || !strings.Contains(f.Msg, c.stderr) {
-			t.Errorf("ytdlpFail(%q) = %d %q, want %d", c.stderr, f.Code, f.Msg, c.code)
+		f := ytdlpFail("WARNING: noise\n"+c.stderr+"\n", errors.New("exit status 1"))
+		if f.Code != c.code || f.Status != c.status || !strings.HasPrefix(f.Msg, "yt-dlp: ") || !strings.Contains(f.Msg, c.stderr) {
+			t.Errorf("ytdlpFail(%q) = %d status=%q msg=%q, want %d status=%q", c.stderr, f.Code, f.Status, f.Msg, c.code, c.status)
 		}
 	}
 }

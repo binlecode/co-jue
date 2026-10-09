@@ -21,6 +21,7 @@ const verbUsage = `usage: jue inspect <url>
        jue play <url> [--start SEC]
        jue queue add <url>|list|clear
        jue control pause|resume|stop|next|prev|seek <+SEC|-SEC|SEC|MM:SS>|volume <0-100>
+       jue control duck [on|off] [--duration SEC] [--level 0-100] [--fade MS]
        jue status
        jue events [--until <EVENT>] [--timeout SEC]`
 
@@ -200,6 +201,9 @@ func runControl(args []string) (any, error) {
 		return nil, usageErr("control needs an action")
 	}
 	action := args[0]
+	if action == "duck" {
+		return runDuck(args[1:])
+	}
 	want, ok := controlArgs[action]
 	if !ok {
 		return nil, usageErr("unknown control action " + action)
@@ -232,6 +236,75 @@ func runControl(args []string) (any, error) {
 		}
 	}
 	return engine.Control(action, v, "")
+}
+
+func runDuck(args []string) (any, error) {
+	req, err := parseDuck(args)
+	if err != nil {
+		return nil, err
+	}
+	return engine.Duck(req)
+}
+
+// duckFlags is each duck flag's unit suffix and bounds; lo is exclusive where loOpen.
+var duckFlags = map[string]struct {
+	suffix string
+	lo, hi float64
+	loOpen bool
+}{
+	"--duration": {"s", 0, 30, true},
+	"--level":    {"", 0, 100, false},
+	"--fade":     {"ms", 0, 2000, false},
+}
+
+// parseDuck reads control duck's arguments: an optional on or off first, then flags, each at
+// most once and only where its mode takes it. Its bounds are the duck helper's own, so a
+// request jue sends is one the helper accepts.
+func parseDuck(args []string) (engine.DuckRequest, error) {
+	req := engine.DuckRequest{Mode: "pulse", Level: 20, Hold: 5, Fade: 200}
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		switch args[0] {
+		case "on":
+			req.Mode, req.Hold = "on", 30
+		case "off":
+			req = engine.DuckRequest{Mode: "off", Fade: 400}
+		default:
+			return req, usageErr("unknown duck action " + args[0] + ": want on or off")
+		}
+		args = args[1:]
+	}
+	seen := map[string]bool{}
+	for i := 0; i < len(args); i++ {
+		name := args[i]
+		spec, ok := duckFlags[name]
+		switch {
+		case !ok && strings.HasPrefix(name, "-"):
+			return req, usageErr("unknown flag " + name)
+		case !ok:
+			return req, usageErr("unexpected argument for duck: " + name)
+		case seen[name]:
+			return req, usageErr(name + " given twice")
+		case i+1 >= len(args):
+			return req, usageErr(name + " requires a value")
+		case req.Mode == "off" && name != "--fade", req.Mode == "on" && name == "--duration":
+			return req, usageErr("duck " + req.Mode + " takes no " + name)
+		}
+		seen[name] = true
+		i++
+		v, err := strconv.ParseFloat(strings.TrimSuffix(args[i], spec.suffix), 64)
+		if err != nil || math.IsNaN(v) || math.IsInf(v, 0) || v < spec.lo || v > spec.hi || spec.loOpen && v == spec.lo {
+			return req, usageErr("bad value for " + name + ": " + args[i])
+		}
+		switch name {
+		case "--duration":
+			req.Hold = v
+		case "--level":
+			req.Level = v
+		case "--fade":
+			req.Fade = v
+		}
+	}
+	return req, nil
 }
 
 func runStatus(args []string) (any, error) {

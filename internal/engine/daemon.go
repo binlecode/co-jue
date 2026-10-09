@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"os"
 	"os/exec"
@@ -133,20 +134,15 @@ func launch(dir string) (*IPCClient, error) {
 		c.Close()
 	}
 	os.Remove(sock) // a socket nobody answers on is a dead player's leftover
+	script, err := writeDuckHelper(dir)
+	if err != nil {
+		return nil, err
+	}
 	mpv, err := exec.LookPath("mpv")
 	if err != nil {
 		return nil, fail(2, "error", "mpv not found on PATH")
 	}
-	cmd := exec.Command(mpv,
-		"--no-config", "--no-terminal",
-		"--idle=yes", // idle until a loadfile; stays idle between tracks; quits on control stop
-		"--no-video",
-		"--input-media-keys=yes", // headset and keyboard play/pause reach this player
-		"--audio-format=s16",     // forces CoreAudio format; prevents fallback to unpausable avfoundation on macOS
-		"--demuxer-max-bytes=32MiB",
-		"--demuxer-max-back-bytes=16MiB",
-		"--input-ipc-server="+sock,
-	)
+	cmd := exec.Command(mpv, mpvArgs(sock, script)...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true} // outlives the calling terminal
 	if err := cmd.Start(); err != nil {
 		return nil, fail(2, "error", "start mpv: %v", err)
@@ -159,6 +155,22 @@ func launch(dir string) (*IPCClient, error) {
 		}
 	}
 	return nil, fail(2, "error", "mpv socket not ready after 3s")
+}
+
+// mpvArgs is how launch starts the one player. volume-gain is not among them: it belongs to
+// the duck helper loaded from script, and starts at mpv's 0 dB.
+func mpvArgs(sock, script string) []string {
+	return []string{
+		"--no-config", "--no-terminal",
+		"--idle=yes", // idle until a loadfile; stays idle between tracks; quits on control stop
+		"--no-video",
+		"--input-media-keys=yes", // headset and keyboard play/pause reach this player
+		"--audio-format=s16",     // forces CoreAudio format; prevents fallback to unpausable avfoundation on macOS
+		"--demuxer-max-bytes=32MiB",
+		"--demuxer-max-back-bytes=16MiB",
+		"--input-ipc-server=" + sock,
+		"--script=" + script,
+	}
 }
 
 // normalizeForMPV is u as mpv takes it: a search only reaches mpv's ytdl hook behind the
@@ -428,6 +440,9 @@ type StatusResponse struct {
 	TimePos  *float64 `json:"time_pos,omitempty"`
 	Duration *float64 `json:"duration,omitempty"`
 	Volume   *float64 `json:"volume,omitempty"`
+	// Duck is the level the music sounds at right now, as a percent of its unducked level (the
+	// --level scale): read at the instant of the call, so mid-fade values show. Absent when not ducked.
+	Duck *int `json:"duck,omitempty"`
 }
 
 func StatusOn(c *IPCClient) (*StatusResponse, error) {
@@ -451,11 +466,23 @@ func StatusOn(c *IPCClient) (*StatusResponse, error) {
 			*dst = &v
 		}
 	}
+	r.Duck = duckLevel(c)
 	// Between loadfile and the first decoded frame there is no playhead yet: nothing sounds.
 	if r.State == "playing" && r.TimePos == nil {
 		r.State = "loading"
 	}
 	return r, nil
+}
+
+// duckLevel is volume-gain as a --level percent, nil at 0 dB (within -0.05) or unreadable.
+// volume-gain is the duck helper's alone, so anything below 0 dB is a duck.
+func duckLevel(c *IPCClient) *int {
+	var db float64
+	if ok, _ := c.Get("volume-gain", &db); !ok || db >= -0.05 {
+		return nil
+	}
+	pct := int(math.Round(100 * math.Pow(10, db/20)))
+	return &pct
 }
 
 func Status() (*StatusResponse, error) {

@@ -4,7 +4,7 @@
 
 ### 1.1 业务背景与第一性矛盾
 `co-jue`（前身 `co-ting`）定位为面向 AI Agent 的端侧视听感知与播放微外设。截至当前版本，系统在感知平面（Ingest）仅打通了“听与读”：
-- [verbs.go:18-26](cmd/jue/verbs.go#L18-L26 "::@5b41be9c") 中声明的现有原子动词包括 `inspect`（章节路标）与 `transcript`（逐字原话），通过 [ingest.go:219-225](internal/engine/ingest.go#L219-L225 "::@8d7ed827") 等原语由 `yt-dlp` 极简提取元数据与字幕；
+- [verbs.go:18-27](cmd/jue/verbs.go#L18-L27 "::@482226f4") 中声明的现有原子动词包括 `inspect`（章节路标）与 `transcript`（逐字原话），通过 [ingest.go:219-225](internal/engine/ingest.go#L219-L225 "::@8d7ed827") 等原语由 `yt-dlp` 极简提取元数据与字幕；
 - 但“视”的感知完全缺席。在长视频研读场景（如前沿技术分享、大会 Keynote、系统架构串讲、白板答疑、代码录屏）中，长程视频的核心论据大量残留在 PPT 幻灯片、系统拓扑图、交互界面与代码终端中。
 
 当 Turn-based Agent（如 Claude Code、OpenCode）需要研读第 $T$ 秒的视觉证据时，若通过原生 bash 工具链自行下载视频，面对 YouTube (DASH) 与 Bilibili (FLV/HLS) 网络流，会不可避免地触发完整 GB 级视频文件的下载，耗时 30~60 秒以上并导致 LLM Tool 超时中断。若引入独立二进制 `ffmpeg`，则直接打破了全仓宪法级红线：**“双外部原语依赖（仅锁定 mpv 与 yt-dlp）+ 零额外 C 库 / CLI 工具”**。
@@ -71,10 +71,10 @@ Bilibili 直链抽帧 (0.76s) = Direct Stream Range Seek (0.52s) + H.264 解码�
 |---|---|---|---|
 | **视觉能力** | 完全缺失（仅 `inspect`、`transcript`、`events`） | 多模态 Agent 需视觉原语实时对齐图表与 PPT | 引入原子动词 `jue frame <url> --at <time>` |
 | **外部原语** | 严守 `mpv` 与 `yt-dlp`，零 ffmpeg，纯 Go 驱动 | 部分方案依赖复杂 ffmpeg 管道与临时文件转换 | **坚守原语底线**：纯调用 mpv `--vo=image`，零 ffmpeg |
-| **进程模型** | 仅有后台常驻纯音频守护进程（[daemon.go:140-150](internal/engine/daemon.go#L140-L150 "::@3f1038a1")） | 区分长时间流媒体伴听与短平快时空采样 | **动静分离**：感知帧抽取使用瞬态 One-shot 进程，与 Daemon 隔离 |
+| **进程模型** | 仅有后台常驻纯音频守护进程（[daemon.go:162-176](internal/engine/daemon.go#L162-L176 "::@2cde271d")） | 区分长时间流媒体伴听与短平快时空采样 | **动静分离**：感知帧抽取使用瞬态 One-shot 进程，与 Daemon 隔离 |
 | **网络拉流策略** | 音频流优先（`bestaudio/best`） | 粗暴下载会导致带宽打满与长时间阻塞 | 强制视频限高与按需切片：`--ytdl-format="bv*[height<=720]/b[height<=720]"` |
 | **Token 与体积预算** | 无图像预算控制 | 1080p 原图导致 1600+ Tokens 与上百 KB 负债 | 通过 `--vf="scale=960:-2"` 压缩至 ~690 Tokens，文件 30~50KB |
-| **临时文件隔离** | 具备 [daemon.go:20-27](internal/engine/daemon.go#L20-L27 "::@b8684495") 的 0700 沙箱与 [daemon.go:52-62](internal/engine/daemon.go#L52-L62 "::@d8664eea") 的 `scratchDir` | 无序堆积在 `/tmp` 易引发泄漏与磁盘占满 | 在 `$TMPDIR/jue-<uid>/scratch-frame-*/` 下建立老化自回收机制 |
+| **临时文件隔离** | 具备 [daemon.go:21-28](internal/engine/daemon.go#L21-L28 "::@b8684495") 的 0700 沙箱与 [daemon.go:53-63](internal/engine/daemon.go#L53-L63 "::@d8664eea") 的 `scratchDir` | 无序堆积在 `/tmp` 易引发泄漏与磁盘占满 | 在 `$TMPDIR/jue-<uid>/scratch-frame-*/` 下建立老化自回收机制 |
 
 ---
 
@@ -187,4 +187,4 @@ jue frame <url> --at <time> [--width 960] [--quality 80]
 3. **反方质问：冷启动首次抓帧耗时 3.5s 是否违背 < 2s 目标？**
    - **裁决**：延迟瓶颈已被精确定位在 yt-dlp 网页嗅探阶段（~2.3s），而底层媒体解流抽帧只需 0.76s ~ 1.9s。在工程实施（`PLAN-`）阶段，可通过在引擎内建立短期 URL 对应流直链的内存 LRU 缓存，使得同视频后续抽帧直接命中直链，端到端耗时即时收敛至 **< 1s**。
 4. **反方质问：图片堆积是否会导致宿主机磁盘泄漏？**
-   - **裁决**：在 [daemon.go:50-60](internal/engine/daemon.go#L50-L60 "::@1875f101") 的 `scratchDir` 机制上，新增两级防护：单次请求异常时立即同步销毁当前 scratch 目录；每次成功派生时惰性扫描并清除超过 1 小时的历史 scratch 目录，保证零长期磁盘负债。
+   - **裁决**：在 [daemon.go:51-61](internal/engine/daemon.go#L51-L61 "::@1875f101") 的 `scratchDir` 机制上，新增两级防护：单次请求异常时立即同步销毁当前 scratch 目录；每次成功派生时惰性扫描并清除超过 1 小时的历史 scratch 目录，保证零长期磁盘负债。

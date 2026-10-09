@@ -5,7 +5,7 @@
 ### 1.1 业务背景与第一性矛盾
 `co-jue`（前身 `co-ting`）定位为面向 AI Agent 的端侧视听感知与播放微外设。在全脑知识流中，`co-library` 的核心知识沉淀与 Agent 认知摄取严重依赖高质量长音频与技术演讲（硅谷及全球顶级技术访谈、AI 前沿研究、系统工程复盘、大会 Keynote 等）。
 
-截至当前版本，系统的逐字稿转录能力在 [verbs.go:18-26](cmd/jue/verbs.go#L18-L26 "::@5b41be9c") 与 [ingest.go:272-288](internal/engine/ingest.go#L272-L288 "::@8be9ff70") 中仅深度适配了两种渠道：
+截至当前版本，系统的逐字稿转录能力在 [verbs.go:18-27](cmd/jue/verbs.go#L18-L27 "::@482226f4") 与 [ingest.go:272-288](internal/engine/ingest.go#L272-L288 "::@8be9ff70") 中仅深度适配了两种渠道：
 1. **YouTube**：通过 [ingest.go:320-360](internal/engine/ingest.go#L320-L360 "::@2c15584a") 与 [ingest.go:369-392](internal/engine/ingest.go#L369-L392 "::@6c3d94fd") 依赖 `yt-dlp` 抓取其专属的 `json3` 格式字幕轨，并在 [ingest.go:395-432](internal/engine/ingest.go#L395-L432 "::@a821a7c4") 中解析；
 2. **网易云音乐**：通过 [ingest.go:505-536](internal/engine/ingest.go#L505-L536 "::@aedce7d1") 和 [ingest.go:539-575](internal/engine/ingest.go#L539-L575 "::@a6a5e58a") 请求公开歌词接口并用正则推导 LRC 时间戳。
 

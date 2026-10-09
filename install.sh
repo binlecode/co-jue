@@ -116,7 +116,12 @@ done
 if [[ $missing -eq 1 ]]; then
     exit 1
 fi
-echo "    ✔ 依赖完整 (go, mpv, yt-dlp, jq)"
+echo "    ✔ 基础依赖完整 (go, mpv, yt-dlp, jq)"
+if command -v deno >/dev/null 2>&1; then
+    echo "    ✔ 可选运行时: deno ($(deno --version | head -n 1)) (支持 YouTube n-sig / PO-Token 解算)"
+else
+    echo "    ℹ 提示: 未检测到可选运行时 deno (推荐安装以增强 YouTube 复杂流解析韧性: brew install deno)"
+fi
 
 echo "==> 2. 编译并安装 co-jue CLI (v${VERSION})..."
 mkdir -p "$BIN_DIR"

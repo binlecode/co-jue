@@ -6,7 +6,7 @@
 
 ---
 
-## 系统阶段演进全表 (Stages 0–4)
+## 系统阶段演进全表 (Stages 0–6)
 
 | 阶段 (Stage) | 对应版本 | 时间节点 | 触发原因 | 核心架构动作 | 揭示的核心原则 |
 |---|---|---|---|---|---|
@@ -16,10 +16,52 @@
 | **Stage 3** | `v1.2.0` | 2026-10-05 | Turn-based Agent 回显后即挂起，无法常驻后台接力续播；语义点歌被单 URL 强校验阻断 | 暴露 mpv 原生瞬态内存播放列表（`queue add/list/clear`、`control next/prev`），零持久化；显式 `ytsearch1:` 检索前缀复用 yt-dlp 原生检索，零自研爬虫；新增 `queue_ended` 事件；废除 ~1,400 行人工魔数，改行 Need-based 零冗余原则；端到端套件扩至 12 块 232 项 | **连续性下沉到播放器而非 Agent**：Agent 一次性编排歌单后即可离场，队列由 mpv 内存自驱动，随进程生灭；规模由需要决定，而非由数字决定。 |
 | **Stage 4** | `v2.0.0` | 2026-10-06 | 视觉感知完全缺席，长视频技术研读遭遇物理泥潭；系统命名与语义升维重锚 | 命名全域蜕变升维为 `co-jue`（`jue` / 觉），无须兼容彻底大改；交付原子动词 `jue frame` 单帧视觉感知（One-shot mpv `--vo=image` 零常驻内存）；独立进程组与负 PID 广播 SIGKILL 统一收割；lavfi 双边等比外框滤镜（横竖屏均为 ~690 Tokens）；0700 沙箱与同步机会式 GC；端到端物理回归套件扩充至 13 块 255+ 项全绿 | **命名是容器，能力是流体**；从听觉单维扩展为视听觉知全模态；感知平面与执行平面动静彻底隔离。 |
 | **Stage 5** | `v2.1.0` | 2026-10-07 | 认知信源扩展：跨平台结构化转录协议、免 Cookie 规范与海外顶级 IT/AI 信源拓扑落地 | 泛化 WebVTT/SRT 5 状态 FSM 清洗；下沉 Podcast 2.0 RSS 与 ID3v2 章节解包；落地方案 A 纯日常浏览器 Cookie 透传（零落盘文件）；全量端到端扩展至 267 项断言 | **开放协议标准化下沉，动态风控坚守底线**；静态协议入标准库，会话缓存留浏览器，只读凭证库绝不污染。 |
+| **Stage 6** | `v2.2.0` | 2026-10-08 | 语音 Agent（co-s2s）边放音乐边说话时人声被音乐淹没；设备热插拔对 Agent 不可见 | `control duck` 脉冲/边沿闪避：mpv 内嵌瞬态 Lua 助手独占 `volume-gain`，20ms 升余弦渐变与 30s 看门狗活在播放器里，CLI 一条 `script-message-to` 立返；版本化就绪标记判定助手在场；`events` 新增 `audio_device_changed`（首条有效通知基线 + 排序指纹）；端到端套件按六大能力平面重构为 20 块 333 项 | **包络归播放器，策略归 Go**：调用方可以崩溃，音乐不会被锁在低电平；投递回执不等于执行回执，在场与否要靠对方亲口写下的标记。 |
 
 ---
 
 ## 版本更新日志 (SemVer Releases)
+
+## [2.2.0] - 2026-10-08
+
+**毫秒级声学闪避（`control duck`）与 CoreAudio 设备拓扑遥测（`audio_device_changed`）（完结吸收 PLAN-acoustic-ducking-and-device-telemetry）。**
+
+- **`jue control duck [on|off] [--duration SEC] [--level 0-100] [--fade MS]`**：脉冲（默认 5s / 20% / 200ms 渐隐、`2 × --fade` 渐显）、`on`（持续压低，30s 看门狗，400ms 渐显）、`off`（默认 400ms 渐显，未闪避时为空操作、退出码 0）；成功信封 `{"status":"ok","action":"duck"|"duck_on"|"duck_off"}`，`ControlResponse` 结构不变。
+- **进程内瞬态助手 `internal/engine/jue_duck.lua`**：`embed` 内嵌，`launch()` 在锁内、拉起 mpv 前以 temp+rename 写入 `$TMPDIR/jue-<uid>/jue_duck.lua`（0600 常规文件，预埋符号链接被替换而非跟随），`--script=` 加载，随 mpv 生灭；只有常驻 mpv 加载，`frame` 的一次性 mpv 不加载。20ms 升余弦插值、`--fade 0` 同步即时写入、同目标冗余指令不重启渐变（心跳续期零扰动）、最新指令胜出、一次性恢复定时器走墙钟。抽出 `mpvArgs` 供单测断言。
+- **`volume-gain` 闪避独占**：只写 mpv 独立增益级，与 `control volume` 正交，`status.volume` 语义不漂移；`--level 0` 落到 −96 dB 地板。
+- **投递 ≠ 执行**：`script-message-to` 的 `success` 只证投递，助手在全部处理函数注册后最后写 `user-data/jue/duck-helper = "1"`；`Duck` 依次过空闲闸门、读标记（缺失/版本不符 → 4 `unavailable`，不下发）、下发一条字符串参数指令。Go 侧 `parseDuck` 与 Lua 侧 `num()` 校验域逐项一致；Lua 侧的有限值+区间校验防止外部发送方以 `nan`/`inf`/`1e309` 污染状态。
+- **专用 `parseDuck`**：子动作只能是首参数；flag 出现性追踪，重复/未知/缺值/与模式不符（`on --duration`、`off --level|--duration`）一律退出码 1，解析先于连接（无播放器时仍为 1）；数值拒收 NaN/Inf/溢出/越界，`--duration` 可带 `s`、`--fade` 可带 `ms`。
+- **`status` / `snapshot` 新增可选 `duck`**（D1）：非空闲且 `volume-gain` 低于 −0.05 dB 时出现，瞬时电平百分比（与 `--level` 同刻度，渐变途中为中间值）；未闪避时信封逐字节不变，空闲态不读不出现。
+- **`audio_device_changed` 事件**：`events` 订阅 `observe_property 4 audio-device-list`，以首条有效通知为基线并压制（不另发 `Get`，消除回执与订阅初值的先后竞态），指纹为按 `name`/`description` 排序后的 JSON（换序不误报，`null` 与 `[]` 等同），变化时发 `{"event":"audio_device_changed","audio_device":…,"devices":[…]}`；字段按 D5 定名 `audio_device`（mpv 配置选择器，`--no-config` 下为 `auto`，不是实际路由设备——mpv 0.41 无 `audio-out-detected-device`）。`--until audio_device_changed` 在空闲播放器上合法。
+- **上游风控对抗与流解析韧性（方向 4 落地，yt-dlp 原语演进与 JS 运行时边界）**：
+  - **`ytdlpFail` 状态机四级收敛（`internal/engine/ingest.go`）**：严格划分退出码 1（用法/URL 非法）、退出码 2（底层瞬态网络/Cookie 库锁）、退出码 4 `unavailable`（视频不存在/已删除/私有/版权下架）与退出码 4 `error`（HTTP 429 频控/Botguard 验证/地区封锁），彻底解决将平台终态阻断粗暴归入退出码 2 的缺陷。
+  - **测试套件重试闸门精准化（`tests/test_suite.sh`）**：`transient()` 明确排除包含 `upstream blocked` 与 `rate limited` 的退出码 4 阻断，仅对纯物理网络故障（退出码 2）与 mpv 播放器底层瞬态断流发起退避重试，斩断加剧 IP 封禁的重试风暴。
+  - **安装感知与运行时引导（`install.sh`）**：环境检查阶段新增可选 JS 运行时 `deno` 探测与安装提示（`brew install deno`），保持零硬性阻断与优雅降级。
+  - **测试矩阵与回归**：`ingest_test.go` 补全 429、Bot 验证、地区封锁、下架视频状态机断言；全量 20 块 333 项端到端物理回归全绿。
+- **Phase 0 实测（mpv 0.41.0，本机）**：
+  - P1：运行时 `set_property volume-gain` 0 → −14 → −96 → 0 全部成功，期间事件流零 `audio-reconfig`（N16 固化）；可闻爆音试听**未做**（需人耳）。
+  - P2/P7：沿用 Codex 实测结论（投递回执语义、`tonumber` 非有限值污染），由就绪标记与 `num()` 校验覆盖，N15/N23/N24 回归。
+  - P3：JSON IPC 下 `script-message-to` 的数值参数被拒（`invalid parameter`），字符串参数正常——按设计一律 `strconv.FormatFloat` 发字符串。
+  - P4：真实 mpv 上 1000ms 渐隐每 50ms 采样得 18 个单调中间值；20ms 定时器抖动打点与 zipper 试听**未做**（需人耳）。
+  - P5：`observe_property audio-device-list` 订阅后立即推送一条带 `data` 的初值（本机 5 个设备），`audio-device` 为 `auto`；热插拔事件序列**未实测**（需人工插拔）。
+  - P6：真实 mpv 上三次往返（`playlist-pos`、就绪标记、`script-message-to`）约 62µs；`BenchmarkDuckRoundTrip`（假 mpv、真实 Unix socket，含拨号）约 54µs/次，远低于 2ms。
+  - P8：Lua `mp.set_property("user-data/jue/duck-helper","1")` 可写、IPC 可读；`pause` 下 `mp.add_timeout` 按墙钟照常触发（NW 块固化）。
+- **手工设备验收（§5.3）：待人工执行**。插拔有线耳机、AirPods 连断、USB 声卡下 `audio_device_changed` 的条数与内容，以及 `duck`/`duck on`/`duck off`/`duck on --level 0` 的听感（爆音、zipper），无法在套件内构造（不引入虚拟音频驱动），本版本发布时尚未完成。
+- **Codex 对抗评审 16 条全部吸收**：版本化就绪标记、非有限值防护、设备基线改用首条有效通知、排序指纹与 nil/空规范化、`audio_device` 语义、冗余渐变跳过、`--fade 0` 即时与 duration 定义、看门狗准确表述（最迟 30s **开始**渐显）、单步最大 2.41 dB 与 −96 dB 地板、生命周期表、`volume-gain` 独占、瞬时电平语义、专用 `parseDuck`、退出码矩阵、N 块补非有限值/零重配置/CLI 墙钟、保留 30s 看门狗以暂停+续期压缩测试时长。
+- **测试**：单元层新增 `duck_test.go`、`cmd/jue/verbs_test.go`，`daemon_test.go` 补 `TestMPVArgsLoadDuckHelper`/`TestStatusDuckField`，`events_test.go` 补五项设备遥测；`startFakeMPV` 接受 `testing.TB` 且 nil 回复即挂断。端到端新增 Block N（51 项）与 Block NW（5 项，生产 30s 看门狗），Block A +16、Block I +4；
+- **端到端套件第一性原理重构（`tests/test_suite.sh`）**：
+  - **按能力平面编排**：报告按 Boundary（A、F）· Ingest（B、K、M）· Playback（C、D、J、L）· Acoustic（G、N、NW）· Events（I）· Agent workflows（E-a/b+f/c/d/e/g、H）六个平面分组；块字母不变（历史条目仍可引用）。块清单单表驱动启动与报告，不再两处维护。
+  - **网络抖动有界重试 `net`/`fetch`**：此前 `v play … || { sleep 1; v play …; }` 的重试因 `v` 恒返回 0 从未生效（基线一次 YouTube 加载失败连锁 8 项 FAIL）。现只重试退出码契约定义的瞬态结果——退出码 2，或退出码 4 且 `status=="error"`（流加载失败）——最多 3 次、2s/4s 退避，单次时长由 jue 自身界定（yt-dlp 90s、HTTP 20s、加载 30s、frame 17.5s）；重试过的断言在报告里标注 `[attempt N of 3]`。
+  - **前置条件闸门 `need`**：后续步骤依赖的步骤失败时，记一条 FAIL 加一行 `--` 跳过说明并收掉本块播放器，不再一错连锁。
+  - **挂起有界**：每块 300s 看门狗（超时即杀进程树与本块 mpv 并报告）；`mpv_ipc` 每次套接字操作 5s 超时，无回应时打印诊断而非挂死。
+  - **事件订阅就绪同步 `subscribe`/`collect`**：以 `lsof` 确认 `jue events` 已持有套接字连接后才触发（原为“输出文件已存在 + sleep 0.2”的竞态）；`events --until track_ended` 的短音轨由 1s 加长到 3s，消除并行负载下错过 eof 的窗口。
+  - **去重与归位**：各动词的用法闸门与“无播放器不落盘”统一收归 A（原散落于 A/I/J/L/M）；K 与 A/C 重复的 `inspect notaurl`、缺失文件回归删除；`silence` 生成器取代四处内联 WAV 构造。
+  - **去同义反复、改测真实事实**：E-f 原为“播静音 WAV + 复查 B 已测的 LRC 首行 + grep 测试自己写入的卡片”，现与 E-b 合并为一条 NetEase 流：现在播放卡片后暂停、读播放头、取覆盖播放头的那一行歌词（也让全套 NetEase 起播数减半）；E-g 改为引用帧时刻最近的真实字幕行并断言两者相距 < 5s，删去恒真的“卡片不含本机路径”检查。
+  - **可移植与隔离**：M 块去掉写死的本机 MP3 路径（且该文件无封面），改由 mpv 现场生成带 mjpeg 内嵌封面的 MP3，覆盖 `audio-display=no` 的真正场景；M 的 yt-dlp 残留检查改用其它块不会发出的检索词，消除与 K 并行时的误报；前置依赖检查补 `python3`、`lsof`。
+  - **NW 保持独立块**：它需让一个暂停的播放器空等 34.5s 墙钟；并入 N 会把这段时间串行加到 N 上（全套墙钟由最慢块决定），故并列于 Acoustic 平面并行执行。
+  - 单元层新增 `cmd/jue/verbs_test.go` `TestVerbUsageGates`：八个动词的语法闸门在清空 `PATH`/`TMPDIR` 下逐项为退出码 1（漏过闸门者会答 2 或 4），且隔离的 `TMPDIR` 事后为空（用法错不落盘）。
+  - **防假通过加固（Codex 对抗评审）**：块子 shell 非零退出（`set -u`、信号）记一条 `block crashed` FAIL，不再让未执行的断言读作通过；看门狗 `kill_tree` 先 TERM、0.5s 后对仍存活者 KILL；`subscribe` 3s 内未连上即记 FAIL 并返回 1；`failc` 把详情内换行转义为 `\n`，保持一行一断言；`mpv_ipc` 每次请求整体 5s 单调时限，事件持续涌入也不会无限等 `request_id`；`expect` 另以 `jq -s` 断言单行只含一个 JSON 值；N17–N20 先断言 `next`/`seek`/`resume`/`play` 本身成功再查闪避电平；E-e 倒带后播放头加上界（`< 暂停点 − 1s`），证明确实回退。
+  - 全套 20 块 333 项（A 59 · F 7 · B 11 · K 15 · M 21 · C 35 · D 7 · J 31 · L 11 · G 13 · N 51 · NW 5 · I 14 · E-a 6 · E-b+f 8 · E-c 10 · E-d 6 · E-e 7 · E-g 5 · H 10 · 收尾 1），并行约 35s。断言数下降来自去重与删除恒真检查，不是覆盖收缩。
 
 ## [2.1.0] - 2026-10-07
 

@@ -1,6 +1,6 @@
 ---
 name: jue
-description: "Audio-visual perception & playback peripheral for AI agents in co ecosystem (co-jue). Extract visual frames, chapters, and verbatim transcripts to answer timestamped questions; stream audio in background via mpv. Trigger: jue, co-jue, frame, inspect, transcript, play music, background music, pause, resume, 抽帧, 画面, 截图, 听歌, 放首歌, 字幕, 第几分钟讲了什么."
+description: "Audio-visual perception & playback peripheral for AI agents in co ecosystem (co-jue). Extract visual frames, chapters, and verbatim transcripts; stream audio in background via mpv; duck music while agent speaks. Trigger: jue, frame, inspect, transcript, play/pause/duck music, 抽帧, 画面, 截图, 听歌, 放首歌, 字幕, 第几分钟讲了什么, 压低音乐."
 ---
 
 # jue —— Agent 的视听感知与播放外设
@@ -29,7 +29,10 @@ jue control pause | resume | stop               # 控：即时静音、恢复或
 jue control next | prev                         # 切：下一首 / 上一首 (已等待新曲出声；越界退出码 4)
 jue control seek +30 | seek -15 | seek 14:05    # 跳：+N / -N 相对跳转；不带符号为绝对位置 (秒数或 mm:ss)
 jue control volume 60                           # 调：音量 (0-100)
-jue events [--until <EVENT>] [--timeout SEC]    # 听：事件感知面 (单次阻塞 until 或管道流式；支持 track_started|track_ended|paused|resumed|chapter_changed|queue_ended)
+jue control duck [--duration 5] [--level 20] [--fade 200]   # 让：脉冲闪避，压到 20%，5s 后开始以 2×fade 渐显 (立即返回)
+jue control duck on [--level 20] [--fade 200]   # 让：持续闪避直至 off (30s 无续期自动恢复)
+jue control duck off [--fade 400]               # 让：恢复原电平 (未闪避时为空操作，退出码 0)
+jue events [--until <EVENT>] [--timeout SEC]    # 听：事件感知面 (单次阻塞 until 或管道流式；支持 track_started|track_ended|paused|resumed|chapter_changed|queue_ended|audio_device_changed)
 ```
 
 **显式检索前缀**：手里没有 URL 时，在 `play` / `queue add` / `inspect` / `transcript` 的 `<url>` 位置写 `ytsearch1:<关键词>`，由 yt-dlp 在 YouTube 取第一条结果：
@@ -56,6 +59,10 @@ jue transcript "ytsearch1:Never Gonna Give You Up" --range 18-30
 - **`queue add` 的 `state`**：`playing`（播放器原本空闲，已起播并等到出声，`pos:0, count:1`）或 `queued`（已追加到队尾，立即返回）。
 - **队列是瞬态的**：它就是 mpv 的内存播放列表，`stop` 或 mpv 退出即消失，不落盘；全部放完后队列视为空，再 `add` 从头开始。`queue list` 里尚未轮到的条目没有 `title`，只有 `current` 项带 `current: true`。
 - **300 条上限**：`transcript` 无论是否带 `--range`，超过 300 条只返回前 300 条并标 `truncated: true`，此时收窄时间窗再取。
+- **声学闪避 (`control duck`)**：只压 mpv 独立增益级 `volume-gain`，与 `control volume` 正交；成功信封 `{"status":"ok","action":"duck"|"duck_on"|"duck_off"}`，立即返回、不等渐变。`--duration` 为 `(0,30]` 秒（可带 `s`），`--level` 为 `[0,100]`（`0` = −96 dB 近乎静音），`--fade` 为 `[0,2000]` 毫秒（可带 `ms`，`0` = 即时）；`on` 不收 `--duration`，`off` 只收 `--fade`，重复 flag 即退出码 1。空闲时 4 `not_playing`；升级前启动的播放器没有助手，返回 4 `unavailable`，`stop` 后重新 `play` 即可。闪避跨暂停、seek、换歌、`play` 替换保持。
+- **`status.duck`**：闪避中才出现，是**此刻**的电平百分比（与 `--level` 同刻度，渐变途中读到中间值）；未闪避时没有这个键，`volume` 始终是人设的音量。`events` 的 `snapshot` 同。
+- **看门狗**：任何一条 `duck` / `duck on` 之后最迟 30s **开始**渐显（`on` 再用 400ms 恢复，脉冲用 `2 × --fade`）；最新指令胜出——`on` 之后发脉冲会把恢复点改为脉冲到期，重复 `on` 续期且同电平不重启渐变。
+- **`audio_device_changed`**：系统音频输出拓扑变化（插拔耳机、AirPods 连断）时派发，带 `devices`（按 `name` 排序）与 `audio_device`（mpv 的输出选择设置，通常为 `auto`，**不是**实际出声设备）；订阅初值不报，同一拓扑换序不报；只在控制中心切换默认输出不触发；`--until audio_device_changed` 在空闲播放器上也会等待。
 - **单帧视觉感知**：`jue frame` 输出单行紧凑信封（包含 `path`, `duration`, `width`, `height`, `size_bytes`，`actual_at` 为 nil 时自动收缩）；图片落盘于 0700 沙箱中（模式 0600）。**双轨交付铁律**：Agent 内部直接以 `path` 传给 `read_image` 读图；面向人类交付时严禁在 Markdown 贴本地 `/var/folders/` 路径（避免 Web GUI 裂图），必须提供外网直达时间戳链接（`&t=...s`）。无视频轨或超出时长如实返回退出码 4 `unavailable`。
 
 ---
@@ -71,6 +78,7 @@ jue transcript "ytsearch1:Never Gonna Give You Up" --range 18-30
 7. **事件感知与续添**：严禁用死循环轮询 `status`（消耗 Token 并产生迟滞）。需要在队列放完时续添新歌，调用 `jue events --until queue_ended` 单次阻塞等待；只关心单曲边界时用 `--until track_ended`（`reason: "eof"` 为自然放毕）。
 8. **检索前缀按需使用**：用户只给歌名或主题时，可直接用 `ytsearch1:<歌手 歌名>` 起播或排队，省掉一轮 `web_search`；需要 B 站/网易云源，或对结果准确性要求高时，仍应先确认直链。起播后以信封返回的规范 URL 为准写入卡片。
 9. **视觉双轨交付与时钟中心锚定**：依据字幕推导抽帧时，建议取中点偏后 60% 位（`at = start + (end-start)*0.60`）作为推荐候选避开转场过渡态（显式指定时点绝对优先）；交付卡片必须提供外网直达时戳链接，严禁在 Markdown 贴本地私有临时图片路径。
+10. **说话前先让位**：语音场景下，Agent 开口前 `duck on`，说完 `duck off`（放在 finally 里，未闪避时也安全）；不要用 `control volume` 做闪避，那会改掉用户设的音量。
 
 ---
 
@@ -145,6 +153,17 @@ jue transcript "ytsearch1:Never Gonna Give You Up" --range 18-30
 2. 清掉待播只留当前：`jue queue clear`；
 3. 整体替换：`jue play <url|query>`（替换整个队列并立即起播）；
 4. 全部停止：`jue control stop`（队列随 mpv 一起销毁）。
+
+### h) 与 co-s2s 协同：边放边聊
+
+语音 Agent 在音乐伴播中开口说话时：
+
+1. **开口**（VAD 判定 Agent 开始说话 / TTS 起播前）：`jue control duck on`（默认压到 20%，200ms 渐隐）；
+2. **长于 20 秒的回合**：每 ≤20s 再发一次 `jue control duck on` 作为心跳续期（同电平零扰动），否则 30s 看门狗会开始恢复；
+3. **回合结束**：`jue control duck off`（默认 400ms 渐显）；放在 finally 里，未闪避或已恢复时是空操作；
+4. **短 TTS 回复**（时长已知）：只发一条脉冲 `jue control duck --duration <TTS 秒数>`，到期自动以 `2 × --fade` 渐显，无需 `off`；
+5. **自查**：`jue status` 出现 `duck` 即音乐此刻被压着（数值为瞬时电平）；返回 `unavailable` 时提示用户“停掉再放”。
+6. **设备变化**：长连接 `jue events` 收到 `audio_device_changed` 时可播报新设备列表；AirPods 摘下是 `paused` 事件，不是设备变化。
 
 ---
 

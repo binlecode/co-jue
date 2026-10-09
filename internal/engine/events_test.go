@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -208,7 +209,7 @@ func TestEventsQueueEndedPlayerExits(t *testing.T) {
 				return
 			}
 			peer.Write([]byte(answer(i, false) + "\n"))
-			if i == 9 { // 3 observes and StatusOn's 6 reads
+			if i == 11 { // 4 observes and StatusOn's 7 reads
 				peer.Close()
 			}
 		}
@@ -217,5 +218,132 @@ func TestEventsQueueEndedPlayerExits(t *testing.T) {
 	var f *Fail
 	if !errors.As(err, &f) || f.Code != 4 || f.Msg != "player exited" {
 		t.Errorf("err = %v, want exit 4 player exited", err)
+	}
+}
+
+// devicePeer is a playing player with audio-device auto that never answers a read of
+// audio-device-list (the baseline is the subscription's, not a Get's) and pushes script.
+func devicePeer(t *testing.T, script ...string) *IPCClient {
+	return eventsPeer(t, func(name string, n int) any {
+		switch name {
+		case "audio-device-list":
+			t.Error("eventsOn read audio-device-list")
+			return nil
+		case "audio-device":
+			return "auto"
+		}
+		return playing("/a.wav")(name, n)
+	}, script...)
+}
+
+func devices(data string) string {
+	return `{"event":"property-change","id":4,"name":"audio-device-list","data":` + data + `}`
+}
+
+const (
+	twoDevs     = `[{"name":"coreaudio/Speakers","description":"MacBook Pro Speakers"},{"name":"auto","description":"Autoselect device"}]`
+	twoDevsSwap = `[{"name":"auto","description":"Autoselect device"},{"name":"coreaudio/Speakers","description":"MacBook Pro Speakers"}]`
+	threeDevs   = `[{"name":"coreaudio/Speakers","description":"MacBook Pro Speakers"},{"name":"coreaudio/AirPods","description":"AirPods Pro"},{"name":"auto","description":"Autoselect device"}]`
+)
+
+// deviceLines runs eventsOn briefly and returns its audio_device_changed lines.
+func deviceLines(t *testing.T, c *IPCClient) []string {
+	t.Helper()
+	var buf bytes.Buffer
+	if _, err := eventsOn(c, "", 0.15, &buf); err != nil {
+		t.Fatal(err)
+	}
+	var out []string
+	for _, l := range strings.Split(strings.TrimSpace(buf.String()), "\n") {
+		if strings.Contains(l, "audio_device_changed") {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+func TestEventsAudioDeviceBaselineIsFirstNotification(t *testing.T) {
+	if got := deviceLines(t, devicePeer(t, devices(twoDevs))); len(got) != 0 {
+		t.Errorf("the subscription's initial value was reported: %v", got)
+	}
+}
+
+func TestEventsAudioDeviceSkipsInvalidBaseline(t *testing.T) {
+	got := deviceLines(t, devicePeer(t,
+		`{"event":"property-change","id":4,"name":"audio-device-list"}`,
+		devices(twoDevs), devices(threeDevs)))
+	if len(got) != 1 {
+		t.Errorf("got %v, want one change: no data is no baseline", got)
+	}
+}
+
+func TestEventsAudioDeviceChanged(t *testing.T) {
+	got := deviceLines(t, devicePeer(t, devices(twoDevs), devices(threeDevs), devices(threeDevs), devices(twoDevsSwap)))
+	want := []string{
+		`{"event":"audio_device_changed","audio_device":"auto","devices":[{"name":"auto","description":"Autoselect device"},{"name":"coreaudio/AirPods","description":"AirPods Pro"},{"name":"coreaudio/Speakers","description":"MacBook Pro Speakers"}]}`,
+		`{"event":"audio_device_changed","audio_device":"auto","devices":[{"name":"auto","description":"Autoselect device"},{"name":"coreaudio/Speakers","description":"MacBook Pro Speakers"}]}`,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got  %v\nwant %v", got, want)
+	}
+}
+
+func TestEventsAudioDevicePermutation(t *testing.T) {
+	if got := deviceLines(t, devicePeer(t, devices(twoDevs), devices(twoDevsSwap))); len(got) != 0 {
+		t.Errorf("a reordering was reported: %v", got)
+	}
+	if got := deviceLines(t, devicePeer(t, devices("null"), devices("[]"))); len(got) != 0 {
+		t.Errorf("null then [] was reported: %v", got)
+	}
+	got := deviceLines(t, devicePeer(t, devices(twoDevs), devices("null")))
+	if len(got) != 1 || !strings.HasSuffix(got[0], `"devices":[]}`) {
+		t.Errorf("got %v, want one change with devices []", got)
+	}
+}
+
+func TestEventsUntilAudioDeviceChanged(t *testing.T) {
+	// An idle player still waits: the device list is not the queue's. The list arrives once
+	// StatusOn has found the player idle.
+	c, peer, cmds := pipeClient(t)
+	go func() {
+		pushed := false
+		for {
+			line, err := cmds.ReadBytes('\n')
+			if err != nil {
+				return
+			}
+			var req struct {
+				Command   []any `json:"command"`
+				RequestID int64 `json:"request_id"`
+			}
+			json.Unmarshal(line, &req)
+			reply := answer(req.RequestID, nil)
+			if req.Command[0] == "get_property" {
+				switch req.Command[1] {
+				case "idle-active":
+					reply = answer(req.RequestID, true)
+				case "audio-device":
+					reply = answer(req.RequestID, "auto")
+				default:
+					reply = unavailable(req.RequestID)
+				}
+			}
+			peer.Write([]byte(reply + "\n"))
+			if req.Command[0] == "get_property" && req.Command[1] == "idle-active" && !pushed {
+				pushed = true
+				send(peer, devices(twoDevs), devices(threeDevs))
+			}
+		}
+	}()
+	var buf bytes.Buffer
+	res, err := eventsOn(c, "audio_device_changed", 2.0, &buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if buf.Len() != 0 {
+		t.Errorf("until mode printed %s", buf.String())
+	}
+	if ev, ok := res.(AudioDeviceChangedEvent); !ok || len(ev.Devices) != 3 || ev.AudioDevice != "auto" {
+		t.Errorf("got %T %+v, want audio_device_changed with 3 devices", res, res)
 	}
 }

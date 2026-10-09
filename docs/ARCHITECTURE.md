@@ -1,6 +1,6 @@
 # ARCHITECTURE —— co-jue (jue)
 
-**co-jue**（CLI 二进制命令为 `jue`）—— `co` 生态面向 AI Agent（Claude Code、OpenCode、co-cli、co-s2s）的轻量端侧视听感知与播放微外设（Go 静态单二进制，纯 Go 标准库，代码规模遵循 Need-based 零冗余原则，无 cgo，无第三方依赖，收容于 `~/workspace_genai/co-ting/`）。版本遵循 SemVer 规范，单一数据源声明于根目录 `VERSION`（当前版本：`2.1.0`；演进历史与工程阶段全表见根目录 [`CHANGELOG.md`](../CHANGELOG.md)）。
+**co-jue**（CLI 二进制命令为 `jue`）—— `co` 生态面向 AI Agent（Claude Code、OpenCode、co-cli、co-s2s）的轻量端侧视听感知与播放微外设（Go 静态单二进制，纯 Go 标准库，代码规模遵循 Need-based 零冗余原则，无 cgo，无第三方依赖，收容于 `~/workspace_genai/co-jue/`）。版本遵循 SemVer 规范，单一数据源声明于根目录 `VERSION`（当前版本：`2.2.0`；演进历史与工程阶段全表见根目录 [`CHANGELOG.md`](../CHANGELOG.md)）。
 
 ---
 
@@ -33,6 +33,7 @@ jue 仅保留满足以下两个判据交集的最小原子功能：
 | **瞬态队列 (`queue` / `control next\|prev`)** | **保留（v1.2.0）** | Turn-based Agent 回显后即挂起，无法常驻后台接力；连续性只能下沉到播放器。仅暴露 mpv 原生内存播放列表，零持久化。 |
 | **时空遥测 (`status`)** | **保留** | 毫秒级反馈播放头时间点（秒数），让 Agent 获知用户听到了哪里。 |
 | **确定性控制 (`control`)** | **保留** | 毫秒级下发 pause/resume/seek/volume/stop，跳过大模型推理延迟。 |
+| **声学闪避 (`control duck`)** | **保留（v2.2.0）** | Agent 开口说话时把音乐压低、说完恢复；渐变与看门狗必须活在 mpv 进程里，Agent 崩溃也不会把音乐锁死在低电平。 |
 | **事件感知 (`events`)** | **保留** | 复用 mpv 原生 IPC 广播打通推流感知（曲毕/队列放毕/耳机暂停/换章），避免轮询 Token 损耗。 |
 | **TUI / GUI 终端界面** | **彻底剔除** | 负债代码，由 Agent 交互直接替代。 |
 | **搜索与推荐算法** | **彻底剔除** | Agent 原生具备 `web_search` 和浏览器，无需自研爬虫中间层；唯一例外是显式 `ytsearch1:` 前缀，它只是把检索词原样转交 yt-dlp 原生检索协议，jue 自身不含任何抓取或排序逻辑。 |
@@ -108,12 +109,14 @@ jue 仅保留满足以下两个判据交集的最小原子功能：
 |   - events: 原生广播推流信标         - file-loaded 两阶段确认 | |
 |   - 样式清洗与 300 条截断护盾        - 瞬态队列 (mpv 内存列表)| |
 |   - ytsearch1: 剥 ytdl:// 交 yt-dlp  - 检索补 ytdl:// 交 mpv  | |
+|   - 设备拓扑 audio_device_changed    - duck: 一条 script-message | |
 +-------------------------------------------------------------+ |
              | (yt-dlp 原语提取)               | (本地 UDS)     |
              v                                 v                v
 +-----------------------------+   +---------------------------------------------+
 |     yt-dlp (仅查元数据)     |   |            mpv (无头常驻子进程)              |
 |  (只取字幕与章节，绝不下载) |   | --idle=yes --no-video --input-media-keys=yes|
+                                  | --script=jue_duck.lua (闪避包络，随进程生灭)  |
 +-----------------------------+   | (接收物理急停，并将状态变更广播至 Unix Socket) |
                                   | (内存播放列表：队列随进程生灭，自驱动接力)   |
                                   +---------------------------------------------+
@@ -162,6 +165,7 @@ jue 仅保留满足以下两个判据交集的最小原子功能：
 - **目录隔离**：运行时 Socket 严格收容在 `$TMPDIR/jue-<uid>/`；
 - **安全门禁**：启动前通过 `os.Lstat` 验证目录属主为自身 UID、权限严格为 `0700`、严禁为符号链接；
 - **Flock 互斥启动**：并发拉起时通过 `$TMPDIR/jue-<uid>/jue.lock` 文件锁排队；探测现有 socket 时等待至多 1 秒验证 `idle-active`，杜绝并发竞争误删正在初始化的 socket。
+- **运行时目录产物**：`mpv.sock`、`jue.lock`（0600）、`scratch-*/`（0700）与 `jue_duck.lua`（0600 常规文件，v2.2.0）。闪避助手由 `launch()` 在锁内、拉起 mpv 之前写入：先写临时名再 `rename` 覆盖，预埋在该路径上的符号链接被替换而非跟随；拨通既有 mpv 的路径不重写。
 
 ### 4.2 request_id 解交错与事件缓冲
 
@@ -201,15 +205,37 @@ mpv 启动时配置 `--input-media-keys=yes`。在 macOS 上原生接管全局�
 - **双执行模式**：
   - **单次阻塞模式 (`--until <EVENT> [--timeout SEC]`)**：面向一问一答式 Coding Agent（如 Claude Code / co-cli），阻塞等待目标事件触发（默认上限 600s），命中即输出单行 JSON 并以退出码 0 退出，**彻底消除自动续播轮询 Token 损耗**；
   - **流式管道模式 (`jue events [--timeout SEC]`)**：面向实时语音流智能体（如 `co-s2s`），连接首行立即派发电平快照（`snapshot`），后续持续打印单行紧凑 JSON；
-- **六类确定性事件 Schema**：
+- **七类确定性事件 Schema**：
   - `snapshot`：初次连接即时电平快照（复用 `status` 数据结构，防漏状态）；
   - `track_started`：媒体真实出声确认（绑定 `file-loaded`）；
   - `track_ended`：映射为 4 种状态（`eof` 正常放完续播信号、`replaced` 被并发新曲顶替、`stopped` 手动 stop 或退出、`error` 解码故障）；
   - `paused` / `resumed`：即时感知 AirPods 或键盘媒体键触控；
   - `chapter_changed`：播放头跨越章节边界时即时派发；
   - `queue_ended`：整个队列放毕。观察 `idle-active` 的 `false → true` 边沿，且最后一首以 `eof` 或 `error` 结束时才派发；被 `play` 替换、`stop` 停止属调用方自身动作，不报。`--until queue_ended` 启动时播放器已空闲或未运行立即退出码 4（否则永远等不到），监听中途播放器退出返回退出码 4 `player exited`；
+  - `audio_device_changed`（v2.2.0）：系统音频输出拓扑变化（插拔有线耳机、AirPods 连断、USB 声卡）。观察 `audio-device-list`，以订阅 id 4 的**首条有效**通知（`data` 可解码为设备数组）为基线并压制，不另发 `Get`——独立 `Get` 的回执与订阅初值在缓冲里先后不定，夹在中间的变化会被误报或漏报；指纹 = 按 `name`（再按 `description`）排序后的 JSON，同一拓扑换序枚举不误报，`null` 与 `[]` 等同；发出的 `devices` 即排序后列表（空为 `[]`）。不做时间窗防抖：一次连接产生两次不同拓扑即如实两条。`audio_device` 是 mpv 的 `audio-device` 配置选择器（`--no-config` 下为 `auto`），**不是**实际路由设备——mpv 0.41 无 `audio-out-detected-device`，jue 不臆造。只在控制中心切换默认输出（拓扑不变）时不触发。`--until audio_device_changed` 在空闲播放器上合法（设备拓扑与播放无关）；
 - **边沿触发与初始假事件压制**：利用 `StatusOn` 预取初始状态，对 `observe_property` 注册后 mpv 立即回推的初始值做严格差分去抖，杜绝伪事件；
 - **URL 归属**：`start-file` 到达时 mpv 的 `path` 已是新条目，此刻即刷新当前 URL，切到加载失败的曲目时 `track_ended` 不会挂在上一首名下。
+
+### 4.6 声学闪避（进程内瞬态助手，v2.2.0）
+
+`jue control duck [on|off] [--duration SEC] [--level 0-100] [--fade MS]`：Agent（尤其 `co-s2s`）开口时把音乐压低，说完恢复。
+
+- **选型**：渐变（20ms 步长升余弦插值）、保持与恢复必须在 CLI 退出后继续进行，又不能引入第二个守护进程或外部音频驱动。落点是 mpv 自带的 Lua 脚本引擎：`internal/engine/jue_duck.lua` 以 `embed` 内嵌进二进制，`launch()` 写入运行时目录并以 `--script=` 加载，只有常驻 mpv 加载它（`frame` 的一次性 mpv 不加载）。Lua 不是第三个外部依赖——mpv 的 `ytdl://` 解析本就依赖其内置 `ytdl_hook.lua`。
+- **`volume-gain` 由闪避独占**：闪避只写 mpv 的独立增益级 `volume-gain`（dB，与 `volume` 相乘），基线 0 dB；jue 的其他任何动词与 `launch()` 参数表都不碰它。因此 `control volume` 与闪避正交，`status.volume` 始终是人设的音量。`--level` 是线性电平百分比：`20` = −13.98 dB；`0` 落到 `volume-gain-min` 默认地板 −96 dB（近乎静音）。
+- **投递 ≠ 执行，以就绪标记判定助手在场**：mpv 0.41 的 `script-message-to` 回执只证明消息已投递——处理函数缺失或参数非法时同样回 `success`。助手在全部处理函数注册完成后最后一步写 `user-data/jue/duck-helper = "1"`（协议版本）；`Duck` 先过空闲闸门（`playlist-pos == -1` 即 4 `not_playing`），再读标记：缺失（旧版 jue 拉起的 mpv）或版本不符都是 4 `unavailable`，不下发。标记匹配后一条 `script-message-to` 回 `success` 即成功：Go 侧 `parseDuck` 的校验域与 Lua 侧 `num()` 的接受域逐项相同，jue 发出的参数不会被拒收；Lua 侧的有限值+区间校验只防 jue 以外的发送方（`tonumber("nan")` 等会永久污染增益状态）。参数一律以字符串下发（实测数值参数被 mpv 以 `invalid parameter` 拒收）。
+- **最新指令胜出**：助手只有一组状态（目标电平 + 一个待触发的恢复定时器）。每条 `duck`（脉冲或 `on`）从当前增益渐变到新电平——目标已达到或正在前往时不重启渐变（心跳续期零可闻扰动）——并把恢复定时器重置为 `now + hold`。`hold` 是收到指令到**开始**渐显的时长，包含渐隐时间。
+
+  | 指令 | 下发 | hold | 渐隐 | 渐显 |
+  |---|---|---|---|---|
+  | `duck`（脉冲） | `duck <level> <duration> <fade> <2×fade>` | `--duration`（默认 5s，`(0,30]`） | `--fade`（默认 200ms，`[0,2000]`） | `2 × --fade` |
+  | `duck on` | `duck <level> 30 <fade> 400` | 30s 看门狗 | `--fade` | 400ms |
+  | `duck off` | `unduck <fade>` | 取消恢复定时器 | — | `--fade`（默认 400ms） |
+
+  `--fade 0` 在处理函数内同步写入目标增益；`off` 在未闪避时是空操作、退出码 0、不写 `volume-gain`。
+- **看门狗不变量**：任何单条指令下发后，最迟 30s **开始**渐显；完全恢复最迟在 30s + 渐显时长。定时器在 mpv 里而非 Agent 里，调用方崩溃不会把音乐锁死在低电平；长对话由调用方每 ≤20s 再发一次 `duck on` 续期。
+- **生命周期**（`volume-gain` 是播放器级属性，助手定时器走墙钟）：暂停、`seek`、`next`/`prev`/队列续播、`play` 替换整队均保持闪避（新曲以闪避电平进入）；暂停中到期照常渐显；队列放毕进入空闲后增益保持、定时器照常，但空闲态 `status` 早返回，不出现 `duck`；空闲中 `duck` 为 4 `not_playing`；`control stop` / mpv 退出时状态随进程消失，下一个 mpv 从 0 dB 开始。
+- **可观测面**：非空闲 `status` 与 `snapshot` 多读一次 `volume-gain`，低于 −0.05 dB 时出现 `duck`（整数，与 `--level` 同刻度的**瞬时**电平百分比，渐变途中读到中间值）；未闪避时信封逐字节不变。
+- **局限**：共享 socket 上任何人经 IPC 改写 `volume-gain` 都会被如实呈现为 `duck`，也会被下一次闪避覆盖，不做防御；升级 jue 时 2.1.0 拉起的 mpv 没有助手，提示 stop 后重新 play，不做 `load-script` 热注入（那会把运行时目录外的执行面开放给 IPC）；平滑度受 mpv 按音频块应用增益的颗粒度限制，200ms 渐隐到 20% 单步最大 2.41 dB。
 
 ---
 
@@ -239,6 +265,20 @@ mpv 启动时配置 `--input-media-keys=yes`。在 macOS 上原生接管全局�
 // 正常查询状态
 {"status":"ok","state":"playing","url":"https://...","time_pos":845.2,"duration":2540.0,"volume":85}
 
+// 闪避中查询状态（duck 为瞬时电平百分比，仅闪避中出现；snapshot 同）
+{"status":"ok","state":"playing","url":"https://...","time_pos":846.0,"duration":2540.0,"volume":85,"duck":20}
+
+// 闪避 (jue control duck | duck on | duck off)
+{"status":"ok","action":"duck"}
+{"status":"ok","action":"duck_on"}
+{"status":"ok","action":"duck_off"}
+
+// 闪避助手缺失（旧版 jue 拉起的播放器）
+{"status":"unavailable","error":"duck helper not loaded (player started by an older jue): stop and play again"}
+
+// 音频输出拓扑变化 (jue events)
+{"event":"audio_device_changed","audio_device":"auto","devices":[{"name":"auto","description":"Autoselect device"},{"name":"coreaudio/BuiltInSpeakerDevice","description":"MacBook Pro Speakers"}]}
+
 // 单次阻塞捕获曲毕事件 (jue events --until track_ended)
 {"event":"track_ended","url":"https://...","reason":"eof","duration":269.0}
 
@@ -265,8 +305,10 @@ mpv 启动时配置 `--input-media-keys=yes`。在 macOS 上原生接管全局�
 
 - `0`：成功（Success）；
 - `1`：命令行用法错、参数格式非法、时间戳解析失败或数值溢出、不支持的检索前缀；
-- `2`：外部依赖缺失（未装 mpv 或 yt-dlp）、底层网络中断、拉流超时、无可靠时长流中断；
-- `4`：业务未就绪（如媒体无公开字幕/无视频轨 `unavailable`、检索无结果、`next`/`prev` 越界、时间戳超出视频总时长、播放器空闲时执行控制或 `queue clear`、媒体加载失败）。
+- `2`：外部依赖缺失（未装 mpv 或 yt-dlp）、底层网络中断（DNS 解析失败、TCP 重置、超时）、本地 Cookie 库锁定、拉流超时、无可靠时长流中断、拉起播放器时闪避助手写入失败；
+- `4`：业务未就绪或上游终态（如媒体不存在/下架/私有/版权被撤、无公开字幕/无视频轨 `unavailable`；上游风控频控 429、Bot 挑战、地区封锁 `error`；检索无结果、`next`/`prev` 越界、时间戳超出视频总时长、播放器空闲时执行控制、`queue clear` 或 `duck`、媒体加载失败、闪避助手缺失/协议不匹配/投递被拒 `unavailable`）。
+
+`control duck` 的参数（子动作、flag 取值、重复 flag、flag 与模式不符）在解析期判定为 1，不触碰运行时目录或 socket；闸门、读标记或下发途中连接中断为 4 `not_playing`。
 
 ---
 
@@ -315,7 +357,9 @@ mpv 启动时配置 `--input-media-keys=yes`。在 macOS 上原生接管全局�
 ## 7. 验证与设计镜像公理 (Verification-Design Mirror Axiom)
 
 系统设计坚决贯彻“没有自动化可执行物理断言的设计就是空头支票”原则：
-1. **工作流 1:1 物理镜像**：用户手册与系统总纲所声明的 7 大核心人机工作流，在本地回归套件 `tests/test_suite.sh` 中必须拥有完全对应的端到端用例（`Block E-a ~ E-f`、`Block H` 与 `Block M` 视觉帧感知），零 Mock 驱动真实 mpv 与外部端点；
-2. **两轨感知闭环覆盖**：静轨（Pull）被动事实提取与动轨（Push）主动事件信标（Block I 16 项、Block L 13 项断言）均实现物理核销，包括曲目自然放毕（`reason=="eof"`）、队列放毕（`queue_ended`）、AirPods 硬件急停捕获、初始伪事件去抖与背压安全；
-3. **队列与检索契约覆盖**：瞬态队列（Block J 35 项，含 6 路并发冷启动 add 单 mpv 零丢失）与显式检索分流（Block K 18 项，含非白名单前缀与普通 `search_query` URL 的正反例）均由真实 mpv/yt-dlp 驱动核销；
-4. **零漂移度量衡**：全生命周期的测试、编译与静态分析在宿主机本地完全闭环；代码规模不设人工行数魔数，遵循 Need-based 零冗余原则——每项新特性必须证明无法由既有原语或 Agent 自身承担，且不得突破纯 Go 标准库与双原语依赖的红线。
+1. **工作流 1:1 物理镜像**：用户手册与系统总纲所声明的 7 大核心人机工作流，在本地回归套件 `tests/test_suite.sh` 中必须拥有完全对应的端到端用例（Agent workflows 平面的 `Block E-a`、`E-b+f`、`E-c`、`E-d`、`E-e`、`E-g` 与 `Block H`，另有 `Block M` 视觉帧感知契约），零 Mock 驱动真实 mpv 与外部端点；
+2. **两轨感知闭环覆盖**：静轨（Pull）被动事实提取与动轨（Push）主动事件信标（Block I 14 项、Block L 11 项断言）均实现物理核销，包括曲目自然放毕（`reason=="eof"`）、队列放毕（`queue_ended`）、AirPods 硬件急停捕获、初始伪事件去抖与背压安全；
+3. **闪避与设备感知覆盖**：声学闪避（Block N 51 项：非阻塞、渐隐/渐显中间值、续期、音量正交、−96 dB 地板、外部非有限值不污染、零 `audio-reconfig`、跨曲/seek/暂停/替换/放毕/stop 生命周期、旧助手与协议不匹配、符号链接防御）与 30s 看门狗（Block NW 5 项，生产时长不缩短；独立成块以便与 N 并行）由真实 mpv 驱动；设备热插拔无法在套件里构造（不引入虚拟音频驱动），以单元层五项与人工验收覆盖；
+4. **队列与检索契约覆盖**：瞬态队列（Block J 31 项，含 6 路并发冷启动 add 单 mpv 零丢失）与显式检索分流（Block K 15 项，含非白名单前缀与普通 `search_query` URL 的正反例）均由真实 mpv/yt-dlp 驱动核销；
+5. **套件韧性**：端到端套件按六大能力平面（Boundary · Ingest · Playback · Acoustic · Events · Agent workflows）组织，共 20 块 333 项断言；跨网动词只对退出码契约定义的瞬态结果（2，或 4 且 `status=="error"`）有界重试；前置条件失败即止于一条 FAIL；每块 300s 看门狗与 `mpv_ipc` 5s 套接字超时保证挂起有界；
+6. **零漂移度量衡**：全生命周期的测试、编译与静态分析在宿主机本地完全闭环；代码规模不设人工行数魔数，遵循 Need-based 零冗余原则——每项新特性必须证明无法由既有原语或 Agent 自身承担，且不得突破纯 Go 标准库与双原语依赖的红线。

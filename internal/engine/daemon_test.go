@@ -128,14 +128,14 @@ func TestScratchDirIsInsideRuntimeDir(t *testing.T) {
 }
 
 // fakeMPV listens where Connect dials and answers like mpv: reply(cmd) gives the lines to send
-// back for each command (the reply and any events), and every command is kept in order. The
-// runtime dir sits under /tmp: a t.TempDir path overflows the 104-byte socket address.
+// back for each command (the reply and any events; nil hangs up), and every command is kept in
+// order. The runtime dir sits under /tmp: a t.TempDir path overflows the 104-byte socket address.
 type fakeMPV struct {
 	mu   sync.Mutex
 	cmds [][]any
 }
 
-func startFakeMPV(t *testing.T, reply func(cmd []any, id int64) []string) *fakeMPV {
+func startFakeMPV(t testing.TB, reply func(cmd []any, id int64) []string) *fakeMPV {
 	t.Helper()
 	base, err := os.MkdirTemp("/tmp", "jue-t")
 	if err != nil {
@@ -175,7 +175,11 @@ func startFakeMPV(t *testing.T, reply func(cmd []any, id int64) []string) *fakeM
 					f.mu.Lock()
 					f.cmds = append(f.cmds, req.Command)
 					f.mu.Unlock()
-					for _, l := range reply(req.Command, req.RequestID) {
+					lines := reply(req.Command, req.RequestID)
+					if lines == nil {
+						return
+					}
+					for _, l := range lines {
 						conn.Write([]byte(l + "\n"))
 					}
 				}
@@ -242,6 +246,69 @@ func TestStatusStates(t *testing.T) {
 				t.Errorf("Status = %+v, %v; want state %q", r, err, c.want)
 			}
 		})
+	}
+}
+
+func TestMPVArgsLoadDuckHelper(t *testing.T) {
+	args := mpvArgs("/r/mpv.sock", "/r/jue_duck.lua")
+	for _, want := range []string{"--no-config", "--idle=yes", "--no-video", "--input-media-keys=yes",
+		"--audio-format=s16", "--input-ipc-server=/r/mpv.sock", "--script=/r/jue_duck.lua"} {
+		found := false
+		for _, a := range args {
+			found = found || a == want
+		}
+		if !found {
+			t.Errorf("mpvArgs lacks %s: %v", want, args)
+		}
+	}
+	// volume-gain is the duck helper's alone: the player starts at 0 dB.
+	for _, a := range args {
+		if strings.Contains(a, "volume-gain") {
+			t.Errorf("mpvArgs sets %s", a)
+		}
+	}
+}
+
+func TestStatusDuckField(t *testing.T) {
+	playing := func(gain any) map[string]any {
+		m := map[string]any{"idle-active": false, "pause": false, "time-pos": 3.5, "volume": 100.0}
+		if gain != nil {
+			m["volume-gain"] = gain
+		}
+		return m
+	}
+	for _, c := range []struct {
+		name string
+		gain any
+		want string
+	}{
+		{"ducked to 20", -13.9794, `"duck":20`},
+		{"the floor", -96.0, `"duck":0`},
+		{"mid-fade", -1.5, `"duck":84`},
+		{"unducked", 0.0, ""},
+		{"rounding noise", -0.01, ""},
+		{"unavailable", nil, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			startFakeMPV(t, props(playing(c.gain)))
+			r, _ := Status()
+			b, _ := json.Marshal(r)
+			if c.want == "" && strings.Contains(string(b), "duck") || c.want != "" && !strings.Contains(string(b), c.want) {
+				t.Errorf("Status = %s, want duck %q", b, c.want)
+			}
+		})
+	}
+	// An idle player is not asked: its status is the bare idle envelope.
+	f := startFakeMPV(t, props(map[string]any{"idle-active": true, "volume-gain": -13.98}))
+	if r, _ := Status(); r.Duck != nil {
+		t.Errorf("idle Status = %+v, want no duck", r)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, cmd := range f.cmds {
+		if cmd[1] == "volume-gain" {
+			t.Error("idle Status read volume-gain")
+		}
 	}
 }
 
