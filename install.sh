@@ -90,7 +90,10 @@ if [[ "${1:-}" == "--uninstall" ]]; then
         fi
     done
 
-    if command -v brain-doctor >/dev/null 2>&1; then
+    if command -v co-doctor >/dev/null 2>&1; then
+        echo "==> 运行 co-doctor 全局健康自愈..."
+        co-doctor --treat
+    elif command -v brain-doctor >/dev/null 2>&1; then
         echo "==> 运行 brain-doctor 全局健康自愈..."
         brain-doctor --treat
     fi
@@ -171,7 +174,11 @@ else
     exit 1
 fi
 
-if command -v brain-doctor >/dev/null 2>&1; then
+if command -v co-doctor >/dev/null 2>&1; then
+    echo "==> 5. 运行 co-doctor 全局健康验证..."
+    co-doctor --treat >/dev/null
+    echo "    ✔ 全脑基础设施核验完成"
+elif command -v brain-doctor >/dev/null 2>&1; then
     echo "==> 5. 运行 brain-doctor 全局健康验证..."
     brain-doctor --treat >/dev/null
     echo "    ✔ 全脑基础设施核验完成"
