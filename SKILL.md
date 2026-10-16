@@ -167,4 +167,4 @@ jue transcript "ytsearch1:Never Gonna Give You Up" --range 18-30
 
 ---
 
-*完整交互场景与话术矩阵详见 [`docs/USER_MANUAL.md`](docs/USER_MANUAL.md)。*
+*完整交互场景与话术矩阵详见 [`docs/RUNBOOK-user-manual.md`](docs/RUNBOOK-user-manual.md)。*
