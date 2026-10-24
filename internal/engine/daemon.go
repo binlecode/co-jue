@@ -19,7 +19,11 @@ import (
 // owned by this uid and mode exactly 0700. With create false an absent directory is
 // errNoDir: status and control never create state.
 func runtimeDir(create bool) (string, error) {
-	dir := filepath.Join(os.TempDir(), fmt.Sprintf("jue-%d", os.Getuid()))
+	return privateDir(filepath.Join(os.TempDir(), fmt.Sprintf("jue-%d", os.Getuid())), create)
+}
+
+// privateDir is dir held to the rules above: created 0700 if create, else errNoDir when absent.
+func privateDir(dir string, create bool) (string, error) {
 	if create {
 		if err := os.Mkdir(dir, 0700); err != nil && !errors.Is(err, os.ErrExist) {
 			return "", fail(2, "error", "create %s: %v", dir, err)
@@ -265,6 +269,7 @@ type PlayResponse struct {
 // Play replaces whatever is playing (the whole queue) with u and returns once mpv has loaded
 // it — the loadfile reply alone only means the entry was queued, not that anything will sound.
 func Play(u string, start float64) (*PlayResponse, error) {
+	input := u
 	u, dir, err := prepare(u)
 	if err != nil {
 		return nil, err
@@ -288,6 +293,7 @@ func Play(u string, start float64) (*PlayResponse, error) {
 	if u, err = waitSounding(c, id, u); err != nil {
 		return nil, err
 	}
+	record("play", input, u, c)
 	return &PlayResponse{Status: "ok", State: "playing", URL: u, Start: start}, nil
 }
 
@@ -305,6 +311,7 @@ type QueueAddResponse struct {
 // what it has and returns at once. Idle is playlist-pos -1, read under the lock: idle-active
 // lags a loadfile, so a second add racing the first would see it still idle.
 func QueueAdd(u string) (*QueueAddResponse, error) {
+	input := u
 	u, dir, err := prepare(u)
 	if err != nil {
 		return nil, err
@@ -340,12 +347,15 @@ func QueueAdd(u string) (*QueueAddResponse, error) {
 		return nil, err
 	}
 	defer c.Close()
-	if id > 0 {
-		if r.URL, err = waitSounding(c, id, u); err != nil {
-			return nil, err
-		}
-		c.Get("playlist-count", &r.Count)
+	if id == 0 {
+		record("queue_add", input, r.URL, nil)
+		return r, nil
 	}
+	if r.URL, err = waitSounding(c, id, u); err != nil {
+		return nil, err
+	}
+	c.Get("playlist-count", &r.Count)
+	record("queue_add", input, r.URL, c)
 	return r, nil
 }
 

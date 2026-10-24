@@ -2,8 +2,8 @@
 # tests/test_suite.sh — jue end-to-end contract and workflow suite.
 #
 # Zero mocks: the real binary, a real mpv over its real socket, real yt-dlp against the real
-# sites. Each block runs under its own TMPDIR, so it owns its runtime dir and its own mpv and
-# the blocks run side by side; the report groups them by the capability plane they prove.
+# sites. Each block runs under its own TMPDIR and XDG_STATE_HOME, so it owns its runtime dir,
+# its own mpv and its own history (the user's is never touched), and the blocks run side by side; the report groups them by the capability plane they prove.
 #
 # Boundary   A   security boundary  runtime dir 0700 / symlink refusal / absent player writes
 #                                   nothing / every verb's usage gate is exit 1 before any work
@@ -18,6 +18,9 @@
 #            J   transient queue    add cold / warm, list, next/prev and their ends, clear, play
 #                                   replaces it, racing adds from cold: one mpv, none lost
 #            L   queue ended        one wait for a whole queue; idle and stopped are exit 4
+#            O   durable history    play/queue add recorded, newest first, survives stop, --limit,
+#                                   0700/0600, cap 500, corrupt lines skipped, clear, a refused
+#                                   history never fails a play
 # Acoustic   G   ergonomics         stop right after play silences at once; pause freezes the
 #                                   playhead within 200 ms, local and network
 #            N   ducking            pulse/on/off: non-blocking, fades, re-arm, volume orthogonal,
@@ -92,7 +95,7 @@ BILI="https://www.bilibili.com/video/BV1xx411c7mD"            # no subtitles at 
 NETEASE="https://music.163.com/song?id=1824020871"            # 宇多田ヒカル, timed LRC
 DARIO="https://www.youtube.com/watch?v=ugvHCXCOmm4"           # Lex Fridman #452: 5 hours, 40 chapters
 NE_PURE="https://music.163.com/song?id=476592630"             # The Dawn, piano: NetEase marks it 纯音乐
-QUERY="ytsearch1:Never Gonna Give You Up"
+export QUERY="ytsearch1:Never Gonna Give You Up"
 
 # ---- harness ---------------------------------------------------------------------------
 # A block reports to its own RES file, one line per assertion: ok|name, FAIL|name|detail, or
@@ -205,7 +208,7 @@ collect() { wait "$SUB"; RC=$?; OUT=$(cat "$1"); NOTE=; }
 block() {
     local name=$1; shift
     (
-        export TMPDIR="$RUN/$name"
+        export TMPDIR="$RUN/$name" XDG_STATE_HOME="$RUN/$name/state"
         mkdir -p "$TMPDIR"
         RES="$RUN/$name.res"
         : >"$RES"
@@ -278,6 +281,8 @@ block_a() {
         "control duck on --duration 5" "control duck off --level 20" "control duck off --duration 5"
         "control duck sideways" "control duck --level 20 --level 30" "control duck --level"
         "control duck --level 20 on"
+        "history bogus" "history --limit 0" "history --limit 501" "history --limit x" "history list --limit"
+        "history list extra" "history last now" "history clear now"
     )
     for a in "${usage[@]}"; do
         # shellcheck disable=SC2086
@@ -292,6 +297,7 @@ block_a() {
     v transcript notaurl
     expect "usage: transcript a non-URL is exit 1" 1 '.status=="error" and (.error|test("not a valid URL"))'
     check "usage gates started no mpv and created no runtime dir" eval 'no_mpv && test ! -e "$rt"'
+    check "usage gates and absent players created no history state" test ! -e "$XDG_STATE_HOME"
 }
 
 # ---- F: token budget ----------------------------------------------------------------------
@@ -409,6 +415,10 @@ block_k() {
         '.status=="ok" and .state=="playing" and .url==$ENV.YT_RR'; then
         check "status: the query resolved to the watch URL, sounding at volume 0" \
             poll 10 st '.state=="playing" and .url==$ENV.YT_RR and .duration>200 and .volume==0'
+        v history last
+        expect "history last: the query as given, the watch URL it resolved to, its title" 0 \
+            '.item.action=="play" and .item.input==$ENV.QUERY and .item.url==$ENV.YT_RR
+             and (.item.title|test("Never Gonna Give You Up")) and .item.duration>200'
         v queue add "ytsearch1:Rick Astley Together Forever"
         expect "queue add a query while playing: queued as the ytdl:// search" 0 \
             '.state=="queued" and .url=="ytdl://ytsearch1:Rick Astley Together Forever" and .pos==1 and .count==2'
@@ -734,6 +744,10 @@ block_j() {
     export RACE="$TMPDIR/race"
     expect "cold add race: the queue holds all six, each once" 0 \
         '.count==6 and ([.items[].url] | sort) == ([range(1;7)] | map($ENV.RACE + "\(.).wav"))'
+    v history list --limit 500
+    expect "cold add race: history recorded all six adds, none lost to a racing rewrite" 0 \
+        '[.items[] | select(.action=="queue_add" and (.url|startswith($ENV.RACE))) | .url] | sort
+         == ([range(1;7)] | map($ENV.RACE + "\(.).wav"))'
     stopped "$pid"
 }
 
@@ -773,6 +787,95 @@ block_l() {
     expect "stop mid-queue: queue_ended wait ends not_playing, player exited, exit 4" 4 \
         '.status=="not_playing" and .error=="player exited"'
     check "mpv gone after stop" poll 3 gone "$pid"
+}
+
+# ---- O: durable history -------------------------------------------------------------------
+# The one thing jue keeps past its player: each play and queue add that succeeded, in
+# $XDG_STATE_HOME/jue/history.jsonl. Read newest first; never a reason a play fails.
+only_history() { DETAIL="$(ls -A "$1" 2>&1)"; [[ $(ls -A "$1" | tr '\n' ' ') == "history.jsonl history.lock " ]]; }
+
+block_o() {
+    local hd="$XDG_STATE_HOME/jue" hf="$XDG_STATE_HOME/jue/history.jsonl" pid
+    export WAVA="$TMPDIR/a.wav" WAVB="$TMPDIR/b.wav" T0
+    ln "$WAV" "$WAVA"; ln "$WAV" "$WAVB"
+
+    v history
+    expect "no history yet: bare history is list, count 0, items [], exit 0" 0 '. == {"status":"ok","count":0,"items":[]}'
+    v history last
+    expect "no history yet: last is unavailable, history is empty, exit 4" 4 '. == {"status":"unavailable","error":"history is empty"}'
+    v history clear
+    expect "no history yet: clear is ok, exit 0" 0 '. == {"status":"ok","action":"clear"}'
+    check "reading or clearing no history created no state dir" test ! -e "$hd"
+
+    T0=$(date +%s)
+    v play "$WAVA"
+    need expect "play local audio: playing" 0 '.state=="playing"' || return
+    pid=$(mpv_of)
+    "$BIN" control volume 0 >/dev/null
+    v history last
+    expect "history last: the play with its input, url, title, duration and time" 0 \
+        '.status=="ok" and .item.action=="play" and .item.input==$ENV.WAVA and .item.url==$ENV.WAVA
+         and .item.title=="a.wav" and (.item.duration|floor)==60 and .item.timestamp>=($ENV.T0|tonumber)'
+    expect "history last: an item is exactly timestamp, action, input, url, title, duration" 0 \
+        '(.item|keys) == ["action","duration","input","timestamp","title","url"]'
+    v queue add "$WAVB"
+    expect "queue add while playing: queued" 0 '.state=="queued"'
+    v history last
+    expect "history last: the queued add, no title or duration until it loads" 0 \
+        '.item.action=="queue_add" and .item.input==$ENV.WAVB and .item.url==$ENV.WAVB and .item.title=="" and .item.duration==0'
+    v history list
+    expect "history list: newest first, the add then the play" 0 '.count==2 and [.items[].action]==["queue_add","play"]'
+    v history list --limit 1
+    expect "history list --limit 1: only the newest" 0 '.count==1 and .items[0].action=="queue_add"'
+    check "history dir is 0700" mode_is "$hd" 700
+    check "history file is 0600" mode_is "$hf" 600
+
+    v play "$TMPDIR/missing.wav"
+    expect "play a missing file: exit 4" 4 '.status=="error"'
+    v history
+    expect "a play that never sounded is not recorded" 0 '.count==2'
+    stopped "$pid"
+    v history
+    expect "history outlives the player: both entries after stop" 0 '.count==2 and .items[1].url==$ENV.WAVA'
+
+    printf 'not json\n{"action":\n\n' >>"$hf"
+    v history
+    expect "corrupt lines are skipped: still the two entries, exit 0" 0 '.count==2'
+
+    # Full to the cap: one more play keeps 500, dropping only the oldest.
+    jq -nc 'range(1;501) | {timestamp:., action:"play", input:"seed\(.)", url:"seed\(.)", title:"", duration:0}' >"$hf"
+    v play "$WAVA"
+    need expect "play onto a full history: playing" 0 '.state=="playing"' || return
+    pid=$(mpv_of)
+    v history list --limit 500
+    expect "cap: 500 kept, the new play first, seed1 dropped, seed2 the oldest" 0 \
+        '.count==500 and .items[0].url==$ENV.WAVA and .items[1].url=="seed500" and .items[499].url=="seed2"'
+    DETAIL="$(wc -l <"$hf")"
+    check "cap: the file holds 500 lines" test "$(wc -l <"$hf")" -eq 500
+    check "the atomic rewrite left no temp file" only_history "$hd"
+
+    v history clear
+    expect "history clear: ok, exit 0" 0 '. == {"status":"ok","action":"clear"}'
+    v history last
+    expect "after clear: last is unavailable, exit 4" 4 '.status=="unavailable" and .error=="history is empty"'
+
+    # A history jue refuses to use is reported by history, never by the play.
+    echo keep >"$TMPDIR/victim"
+    ln -s "$TMPDIR/victim" "$hf"
+    v history
+    expect "symlinked history file: list refused, exit 2" 2 '.status=="error" and (.error|test("is a symlink"))'
+    v play "$WAVB"
+    expect "symlinked history file: play still plays, exit 0" 0 '.state=="playing"'
+    check "symlinked history file: its target untouched" test "$(cat "$TMPDIR/victim")" = keep
+    rm "$hf"
+    chmod 0755 "$hd"
+    v history last
+    expect "0755 history dir: refused, exit 2" 2 '.status=="error" and (.error|test("mode 0755, want 0700"))'
+    v queue add "$WAVA"
+    expect "0755 history dir: queue add still queues, exit 0" 0 '.state=="queued"'
+    check "0755 history dir: nothing written into it" test ! -e "$hf"
+    chmod 0700 "$hd"
+    stopped "$pid"
 }
 
 # ======================================================================================
@@ -1376,6 +1479,7 @@ c|playback|C   playback state machine
 d|playback|D   concurrency
 j|playback|J   transient queue
 l|playback|L   queue-ended perception
+o|playback|O   durable history
 g|acoustic|G   acoustic ergonomics
 n|acoustic|N   acoustic ducking
 nw|acoustic|NW  duck watchdog

@@ -53,11 +53,13 @@ func TestParseDuck(t *testing.T) {
 
 // TestVerbUsageGates is every verb's grammar: a malformed command line is exit 1 before any
 // tool, network or player is reached. PATH and TMPDIR are emptied, so a case that slipped
-// past its gate would answer 2 or 4, not 1.
+// past its gate would answer 2 or 4, not 1. XDG_STATE_HOME is the same directory, so a
+// history gate that slipped would leave a jue/ state dir behind.
 func TestVerbUsageGates(t *testing.T) {
 	t.Setenv("PATH", "")
 	tmp := t.TempDir()
 	t.Setenv("TMPDIR", tmp)
+	t.Setenv("XDG_STATE_HOME", tmp)
 	const u = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 	bad := map[string][]string{
 		"inspect":    {"", u + " " + u, u + " --bogus x"},
@@ -73,6 +75,9 @@ func TestVerbUsageGates(t *testing.T) {
 			"seek +inf", "seek ++5", "seek +-5", "volume", "volume 101", "volume -1", "volume nan"},
 		"events": {"--until", "--until bogus", "--timeout", "--timeout 0", "--timeout -5",
 			"--timeout nan", "--timeout inf", "extra"},
+		"history": {"bogus", "--bogus", "--limit", "--limit 0", "--limit -1", "--limit 501", "--limit x",
+			"--limit 1.5", "--limit 5 --limit 6", "list --limit", "list --limit nan", "list extra",
+			"list --limit 5 extra", "last now", "clear now", "clear --limit 5"},
 	}
 	for verb, cases := range bad {
 		for _, args := range cases {
@@ -90,5 +95,20 @@ func TestVerbUsageGates(t *testing.T) {
 	}
 	for _, e := range left {
 		t.Errorf("usage errors left %s in TMPDIR", e.Name())
+	}
+}
+
+// The history verb's grammar on its accepting side: bare history is list, --limit bounds it.
+func TestHistoryVerbAccepts(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	for _, args := range []string{"", "list", "--limit 1", "list --limit 500", "clear"} {
+		if _, err := verbs["history"](strings.Fields(args)); err != nil {
+			t.Errorf("jue history %s: %v", args, err)
+		}
+	}
+	_, err := verbs["history"]([]string{"last"})
+	var f *engine.Fail
+	if !errors.As(err, &f) || f.Code != 4 || f.Status != "unavailable" {
+		t.Errorf("jue history last on empty history: err = %v, want exit 4 unavailable", err)
 	}
 }

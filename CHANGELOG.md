@@ -6,7 +6,7 @@
 
 ---
 
-## 系统阶段演进全表 (Stages 0–6)
+## 系统阶段演进全表 (Stages 0–7)
 
 | 阶段 (Stage) | 对应版本 | 时间节点 | 触发原因 | 核心架构动作 | 揭示的核心原则 |
 |---|---|---|---|---|---|
@@ -17,10 +17,22 @@
 | **Stage 4** | `v2.0.0` | 2026-10-06 | 视觉感知完全缺席，长视频技术研读遭遇物理泥潭；系统命名与语义升维重锚 | 命名全域蜕变升维为 `co-jue`（`jue` / 觉），无须兼容彻底大改；交付原子动词 `jue frame` 单帧视觉感知（One-shot mpv `--vo=image` 零常驻内存）；独立进程组与负 PID 广播 SIGKILL 统一收割；lavfi 双边等比外框滤镜（横竖屏均为 ~690 Tokens）；0700 沙箱与同步机会式 GC；端到端物理回归套件扩充至 13 块 255+ 项全绿 | **命名是容器，能力是流体**；从听觉单维扩展为视听觉知全模态；感知平面与执行平面动静彻底隔离。 |
 | **Stage 5** | `v2.1.0` | 2026-10-07 | 认知信源扩展：跨平台结构化转录协议、免 Cookie 规范与海外顶级 IT/AI 信源拓扑落地 | 泛化 WebVTT/SRT 5 状态 FSM 清洗；下沉 Podcast 2.0 RSS 与 ID3v2 章节解包；落地方案 A 纯日常浏览器 Cookie 透传（零落盘文件）；全量端到端扩展至 267 项断言 | **开放协议标准化下沉，动态风控坚守底线**；静态协议入标准库，会话缓存留浏览器，只读凭证库绝不污染。 |
 | **Stage 6** | `v2.2.0` | 2026-10-08 | 语音 Agent（co-s2s）边放音乐边说话时人声被音乐淹没；设备热插拔对 Agent 不可见 | `control duck` 脉冲/边沿闪避：mpv 内嵌瞬态 Lua 助手独占 `volume-gain`，20ms 升余弦渐变与 30s 看门狗活在播放器里，CLI 一条 `script-message-to` 立返；版本化就绪标记判定助手在场；`events` 新增 `audio_device_changed`（首条有效通知基线 + 排序指纹）；端到端套件按六大能力平面重构为 20 块 333 项 | **包络归播放器，策略归 Go**：调用方可以崩溃，音乐不会被锁在低电平；投递回执不等于执行回执，在场与否要靠对方亲口写下的标记。 |
+| **Stage 7** | `v2.3.0` | 2026-10-22 | 队列随 mpv 生灭，`stop` 或换会话后“刚才放的那首是什么”无从回答 | 新增 `jue history [list] [--limit N]\|last\|clear`：成功的 `play` / `queue add` 记入 `$XDG_STATE_HOME/jue/history.jsonl`（0700 目录 / 0600 文件 / 拒收符号链接，与运行时目录共用 `privateDir` 门禁），`history.lock` 串行化、temp+rename 原子重写、500 条封顶；端到端套件新增 Block O，扩至 21 块 377 项 | **唯一的持久状态必须有界、原子、可丢弃**：记录是播放的副产品，失败只能丢记录，不能丢声音；只记事实，不做歌单与检索。 |
 
 ---
 
 ## 版本更新日志 (SemVer Releases)
+
+## [2.3.0] - 2026-10-22
+
+**持久播放历史（`jue history`）。**
+
+- **`jue history [list] [--limit N] | last | clear`**：`list`（裸 `history` 等同）最新在前，默认 20 条，`--limit` 取 1–500，信封 `{"status":"ok","count":N,"items":[…]}`，空为 `{"status":"ok","count":0,"items":[]}`；`last` 为 `{"status":"ok","item":{…}}`，空历史退出码 4 `{"status":"unavailable","error":"history is empty"}`；`clear` 为 `{"status":"ok","action":"clear"}`。未知子动作、多余参数、`--limit` 缺值/非整数/越界一律退出码 1，先于任何文件访问。
+- **记录**：`Play` 与 `QueueAdd` 成功后各记一条 `{"timestamp","action":"play"|"queue_add","input","url","title","duration"}`；`input` 为原始入参（如 `ytsearch1:…`），`url` 为解析后的规范地址。`title` / `duration` 取自 mpv `media-title` / `duration`，仅在 jue 已等到该条目加载且未被顶替时读取；在播时排队的条目为 `""` / `0`、`url` 为 `ytdl://` 归一化输入。失败的播放不记录。
+- **存储与门禁（`internal/engine/history.go`）**：`$XDG_STATE_HOME/jue/history.jsonl`，未设或非绝对路径回落 `~/.local/state/jue/`。`runtimeDir` 的目录门禁抽出为 `privateDir`，历史目录同样要求真实目录、本 UID、恰为 0700；文件以 `O_NOFOLLOW` 读取，必须是本 UID 的 0600 常规文件，否则退出码 2。写入在 `history.lock`（0600，非阻塞重试至多 1s）下读全量、追加、保留最新 500 条、写临时文件后 `rename` 覆盖，读者只见完整的新旧文件之一，预埋符号链接被替换而非跟随，并发写零丢失。坏行（非 JSON、缺 `action`、超 1 MiB）跳过，下次记录重写干净。`list` / `last` / `clear` 均不创建目录。
+- **韧性**：记录失败一律丢弃，`play` / `queue add` 的信封与退出码不变；`history` 动词自身如实报出拒收原因。
+- **测试**：单元层新增 `history_test.go`（`TestRecordAndList`、`TestHistoryLast`、`TestHistoryClear`、`TestHistoryCapTrimming`、`TestHistoryConcurrentRecords`、`TestHistoryCorruptLines`、`TestHistorySecurityGates`、`TestPlayAndQueueAddRecordHistory`、`TestHistoryFailureDoesNotFailPlay`），包级 `TestMain` 将 `XDG_STATE_HOME` 指向临时目录，既有 `Play`/`QueueAdd` 单测不再可能写入真实历史；`cmd/jue/verbs_test.go` 的 `TestVerbUsageGates` 增 16 项 history 用法闸门（并断言不留状态目录），新增 `TestHistoryVerbAccepts`。端到端新增 Block O（33 项），Block A +9（history 用法闸门与零状态目录）、J +1（6 路并发 add 历史零丢失）、K +1（检索词 `input` 与解析后 `url`、标题）；`block()` 为每块导出独立 `XDG_STATE_HOME`，套件绝不触碰用户真实历史。共 21 块 377 项。
+- **文档**：`ARCHITECTURE.md` §1.2 边界表新增 `history` 行，原“歌单与历史数据库 — 彻底剔除”收窄为“歌单与可检索数据库”；新增 §4.3.1；信封与退出码表补 history。`SKILL.md` 增动词、契约与策略 10；`RUNBOOK-user-manual.md` 增场景 10；`README.md` 补记忆平面并修正陈旧版本号（2.1.0 → 2.3.0）。
 
 ## [2.2.0] - 2026-10-08
 

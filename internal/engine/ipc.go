@@ -61,6 +61,27 @@ func (c *IPCClient) LoadedEntryID() int64 {
 	return c.loadedEntryID
 }
 
+// CurrentLoadedID returns loadedEntryID if it is still current, or 0 if superseded
+// or if any event in the queue indicates the entry ended or another entry started.
+func (c *IPCClient) CurrentLoadedID() int64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.superseded || c.loadedEntryID == 0 {
+		return 0
+	}
+	for _, ev := range c.eventQueue {
+		name, _ := ev["event"].(string)
+		evID, _ := ev["playlist_entry_id"].(float64)
+		if name == "end-file" && (evID == 0 || int64(evID) == c.loadedEntryID) {
+			return 0
+		}
+		if name == "start-file" && int64(evID) != c.loadedEntryID {
+			return 0
+		}
+	}
+	return c.loadedEntryID
+}
+
 // NextEvent pops a queued asynchronous event or reads the next one from mpv.
 func (c *IPCClient) NextEvent(deadline time.Time) (map[string]any, error) {
 	c.mu.Lock()

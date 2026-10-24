@@ -1,6 +1,6 @@
 # co-jue (jue)
 
-**co-jue**（CLI 二进制命令为 `jue`）—— `co` 生态面向 AI Agent（Claude Code、OpenCode、co-cli、co-s2s）的轻量端侧视听感知与播放微外设（Go 静态单二进制，零 cgo，零第三方库，收容于 `~/workspace_genai/co-jue/`）。版本遵循 SemVer 规范，由根目录 `VERSION` 统一定义（当前版本：`2.1.0`）。
+**co-jue**（CLI 二进制命令为 `jue`）—— `co` 生态面向 AI Agent（Claude Code、OpenCode、co-cli、co-s2s）的轻量端侧视听感知与播放微外设（Go 静态单二进制，零 cgo，零第三方库，收容于 `~/workspace_genai/co-jue/`）。版本遵循 SemVer 规范，由根目录 `VERSION` 统一定义（当前版本：`2.3.0`）。
 
 进入“可抛弃客户端软件”时代后，jue 彻底废除所有 TUI/GUI 客户端界面与搜索推荐包袱，**让 Agent 成为唯一的端侧播放 UX**。jue 仅作为 Agent 挂载在宿主机上的两件基础外设：
 1. **输入端（感知外设）**：在 `yt-dlp` 与 `mpv --vo=image` 之上提供极简字段投影、章节索引与单帧视觉感知，提供可核验的时空原话与图像证据（严格防范 Token 爆炸与机翻污染）；
@@ -33,6 +33,12 @@ jue control next                                                   # 下一首 (
 jue control seek +30                                               # +N / -N 相对跳转；不带符号为绝对位置 (秒数或 mm:ss)
 jue control volume 60                                              # 音量调节
 jue control stop                                                   # 停止并自动退出 mpv
+
+# 3. 持久记忆平面 (History)
+jue history                                                        # 最近 20 条播放记录，最新在前 (= history list)
+jue history list --limit 50                                        # 指定条数 (1-500)
+jue history last                                                   # 最近一条；空历史退出码 4 unavailable
+jue history clear                                                  # 清空历史
 ```
 
 ---
@@ -40,7 +46,8 @@ jue control stop                                                   # 停止并�
 ## 架构原则
 
 - **极简细腰 (Need-based 零冗余)**：全仓仅保留 `internal/engine/` 与 `cmd/jue/`，零 cgo，零外部框架依赖，单一静态二进制直接编译执行；不设人工行数魔数，每一行以功能必要性为准绳。
-- **零持久化、零自研爬虫**：队列只是 mpv 内存播放列表，随进程生灭；检索只接受显式 `ytsearch1:` 前缀并转交 yt-dlp 原生协议。
+- **队列零持久化、零自研爬虫**：队列只是 mpv 内存播放列表，随进程生灭；检索只接受显式 `ytsearch1:` 前缀并转交 yt-dlp 原生协议。
+- **唯一持久状态是播放历史**：成功的 `play` / `queue add` 记入 `$XDG_STATE_HOME/jue/history.jsonl`（默认 `~/.local/state/jue/`；目录 0700、文件 0600、拒收符号链接），500 条封顶、原子重写；记录失败绝不影响播放。
 - **双通道控制闭环**：
   - **语义与编排通道**：人类与 Agent 自然语言对话（意图解析、精准段落问答、知识整理写入 `co-library 30-resources/`）；
   - **物理控制通道**：AirPods 耳机触控与 macOS 媒体键 (F8) 由 `mpv --input-media-keys=yes` 原生接管，即按即停，跳过大模型延迟。
@@ -49,7 +56,7 @@ jue control stop                                                   # 停止并�
   - `0`：成功（Success）；
   - `1`：命令行用法错、参数格式非法、不支持的检索前缀；
   - `2`：外部依赖缺失（未装 `mpv` 或 `yt-dlp`）、底层网络中断；
-  - `4`：业务未就绪（如媒体无公开字幕/无视频轨 `unavailable`、检索无结果、切歌越界、播放器空闲时执行控制）。
+  - `4`：业务未就绪（如媒体无公开字幕/无视频轨 `unavailable`、检索无结果、切歌越界、播放器空闲时执行控制、空历史 `history last`）。
 
 ---
 

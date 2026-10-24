@@ -1,6 +1,6 @@
 # ARCHITECTURE —— co-jue (jue)
 
-**co-jue**（CLI 二进制命令为 `jue`）—— `co` 生态面向 AI Agent（Claude Code、OpenCode、co-cli、co-s2s）的轻量端侧视听感知与播放微外设（Go 静态单二进制，纯 Go 标准库，代码规模遵循 Need-based 零冗余原则，无 cgo，无第三方依赖，收容于 `~/workspace_genai/co-jue/`）。版本遵循 SemVer 规范，单一数据源声明于根目录 `VERSION`（当前版本：`2.2.0`；演进历史与工程阶段全表见根目录 [`CHANGELOG.md`](../CHANGELOG.md)）。
+**co-jue**（CLI 二进制命令为 `jue`）—— `co` 生态面向 AI Agent（Claude Code、OpenCode、co-cli、co-s2s）的轻量端侧视听感知与播放微外设（Go 静态单二进制，纯 Go 标准库，代码规模遵循 Need-based 零冗余原则，无 cgo，无第三方依赖，收容于 `~/workspace_genai/co-jue/`）。版本遵循 SemVer 规范，单一数据源声明于根目录 `VERSION`（当前版本：`2.3.0`；演进历史与工程阶段全表见根目录 [`CHANGELOG.md`](../CHANGELOG.md)）。
 
 ---
 
@@ -34,10 +34,11 @@ jue 仅保留满足以下两个判据交集的最小原子功能：
 | **时空遥测 (`status`)** | **保留** | 毫秒级反馈播放头时间点（秒数），让 Agent 获知用户听到了哪里。 |
 | **确定性控制 (`control`)** | **保留** | 毫秒级下发 pause/resume/seek/volume/stop，跳过大模型推理延迟。 |
 | **声学闪避 (`control duck`)** | **保留（v2.2.0）** | Agent 开口说话时把音乐压低、说完恢复；渐变与看门狗必须活在 mpv 进程里，Agent 崩溃也不会把音乐锁死在低电平。 |
+| **持久历史 (`history`)** | **保留（v2.3.0）** | 播放器退出即丢失“刚才放过什么”，Agent 跨会话无从回答；mpv 无持久原语。只记成功的 `play` / `queue add`，500 条封顶 JSONL，不建索引、不做歌单。 |
 | **事件感知 (`events`)** | **保留** | 复用 mpv 原生 IPC 广播打通推流感知（曲毕/队列放毕/耳机暂停/换章），避免轮询 Token 损耗。 |
 | **TUI / GUI 终端界面** | **彻底剔除** | 负债代码，由 Agent 交互直接替代。 |
 | **搜索与推荐算法** | **彻底剔除** | Agent 原生具备 `web_search` 和浏览器，无需自研爬虫中间层；唯一例外是显式 `ytsearch1:` 前缀，它只是把检索词原样转交 yt-dlp 原生检索协议，jue 自身不含任何抓取或排序逻辑。 |
-| **歌单与历史数据库** | **彻底剔除** | 由 `co-brain` 记忆系统与 `co-library` 原生管理；`queue` 只是 mpv 进程内存中的瞬态播放列表，随 mpv 启停生灭，绝不落盘。 |
+| **歌单与可检索数据库** | **彻底剔除** | 由 `co-brain` 记忆系统与 `co-library` 原生管理；`queue` 只是 mpv 进程内存中的瞬态播放列表，随 mpv 启停生灭，绝不落盘。v2.3.0 起唯一落盘的是 `history`：封顶追加日志，只读不检索，筛选与回放由 Agent 完成。 |
 | **派生 AI 摘要** | **彻底剔除** | 摘要由模型生成，jue 绝不拿第三方模型总结冒充事实证据。 |
 
 ### 1.3 选型裁决：为什么死锁单一最优原语（mpv）而拒绝“多驱动抽象”
@@ -191,6 +192,15 @@ Turn-based Agent 输出卡片后即挂起等待人类输入，无法常驻后台
 - **`play` 即替换整队**：`loadfile <url> replace`；
 - **`control next|prev`**：下发 `playlist-next weak` / `playlist-prev weak`。`weak` 使越界时 mpv 拒绝命令而非终止播放，Go 侧映射为退出码 4 `unavailable`（`end of playlist` / `start of playlist`）。切换成功后解除暂停（pause 属于播放器而非曲目）并 `WaitForPlaybackSuccess(-1)` 等待任意新条目出声。
 
+### 4.3.1 持久播放历史 (`history`，v2.3.0)
+
+队列随 mpv 生灭，“刚才放的那首叫什么”在 `stop` 后就无从回答。`history` 是 jue 唯一的持久状态：
+
+- **位置与门禁**：`$XDG_STATE_HOME/jue/history.jsonl`（未设或非绝对路径按 XDG 规范回落 `~/.local/state/jue/`）。目录与运行时目录共用 `privateDir` 门禁：真实目录、属主为自身 UID、模式恰为 0700、非符号链接；文件以 `O_NOFOLLOW` 打开，必须是本 UID 的 0600 常规文件，否则退出码 2 拒收。
+- **写入**：`play` 与 `queue add` 成功返回前调用 `record()`：在 `history.lock`（0600，`LOCK_NB` 重试至多 1s）下读全量、追加、保留最新 500 条，写临时文件后 `rename` 覆盖——读者只见旧文件或新文件，预埋符号链接被替换而非跟随，并发写互不覆盖。`title` / `duration` 只在 jue 已等到该条目加载（且未被顶替）时从 mpv 读 `media-title` / `duration`；在播时排队的条目为 `""` / `0`，`url` 为归一化输入。
+- **韧性**：记录失败（目录被拒、锁超时、磁盘错误）一律丢弃，不改变播放信封与退出码；失败的播放不记录。`history` 动词本身会如实报出被拒原因。
+- **读取**：坏行（非 JSON、缺 `action`）跳过；下一次记录会把文件重写干净。`list` 最新在前、默认 20 条（`--limit` 1–500）；`last` 空即 4 `unavailable`；`list` / `last` / `clear` 都不创建目录。
+
 ### 4.4 物理逃生口（硬件直通）
 
 mpv 启动时配置 `--input-media-keys=yes`。在 macOS 上原生接管全局媒体按键：
@@ -259,6 +269,12 @@ mpv 启动时配置 `--input-media-keys=yes`。在 macOS 上原生接管全局�
 // 切歌越界
 {"status":"unavailable","error":"end of playlist"}
 
+// 播放历史 (jue history list --limit 2 / jue history last / jue history clear)
+{"status":"ok","count":2,"items":[{"timestamp":1792400000,"action":"queue_add","input":"ytsearch1:七里香","url":"ytdl://ytsearch1:七里香","title":"","duration":0},{"timestamp":1792399990,"action":"play","input":"ytsearch1:晴天","url":"https://www.youtube.com/watch?v=...","title":"周杰伦 - 晴天","duration":269.0}]}
+{"status":"ok","item":{"timestamp":1792400000,"action":"queue_add","input":"ytsearch1:七里香","url":"ytdl://ytsearch1:七里香","title":"","duration":0}}
+{"status":"ok","action":"clear"}
+{"status":"unavailable","error":"history is empty"}
+
 // 队列放毕 (jue events --until queue_ended)
 {"event":"queue_ended"}
 
@@ -305,8 +321,8 @@ mpv 启动时配置 `--input-media-keys=yes`。在 macOS 上原生接管全局�
 
 - `0`：成功（Success）；
 - `1`：命令行用法错、参数格式非法、时间戳解析失败或数值溢出、不支持的检索前缀；
-- `2`：外部依赖缺失（未装 mpv 或 yt-dlp）、底层网络中断（DNS 解析失败、TCP 重置、超时）、本地 Cookie 库锁定、拉流超时、无可靠时长流中断、拉起播放器时闪避助手写入失败；
-- `4`：业务未就绪或上游终态（如媒体不存在/下架/私有/版权被撤、无公开字幕/无视频轨 `unavailable`；上游风控频控 429、Bot 挑战、地区封锁 `error`；检索无结果、`next`/`prev` 越界、时间戳超出视频总时长、播放器空闲时执行控制、`queue clear` 或 `duck`、媒体加载失败、闪避助手缺失/协议不匹配/投递被拒 `unavailable`）。
+- `2`：外部依赖缺失（未装 mpv 或 yt-dlp）、底层网络中断（DNS 解析失败、TCP 重置、超时）、本地 Cookie 库锁定、拉流超时、无可靠时长流中断、拉起播放器时闪避助手写入失败、历史目录或文件被门禁拒收（宽权限/符号链接/非本 UID）；
+- `4`：业务未就绪或上游终态（如媒体不存在/下架/私有/版权被撤、无公开字幕/无视频轨 `unavailable`；上游风控频控 429、Bot 挑战、地区封锁 `error`；检索无结果、`next`/`prev` 越界、时间戳超出视频总时长、播放器空闲时执行控制、`queue clear` 或 `duck`、媒体加载失败、闪避助手缺失/协议不匹配/投递被拒 `unavailable`、空历史 `history last` `unavailable`）。
 
 `control duck` 的参数（子动作、flag 取值、重复 flag、flag 与模式不符）在解析期判定为 1，不触碰运行时目录或 socket；闸门、读标记或下发途中连接中断为 4 `not_playing`。
 
@@ -360,6 +376,7 @@ mpv 启动时配置 `--input-media-keys=yes`。在 macOS 上原生接管全局�
 1. **工作流 1:1 物理镜像**：用户手册与系统总纲所声明的 7 大核心人机工作流，在本地回归套件 `tests/test_suite.sh` 中必须拥有完全对应的端到端用例（Agent workflows 平面的 `Block E-a`、`E-b+f`、`E-c`、`E-d`、`E-e`、`E-g` 与 `Block H`，另有 `Block M` 视觉帧感知契约），零 Mock 驱动真实 mpv 与外部端点；
 2. **两轨感知闭环覆盖**：静轨（Pull）被动事实提取与动轨（Push）主动事件信标（Block I 14 项、Block L 11 项断言）均实现物理核销，包括曲目自然放毕（`reason=="eof"`）、队列放毕（`queue_ended`）、AirPods 硬件急停捕获、初始伪事件去抖与背压安全；
 3. **闪避与设备感知覆盖**：声学闪避（Block N 51 项：非阻塞、渐隐/渐显中间值、续期、音量正交、−96 dB 地板、外部非有限值不污染、零 `audio-reconfig`、跨曲/seek/暂停/替换/放毕/stop 生命周期、旧助手与协议不匹配、符号链接防御）与 30s 看门狗（Block NW 5 项，生产时长不缩短；独立成块以便与 N 并行）由真实 mpv 驱动；设备热插拔无法在套件里构造（不引入虚拟音频驱动），以单元层五项与人工验收覆盖；
-4. **队列与检索契约覆盖**：瞬态队列（Block J 31 项，含 6 路并发冷启动 add 单 mpv 零丢失）与显式检索分流（Block K 15 项，含非白名单前缀与普通 `search_query` URL 的正反例）均由真实 mpv/yt-dlp 驱动核销；
-5. **套件韧性**：端到端套件按六大能力平面（Boundary · Ingest · Playback · Acoustic · Events · Agent workflows）组织，共 20 块 333 项断言；跨网动词只对退出码契约定义的瞬态结果（2，或 4 且 `status=="error"`）有界重试；前置条件失败即止于一条 FAIL；每块 300s 看门狗与 `mpv_ipc` 5s 套接字超时保证挂起有界；
-6. **零漂移度量衡**：全生命周期的测试、编译与静态分析在宿主机本地完全闭环；代码规模不设人工行数魔数，遵循 Need-based 零冗余原则——每项新特性必须证明无法由既有原语或 Agent 自身承担，且不得突破纯 Go 标准库与双原语依赖的红线。
+4. **持久历史覆盖**：Block O（33 项）由真实 mpv 驱动核销记录字段、倒序与 `--limit`、0700/0600、跨 stop 存续、失败播放不记、坏行跳过、500 条裁旧、`clear` 与门禁拒收时播放照常；Block J 另核 6 路并发 add 历史零丢失；
+5. **队列与检索契约覆盖**：瞬态队列（Block J 31 项，含 6 路并发冷启动 add 单 mpv 零丢失）与显式检索分流（Block K 15 项，含非白名单前缀与普通 `search_query` URL 的正反例）均由真实 mpv/yt-dlp 驱动核销；
+6. **套件韧性**：端到端套件按六大能力平面（Boundary · Ingest · Playback · Acoustic · Events · Agent workflows）组织，共 21 块 377 项断言；每块独立 `XDG_STATE_HOME`，绝不触碰用户真实历史；跨网动词只对退出码契约定义的瞬态结果（2，或 4 且 `status=="error"`）有界重试；前置条件失败即止于一条 FAIL；每块 300s 看门狗与 `mpv_ipc` 5s 套接字超时保证挂起有界；
+7. **零漂移度量衡**：全生命周期的测试、编译与静态分析在宿主机本地完全闭环；代码规模不设人工行数魔数，遵循 Need-based 零冗余原则——每项新特性必须证明无法由既有原语或 Agent 自身承担，且不得突破纯 Go 标准库与双原语依赖的红线。

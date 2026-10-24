@@ -23,7 +23,8 @@ const verbUsage = `usage: jue inspect <url>
        jue control pause|resume|stop|next|prev|seek <+SEC|-SEC|SEC|MM:SS>|volume <0-100>
        jue control duck [on|off] [--duration SEC] [--level 0-100] [--fade MS]
        jue status
-       jue events [--until <EVENT>] [--timeout SEC]`
+       jue events [--until <EVENT>] [--timeout SEC]
+       jue history [list] [--limit N]|last|clear`
 
 var verbs = map[string]func([]string) (any, error){
 	"inspect":    runInspect,
@@ -34,6 +35,7 @@ var verbs = map[string]func([]string) (any, error){
 	"control":    runControl,
 	"status":     runStatus,
 	"events":     runEvents,
+	"history":    runHistory,
 }
 
 func usageErr(msg string) error {
@@ -346,4 +348,42 @@ func runEvents(args []string) (any, error) {
 		timeout = 600 // default 10m timeout for --until mode
 	}
 	return engine.Events(until, timeout)
+}
+
+// historyLimit is how many entries history list gives without --limit: enough to answer "what
+// was that song", few enough that the envelope stays small in an agent's context.
+const historyLimit = 20
+
+func runHistory(args []string) (any, error) {
+	action := "list"
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		action, args = args[0], args[1:]
+	}
+	switch action {
+	case "list":
+		limit := historyLimit
+		switch {
+		case len(args) == 0:
+		case len(args) == 2 && args[0] == "--limit":
+			n, err := strconv.Atoi(args[1])
+			if err != nil || n < 1 || n > engine.HistoryCap {
+				return nil, usageErr("bad value for --limit: " + args[1])
+			}
+			limit = n
+		case args[0] == "--limit" && len(args) == 1:
+			return nil, usageErr("--limit requires a value")
+		default:
+			return nil, usageErr("unexpected argument for history list: " + args[0])
+		}
+		return engine.HistoryList(limit)
+	case "last", "clear":
+		if len(args) != 0 {
+			return nil, usageErr("history " + action + " takes no arguments")
+		}
+		if action == "last" {
+			return engine.HistoryLast()
+		}
+		return engine.HistoryClear()
+	}
+	return nil, usageErr("unknown history action " + action)
 }

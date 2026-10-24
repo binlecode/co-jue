@@ -21,8 +21,8 @@ func TestSemverParity(t *testing.T) {
 		t.Errorf("version in main.go (%q) does not match VERSION file (%q)", version, expected)
 	}
 
-	if version != "2.2.0" {
-		t.Errorf("expected default version to be 2.2.0, got %q", version)
+	if version != "2.3.0" {
+		t.Errorf("expected default version to be 2.3.0, got %q", version)
 	}
 
 	if !semverRegex.MatchString(version) {
