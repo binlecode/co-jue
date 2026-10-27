@@ -18,11 +18,18 @@
 | **Stage 5** | `v2.1.0` | 2026-10-07 | 认知信源扩展：跨平台结构化转录协议、免 Cookie 规范与海外顶级 IT/AI 信源拓扑落地 | 泛化 WebVTT/SRT 5 状态 FSM 清洗；下沉 Podcast 2.0 RSS 与 ID3v2 章节解包；落地方案 A 纯日常浏览器 Cookie 透传（零落盘文件）；全量端到端扩展至 267 项断言 | **开放协议标准化下沉，动态风控坚守底线**；静态协议入标准库，会话缓存留浏览器，只读凭证库绝不污染。 |
 | **Stage 6** | `v2.2.0` | 2026-10-08 | 语音 Agent（co-s2s）边放音乐边说话时人声被音乐淹没；设备热插拔对 Agent 不可见 | `control duck` 脉冲/边沿闪避：mpv 内嵌瞬态 Lua 助手独占 `volume-gain`，20ms 升余弦渐变与 30s 看门狗活在播放器里，CLI 一条 `script-message-to` 立返；版本化就绪标记判定助手在场；`events` 新增 `audio_device_changed`（首条有效通知基线 + 排序指纹）；端到端套件按六大能力平面重构为 20 块 333 项 | **包络归播放器，策略归 Go**：调用方可以崩溃，音乐不会被锁在低电平；投递回执不等于执行回执，在场与否要靠对方亲口写下的标记。 |
 | **Stage 7** | `v2.3.0` | 2026-10-22 | 队列随 mpv 生灭，`stop` 或换会话后“刚才放的那首是什么”无从回答 | 新增 `jue history [list] [--limit N]\|last\|clear`：成功的 `play` / `queue add` 记入 `$XDG_STATE_HOME/jue/history.jsonl`（0700 目录 / 0600 文件 / 拒收符号链接，与运行时目录共用 `privateDir` 门禁），`history.lock` 串行化、temp+rename 原子重写、500 条封顶；端到端套件新增 Block O，扩至 21 块 377 项 | **唯一的持久状态必须有界、原子、可丢弃**：记录是播放的副产品，失败只能丢记录，不能丢声音；只记事实，不做歌单与检索。 |
-| **Stage 8** | `v2.4.0` | 2026-10-25 | 家庭 NAS（`qnap-media`）等私有流媒体源接入时，裸容器（MKV/MP4）缺乏元数据/字幕提取且视频播放与音频守护分裂 | 确立“源（`qnap-media`）与器（`jue`）正交解耦”；`play`/`queue add` 新增 `--video` 基于 mpv 条目级 `vid=auto` 在同一守护进程内按需开关原生视频窗口，切回音频自动销毁窗口；`inspect` 新增 mpv 裸容器探测（`duration`/`chapters`/`tracks`）；`transcript` 新增直链/同目录外挂 `.srt/.vtt/.lrc` 与内封文本字幕轨（`sub-text` 观察器）提取；`frame` 新增本地回环流（`isLoopbackHTTP`）直通 `--no-ytdl` 快路 | **源只供流，器管感知与播放**：不造第二个播放器进程；条目级 `vid=auto` 让单实例守护在无头声卡与桌面影院间无态切换；既有 `mpv` 原语足以解包裸容器元数据与内封字幕，无需破戒引入 `ffprobe`。 |
+| **Stage 8** | `v2.4.0` ~ `v2.4.1` | 2026-10-25 ~ 2026-10-27 | 家庭 NAS（`qnap-media`）等私有流媒体源接入时，裸容器（MKV/MP4）缺乏元数据/字幕提取且视频播放与音频守护分裂；YouTube `tv_samsung` 广告门控引发 403 | 确立“源（`qnap-media`）与器（`jue`）正交解耦”；`play`/`queue add` 新增 `--video` 基于 mpv 条目级 `vid=auto` 在同一守护进程内按需开关原生视频窗口，切回音频自动销毁窗口；`inspect` 新增 mpv 裸容器探测（`duration`/`chapters`/`tracks`）；`transcript` 新增直链/同目录外挂 `.srt/.vtt/.lrc` 与内封文本字幕轨（`sub-text` 观察器）提取；`frame` 新增本地回环流（`isLoopbackHTTP`）直通 `--no-ytdl` 快路；`mpvArgs` 与 `frame` 冷启动注入 `--ytdl-raw-options=extractor-args=youtube:player_client=-tv_samsung` 旁路 TV 广告门控 403 | **源只供流，器管感知与播放**：不造第二个播放器进程；条目级 `vid=auto` 让单实例守护在无头声卡与桌面影院间无态切换；既有 `mpv` 原语足以解包裸容器元数据与内封字幕，无需破戒引入 `ffprobe`。 |
 
 ---
 
 ## 版本更新日志 (SemVer Releases)
+
+## [2.4.1] - 2026-10-27
+
+**YouTube `tv_samsung` 广告门控 HTTP 403 旁路加固（`play` / `queue add` / `frame`）。**
+
+- **常驻播放守护（`internal/engine/daemon.go`）与单帧视觉抽取（`internal/engine/frame.go`）**：在 `mpvArgs` 与 `frame` 冷启动参数中注入 `--ytdl-raw-options=extractor-args=youtube:player_client=-tv_samsung`。`yt-dlp` 默认客户端列表（`tv_samsung`, `visionos`, `web`）在遇到触发 YouTube TV 端 10s 广告门控的视频时，`tv_samsung` 的 `c=TVHTML5` 直链会在同 `itag` 去重中胜出但被 `googlevideo.com` 拒收（HTTP 403）；剔除 `tv_samsung` 后直接由 `visionos`/`web` 取流，免除慢速 `deno` JS 解谜并保留儿童视频自动回退 `web_embedded` 及非 YouTube 站点兼容。
+- **测试加固（`internal/engine/daemon_test.go`, `internal/engine/frame_test.go`）**：在 `TestMPVArgsLoadDuckHelper` 与 `TestFrameHotFailureFallbackToCold` 中锁定 `--ytdl-raw-options=extractor-args=youtube:player_client=-tv_samsung` 参数断言。
 
 ## [2.4.0] - 2026-10-25
 

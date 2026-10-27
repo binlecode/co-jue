@@ -608,13 +608,22 @@ func TestFrameHotFailureFallbackToCold(t *testing.T) {
 	// Install stub mpv: if --no-ytdl is passed (hot attempt), simulate HTTP 403 failure;
 	// otherwise (cold fallback), copy JPEG and emit DURATION.
 	stubScript := `
+has_ytdl_raw=0
 for a; do
 	if [ "$a" = "--no-ytdl" ]; then
 		/bin/rm -f "$OUT/00000001.jpg"
 		echo "Failed to open direct stream: Server returned 403"
 		exit 2
 	fi
+	if [ "$a" = "--ytdl-raw-options=extractor-args=youtube:player_client=-tv_samsung" ]; then
+		has_ytdl_raw=1
+	fi
 done
+if [ "$has_ytdl_raw" -ne 1 ]; then
+	/bin/rm -f "$OUT/00000001.jpg"
+	echo "expected --ytdl-raw-options on cold attempt"
+	exit 2
+fi
 echo 'DURATION:120.0'
 `
 	stubFrameMPV(t, stubScript)

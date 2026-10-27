@@ -1,6 +1,6 @@
 # ARCHITECTURE —— co-jue (jue)
 
-**co-jue**（CLI 二进制命令为 `jue`）—— `co` 生态面向 AI Agent（Claude Code、OpenCode、co-cli、co-s2s）的轻量端侧视听感知与播放微外设（Go 静态单二进制，纯 Go 标准库，代码规模遵循 Need-based 零冗余原则，无 cgo，无第三方依赖，收容于 `~/workspace_genai/co-jue/`）。版本遵循 SemVer 规范，单一数据源声明于根目录 `VERSION`（当前版本：`2.4.0`；演进历史与工程阶段全表见根目录 [`CHANGELOG.md`](../CHANGELOG.md)）。
+**co-jue**（CLI 二进制命令为 `jue`）—— `co` 生态面向 AI Agent（Claude Code、OpenCode、co-cli、co-s2s）的轻量端侧视听感知与播放微外设（Go 静态单二进制，纯 Go 标准库，代码规模遵循 Need-based 零冗余原则，无 cgo，无第三方依赖，收容于 `~/workspace_genai/co-jue/`）。版本遵循 SemVer 规范，单一数据源声明于根目录 `VERSION`（当前版本：`2.4.1`；演进历史与工程阶段全表见根目录 [`CHANGELOG.md`](../CHANGELOG.md)）。
 
 ---
 
@@ -167,6 +167,7 @@ jue 仅保留满足以下两个判据交集的最小原子功能：
 - **安全门禁**：启动前通过 `os.Lstat` 验证目录属主为自身 UID、权限严格为 `0700`、严禁为符号链接；
 - **Flock 互斥启动**：并发拉起时通过 `$TMPDIR/jue-<uid>/jue.lock` 文件锁排队；探测现有 socket 时等待至多 1 秒验证 `idle-active`，杜绝并发竞争误删正在初始化的 socket。
 - **运行时目录产物**：`mpv.sock`、`jue.lock`（0600）、`scratch-*/`（0700）与 `jue_duck.lua`（0600 常规文件，v2.2.0）。闪避助手由 `launch()` 在锁内、拉起 mpv 之前写入：先写临时名再 `rename` 覆盖，预埋在该路径上的符号链接被替换而非跟随；拨通既有 mpv 的路径不重写。
+- **YouTube TV 广告门控 403 旁路（v2.4.1）**：`mpvArgs` 与 `frame` 冷启动均注入 `--ytdl-raw-options=extractor-args=youtube:player_client=-tv_samsung`，从 `yt-dlp` 默认客户端列表（`tv_samsung`, `visionos`, `web`）中剔除 `tv_samsung`，避免其携带 10s 广告门控的 `c=TVHTML5` 直链在 `itag` 去重中覆盖 `visionos` 导致 `googlevideo.com` 返回 HTTP 403。
 
 ### 4.2 request_id 解交错与事件缓冲
 

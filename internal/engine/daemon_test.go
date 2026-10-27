@@ -252,7 +252,8 @@ func TestStatusStates(t *testing.T) {
 func TestMPVArgsLoadDuckHelper(t *testing.T) {
 	args := mpvArgs("/r/mpv.sock", "/r/jue_duck.lua")
 	for _, want := range []string{"--no-config", "--idle=yes", "--no-video", "--input-media-keys=yes",
-		"--audio-format=s16", "--input-ipc-server=/r/mpv.sock", "--script=/r/jue_duck.lua"} {
+		"--audio-format=s16", "--ytdl-raw-options=extractor-args=youtube:player_client=-tv_samsung",
+		"--input-ipc-server=/r/mpv.sock", "--script=/r/jue_duck.lua"} {
 		found := false
 		for _, a := range args {
 			found = found || a == want

@@ -275,7 +275,10 @@ func Frame(rawURL string, at float64, width int, quality int) (*FrameResult, err
 				a = append(a, fmt.Sprintf("--user-agent=%s", ua))
 			}
 		} else {
-			a = append(a, `--ytdl-format=bv*[height<=720]/b[height<=720]`)
+			a = append(a,
+				`--ytdl-format=bv*[height<=720]/b[height<=720]`,
+				"--ytdl-raw-options=extractor-args=youtube:player_client=-tv_samsung",
+			)
 		}
 		if vfFilter != "" {
 			a = append(a, "--vf="+vfFilter)

@@ -177,6 +177,7 @@ func mpvArgs(sock, script string) []string {
 		"--slang=chi,zho,chs,zh,cmn,jpn,ja,eng,en",
 		"--demuxer-max-bytes=32MiB",
 		"--demuxer-max-back-bytes=16MiB",
+		"--ytdl-raw-options=extractor-args=youtube:player_client=-tv_samsung", // bypasses TV ad-gate 403 on direct streams
 		"--input-ipc-server=" + sock,
 		"--script=" + script,
 	}
