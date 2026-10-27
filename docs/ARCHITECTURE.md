@@ -1,6 +1,6 @@
 # ARCHITECTURE —— co-jue (jue)
 
-**co-jue**（CLI 二进制命令为 `jue`）—— `co` 生态面向 AI Agent（Claude Code、OpenCode、co-cli、co-s2s）的轻量端侧视听感知与播放微外设（Go 静态单二进制，纯 Go 标准库，代码规模遵循 Need-based 零冗余原则，无 cgo，无第三方依赖，收容于 `~/workspace_genai/co-jue/`）。版本遵循 SemVer 规范，单一数据源声明于根目录 `VERSION`（当前版本：`2.3.0`；演进历史与工程阶段全表见根目录 [`CHANGELOG.md`](../CHANGELOG.md)）。
+**co-jue**（CLI 二进制命令为 `jue`）—— `co` 生态面向 AI Agent（Claude Code、OpenCode、co-cli、co-s2s）的轻量端侧视听感知与播放微外设（Go 静态单二进制，纯 Go 标准库，代码规模遵循 Need-based 零冗余原则，无 cgo，无第三方依赖，收容于 `~/workspace_genai/co-jue/`）。版本遵循 SemVer 规范，单一数据源声明于根目录 `VERSION`（当前版本：`2.4.0`；演进历史与工程阶段全表见根目录 [`CHANGELOG.md`](../CHANGELOG.md)）。
 
 ---
 
@@ -26,10 +26,10 @@ jue 仅保留满足以下两个判据交集的最小原子功能：
 
 | 功能模块 | 归属与裁决 | 架构理由 |
 |---|---|---|
-| **章节路标 (`inspect`)** | **保留** | 提取时间轴与 Chapters（<100 Tokens），为 Agent 提供全局心智模型。 |
-| **逐字证据 (`transcript`)** | **保留** | 提取纯净原语言时间戳字幕（带相交判定裁剪），为 `co-library` 沉淀声称级事实原件。 |
+| **章节与轨道 (`inspect`)** | **保留** | 提取时间轴、Chapters 与裸容器音视频/字幕轨 `tracks`（<100 Tokens），为 Agent 提供全局心智模型。 |
+| **逐字证据 (`transcript`)** | **保留** | 提取纯净原语言时间戳字幕（支持平台 json3/LRC/Podcast VTT/SRT、本地/回环同目录外挂字幕与容器内封文本字幕轨），为 `co-library` 沉淀声称级事实原件。 |
 | **时空单帧 (`frame`)** | **保留（v2.0.0）** | 瞬态 One-shot mpv --vo=image 提取秒级视觉证据（<80KB, ~690 Tokens），为 Agent 补齐视觉研读闭环。 |
-| **端侧起播 (`play`)** | **保留** | 单实例无头 mpv 延迟托管与 Flock 互斥，解流并平滑替换播放（替换整个队列）。 |
+| **端侧起播 (`play [--video]`)** | **保留** | 单实例 mpv 延迟托管与 Flock 互斥，默认无头声卡，传 `--video` 时按条目动态开启原生视频窗口，切回音频自动销毁窗口。 |
 | **瞬态队列 (`queue` / `control next\|prev`)** | **保留（v1.2.0）** | Turn-based Agent 回显后即挂起，无法常驻后台接力；连续性只能下沉到播放器。仅暴露 mpv 原生内存播放列表，零持久化。 |
 | **时空遥测 (`status`)** | **保留** | 毫秒级反馈播放头时间点（秒数），让 Agent 获知用户听到了哪里。 |
 | **确定性控制 (`control`)** | **保留** | 毫秒级下发 pause/resume/seek/volume/stop，跳过大模型推理延迟。 |
@@ -366,6 +366,7 @@ mpv 启动时配置 `--input-media-keys=yes`。在 macOS 上原生接管全局�
   3. 目标必须以 `http(s)` 开头；
   4. 鉴权依赖检测通道：通过 `stream-lavf-o` 明确检测动态 Cookie 注入，存在私有 Cookie 依赖坚决拒绝准入；单条无歧义 Referer 与 User-Agent 原样结构化保存并在热命中时通过 `--http-header-fields` 与 `--user-agent` 完整透传给 mpv，确保脱离 ytdl 后 100% 具备独立可复播性；无法完整取得证据时坚定跳过写缓存，直接走冷启动解流；
 - **指纹校验防 TOCTOU 竞态**：条目内置内容版本指纹（`Fingerprint`）；失效清除时在条目锁内重新读取磁盘条目，核验指纹与当前失败直链完全吻合才执行 unlink，彻底消除并发下 A 读 B 改 A 删的竞态；
+- **本地回环直链快路 (`isLoopbackHTTP`)**：对 `http://127.0.0.1` / `localhost` / `[::1]`（如 `qnap-media` 暴露的本地 HTTP Range 桥接流），首帧即带 `--no-ytdl` 旁路无意义的 `yt-dlp` 探测，且缓存热命中复用完整 `frameTimeout` 预算（避免异地隧道拉取大体积 MP4 `moov` 索引时被 2s CDN 短超时误杀折返）；
 - **调用级绝对 Deadline 机制**：顶层显式划分子进程执行截止时刻 `workDeadline := callDeadline.Add(-200ms)`，子进程执行与等待严格死锁在 17.3s 调度预算内，留足 200ms 核心交付硬预算至 17.5s 物理硬上限；若预算不足直接拦截返回超时 Exit 2，严禁预算耗尽强启新进程。
 
 ---

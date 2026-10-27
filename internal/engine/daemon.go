@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -170,6 +173,8 @@ func mpvArgs(sock, script string) []string {
 		"--no-video",
 		"--input-media-keys=yes", // headset and keyboard play/pause reach this player
 		"--audio-format=s16",     // forces CoreAudio format; prevents fallback to unpausable avfoundation on macOS
+		"--alang=chi,zho,chs,zh,cmn,jpn,ja,eng,en",
+		"--slang=chi,zho,chs,zh,cmn,jpn,ja,eng,en",
 		"--demuxer-max-bytes=32MiB",
 		"--demuxer-max-back-bytes=16MiB",
 		"--input-ipc-server=" + sock,
@@ -264,11 +269,26 @@ type PlayResponse struct {
 	State  string  `json:"state"`
 	URL    string  `json:"url"`
 	Start  float64 `json:"start,omitempty"`
+	Video  bool    `json:"video,omitempty"`
+}
+
+func loadfileOpts(start float64, video bool) string {
+	switch {
+	case start > 0 && video:
+		return fmt.Sprintf("start=%g,vid=auto", start)
+	case start > 0:
+		return fmt.Sprintf("start=%g", start)
+	case video:
+		return "vid=auto"
+	default:
+		return ""
+	}
 }
 
 // Play replaces whatever is playing (the whole queue) with u and returns once mpv has loaded
 // it — the loadfile reply alone only means the entry was queued, not that anything will sound.
-func Play(u string, start float64) (*PlayResponse, error) {
+func Play(u string, start float64, video ...bool) (*PlayResponse, error) {
+	wantVideo := len(video) > 0 && video[0]
 	input := u
 	u, dir, err := prepare(u)
 	if err != nil {
@@ -276,8 +296,8 @@ func Play(u string, start float64) (*PlayResponse, error) {
 	}
 	c, id, err := flockAction(dir, func(c *IPCClient) (int64, error) {
 		args := []any{u, "replace", -1}
-		if start > 0 {
-			args = append(args, fmt.Sprintf("start=%g", start))
+		if opts := loadfileOpts(start, wantVideo); opts != "" {
+			args = append(args, opts)
 		}
 		id, err := loadfile(c, args...)
 		if err != nil {
@@ -293,8 +313,44 @@ func Play(u string, start float64) (*PlayResponse, error) {
 	if u, err = waitSounding(c, id, u); err != nil {
 		return nil, err
 	}
+	if wantVideo && isLoopbackHTTP(u) {
+		attachLoopbackSidecarSub(c, u)
+	}
 	record("play", input, u, c)
-	return &PlayResponse{Status: "ok", State: "playing", URL: u, Start: start}, nil
+	return &PlayResponse{Status: "ok", State: "playing", URL: u, Start: start, Video: wantVideo}, nil
+}
+
+func attachLoopbackSidecarSub(c *IPCClient, u string) {
+	p, err := url.Parse(u)
+	if err != nil {
+		return
+	}
+	ext := filepath.Ext(p.Path)
+	if ext == "" {
+		return
+	}
+	p.Path = strings.TrimSuffix(p.Path, ext)
+	p.RawPath = ""
+	p.RawQuery = ""
+	p.Fragment = ""
+	stem := p.String()
+	client := &http.Client{Timeout: 500 * time.Millisecond}
+	for _, suf := range []string{".zh.ass", ".chs.ass", ".zh.srt", ".chs.srt", ".ja.ass", ".jpn.ass", ".ja.srt", ".jpn.srt", ".en.ass", ".eng.ass", ".en.srt", ".eng.srt", ".ass", ".srt", ".vtt"} {
+		cand := stem + suf
+		req, err := http.NewRequest("HEAD", cand, nil)
+		if err != nil {
+			continue
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		resp.Body.Close()
+		if resp.StatusCode == 200 || resp.StatusCode == 206 {
+			_, _ = c.Command("sub-add", cand, "select")
+			return
+		}
+	}
 }
 
 type QueueAddResponse struct {
@@ -304,26 +360,32 @@ type QueueAddResponse struct {
 	URL    string `json:"url"`
 	Pos    int    `json:"pos"`
 	Count  int    `json:"count"`
+	Video  bool   `json:"video,omitempty"`
 }
 
 // QueueAdd appends u to mpv's in-memory playlist. A player that is idle (or not yet running)
 // starts u at once and returns when it sounds, as play does; a playing one queues u behind
 // what it has and returns at once. Idle is playlist-pos -1, read under the lock: idle-active
 // lags a loadfile, so a second add racing the first would see it still idle.
-func QueueAdd(u string) (*QueueAddResponse, error) {
+func QueueAdd(u string, video ...bool) (*QueueAddResponse, error) {
+	wantVideo := len(video) > 0 && video[0]
 	input := u
 	u, dir, err := prepare(u)
 	if err != nil {
 		return nil, err
 	}
-	r := &QueueAddResponse{Status: "ok", Action: "add", URL: u}
+	r := &QueueAddResponse{Status: "ok", Action: "add", URL: u, Video: wantVideo}
+	appendArgs := []any{u, "append-play"}
+	if wantVideo {
+		appendArgs = append(appendArgs, -1, "vid=auto")
+	}
 	c, id, err := flockAction(dir, func(c *IPCClient) (int64, error) {
 		pos := -1
 		if _, err := c.Get("playlist-pos", &pos); err != nil {
 			return 0, fail(2, "error", "mpv ipc: %v", err)
 		}
 		if pos >= 0 {
-			if _, err := loadfile(c, u, "append-play"); err != nil {
+			if _, err := loadfile(c, appendArgs...); err != nil {
 				return 0, err
 			}
 			if _, err := c.Get("playlist-count", &r.Count); err != nil {
@@ -336,7 +398,7 @@ func QueueAdd(u string) (*QueueAddResponse, error) {
 		if rr, err := c.Command("playlist-clear"); err != nil || rr.Error != "success" {
 			return 0, fail(2, "error", "mpv ipc: playlist-clear: %v", errOr(err, rr))
 		}
-		id, err := loadfile(c, u, "append-play")
+		id, err := loadfile(c, appendArgs...)
 		if err != nil {
 			return 0, err
 		}
@@ -450,6 +512,7 @@ type StatusResponse struct {
 	TimePos  *float64 `json:"time_pos,omitempty"`
 	Duration *float64 `json:"duration,omitempty"`
 	Volume   *float64 `json:"volume,omitempty"`
+	Video    bool     `json:"video,omitempty"`
 	// Duck is the level the music sounds at right now, as a percent of its unducked level (the
 	// --level scale): read at the instant of the call, so mid-fade values show. Absent when not ducked.
 	Duck *int `json:"duck,omitempty"`
@@ -460,7 +523,7 @@ func StatusOn(c *IPCClient) (*StatusResponse, error) {
 	if c == nil {
 		return idle, nil
 	}
-	var isIdle, paused bool
+	var isIdle, paused, vo bool
 	if _, err := c.Get("idle-active", &isIdle); err != nil || isIdle {
 		return idle, nil // a player that hung up mid-read is exiting: idle is the truth
 	}
@@ -475,6 +538,12 @@ func StatusOn(c *IPCClient) (*StatusResponse, error) {
 		if ok, _ := c.Get(name, &v); ok {
 			*dst = &v
 		}
+	}
+	var vid int
+	if ok, _ := c.Get("vo-configured", &vo); ok && vo {
+		r.Video = true
+	} else if ok, _ := c.Get("vid", &vid); ok && vid > 0 {
+		r.Video = true
 	}
 	r.Duck = duckLevel(c)
 	// Between loadfile and the first decoded frame there is no playhead yet: nothing sounds.

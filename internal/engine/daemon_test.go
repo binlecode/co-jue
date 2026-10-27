@@ -628,3 +628,37 @@ func TestControlNextPrevPastTheEnds(t *testing.T) {
 		}
 	}
 }
+
+func TestPlayAndQueueAddVideoFlag(t *testing.T) {
+	fakeYtdlp(t)
+	f := startFakeMPV(t, queueMPV())
+	r, err := Play("/tmp/movie.mp4", 30, true)
+	if err != nil || !r.Video || r.Start != 30 {
+		t.Fatalf("Play(--video) = %+v, %v", r, err)
+	}
+	if got := f.sent(); len(got) == 0 || got[0] != `["loadfile","/tmp/movie.mp4","replace",-1,"start=30,vid=auto"]` {
+		t.Errorf("sent %v, want start=30,vid=auto", got)
+	}
+
+	f2 := startFakeMPV(t, queueMPV())
+	qa, err := QueueAdd("/tmp/movie2.mp4", true)
+	if err != nil || !qa.Video {
+		t.Fatalf("QueueAdd(--video) = %+v, %v", qa, err)
+	}
+	wantSent := []string{`["playlist-clear"]`, `["loadfile","/tmp/movie2.mp4","append-play",-1,"vid=auto"]`, `["set_property","pause",false]`}
+	if got := f2.sent(); !reflect.DeepEqual(got, wantSent) {
+		t.Errorf("sent %v, want %v", got, wantSent)
+	}
+
+	// Status reports video:true when vo-configured is true, and omits it when false.
+	startFakeMPV(t, props(map[string]any{"idle-active": false, "pause": false, "path": "/tmp/movie.mp4", "time-pos": 12.0, "vo-configured": true}))
+	st, err := Status()
+	if err != nil || !st.Video {
+		t.Errorf("Status with vo-configured=true: %+v, %v", st, err)
+	}
+	b, _ := json.Marshal(st)
+	if !strings.Contains(string(b), `"video":true`) {
+		t.Errorf("Status JSON = %s, want video:true", b)
+	}
+}
+

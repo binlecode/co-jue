@@ -6,7 +6,7 @@
 
 ---
 
-## 系统阶段演进全表 (Stages 0–7)
+## 系统阶段演进全表 (Stages 0–8)
 
 | 阶段 (Stage) | 对应版本 | 时间节点 | 触发原因 | 核心架构动作 | 揭示的核心原则 |
 |---|---|---|---|---|---|
@@ -18,10 +18,23 @@
 | **Stage 5** | `v2.1.0` | 2026-10-07 | 认知信源扩展：跨平台结构化转录协议、免 Cookie 规范与海外顶级 IT/AI 信源拓扑落地 | 泛化 WebVTT/SRT 5 状态 FSM 清洗；下沉 Podcast 2.0 RSS 与 ID3v2 章节解包；落地方案 A 纯日常浏览器 Cookie 透传（零落盘文件）；全量端到端扩展至 267 项断言 | **开放协议标准化下沉，动态风控坚守底线**；静态协议入标准库，会话缓存留浏览器，只读凭证库绝不污染。 |
 | **Stage 6** | `v2.2.0` | 2026-10-08 | 语音 Agent（co-s2s）边放音乐边说话时人声被音乐淹没；设备热插拔对 Agent 不可见 | `control duck` 脉冲/边沿闪避：mpv 内嵌瞬态 Lua 助手独占 `volume-gain`，20ms 升余弦渐变与 30s 看门狗活在播放器里，CLI 一条 `script-message-to` 立返；版本化就绪标记判定助手在场；`events` 新增 `audio_device_changed`（首条有效通知基线 + 排序指纹）；端到端套件按六大能力平面重构为 20 块 333 项 | **包络归播放器，策略归 Go**：调用方可以崩溃，音乐不会被锁在低电平；投递回执不等于执行回执，在场与否要靠对方亲口写下的标记。 |
 | **Stage 7** | `v2.3.0` | 2026-10-22 | 队列随 mpv 生灭，`stop` 或换会话后“刚才放的那首是什么”无从回答 | 新增 `jue history [list] [--limit N]\|last\|clear`：成功的 `play` / `queue add` 记入 `$XDG_STATE_HOME/jue/history.jsonl`（0700 目录 / 0600 文件 / 拒收符号链接，与运行时目录共用 `privateDir` 门禁），`history.lock` 串行化、temp+rename 原子重写、500 条封顶；端到端套件新增 Block O，扩至 21 块 377 项 | **唯一的持久状态必须有界、原子、可丢弃**：记录是播放的副产品，失败只能丢记录，不能丢声音；只记事实，不做歌单与检索。 |
+| **Stage 8** | `v2.4.0` | 2026-10-25 | 家庭 NAS（`qnap-media`）等私有流媒体源接入时，裸容器（MKV/MP4）缺乏元数据/字幕提取且视频播放与音频守护分裂 | 确立“源（`qnap-media`）与器（`jue`）正交解耦”；`play`/`queue add` 新增 `--video` 基于 mpv 条目级 `vid=auto` 在同一守护进程内按需开关原生视频窗口，切回音频自动销毁窗口；`inspect` 新增 mpv 裸容器探测（`duration`/`chapters`/`tracks`）；`transcript` 新增直链/同目录外挂 `.srt/.vtt/.lrc` 与内封文本字幕轨（`sub-text` 观察器）提取；`frame` 新增本地回环流（`isLoopbackHTTP`）直通 `--no-ytdl` 快路 | **源只供流，器管感知与播放**：不造第二个播放器进程；条目级 `vid=auto` 让单实例守护在无头声卡与桌面影院间无态切换；既有 `mpv` 原语足以解包裸容器元数据与内封字幕，无需破戒引入 `ffprobe`。 |
 
 ---
 
 ## 版本更新日志 (SemVer Releases)
+
+## [2.4.0] - 2026-10-25
+
+**按需桌面视频窗口（`--video`）、裸媒体容器元数据与字幕轨感知（`inspect` / `transcript`）、本地回环流抽帧快路（`isLoopbackHTTP`）。**
+
+- **`jue play <url> [--start SEC] [--video]` 与 `jue queue add <url> [--video]`**：通过 mpv `loadfile` 条目级选项 `vid=auto`（`start=S,vid=auto`）在单实例常驻 `mpv` 守护进程上按需打开原生视频窗口（`vo-configured: true`），成功信封带 `"video":true`（未指定 `--video` 时省略，既有信封逐字节不变）。条目放毕或切回普通音频条目时，mpv 自动恢复全局 `--no-video` 并关闭视频窗口，复用同一套 Flock 互斥、`pause/resume/seek/volume`、`control duck`、`events` 与 `history`。`status` 在 `vo-configured` 为真时附带 `"video":true`。重复 `--video` 或重复值参数一律退出码 1。
+- **`jue inspect` 裸媒体容器探测（`mpvInspect`）**：对本地媒体文件、本地回环 HTTP 流（`http://127.0.0.1` / `localhost` / `[::1]`）或 `yt-dlp` 未能给出 `duration` 的直接媒体容器 URL，调用瞬态无头 `mpv --no-ytdl --vo=null --ao=null --no-sub --frames=1 --end=0.1` 提取真实 `duration`、内封 `chapters` 与流轨道列表 `tracks`（`[{"id","type":"video"|"audio"|"sub","codec","lang","title"}]`）。公网平台（YouTube 等）信封保持 `tracks` 省略，Token 预算断言零漂移。
+- **`jue transcript` 外挂与内封字幕感知**：
+  1. 直接传入 `.vtt` / `.srt` / `.lrc`（HTTP URL 或本地文件）时直接拉取解析；
+  2. 对本地媒体文件或本地回环 HTTP 媒体流，优先探测同目录同名外挂字幕（`.vtt` / `.srt` / `.zh.vtt` / `.zh.srt` / `.chs.srt` / `.en.vtt` / `.en.srt` / `.eng.srt` / `.lrc`）；
+  3. 无外挂字幕时通过 `mpvInspect` 检查容器 `tracks`，若存在文本字幕轨（`subrip`/`srt`/`ass`/`ssa`/`webvtt`/`mov_text`），在 0700 沙箱内通过瞬态无头 `mpv` Lua `sub-text` 观察器提取时间窗切片，无字幕轨则立即返回退出码 4 `unavailable`。
+- **`jue frame` 本地回环直链快路（`isLoopbackHTTP`）**：对 `127.0.0.1` / `localhost` / `[::1]` 流地址，Cold 首帧直挂 `--no-ytdl` 跳过无意义的 `yt-dlp` 探测，Hot 缓存命中复用完整 `frameTimeout`（15s）预算，消除异地隧道（`cf-qnap`）拉取大体积 MP4 `moov` 索引时被 2s CDN 短超时误杀折返的问题。
 
 ## [2.3.0] - 2026-10-22
 

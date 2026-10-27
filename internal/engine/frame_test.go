@@ -677,3 +677,34 @@ echo 'DURATION:120.0'
 		t.Error("expected corrupt cache entry to be invalidated")
 	}
 }
+
+func TestFrameLoopbackDirectStreamNoYtdl(t *testing.T) {
+	isolate(t)
+	targetURL := "http://127.0.0.1:8999/external/movie.mp4"
+
+	// Fail if --no-ytdl is NOT passed on the cold attempt for a loopback HTTP stream.
+	stubScript := `
+has_no_ytdl=0
+for a; do
+	if [ "$a" = "--no-ytdl" ]; then
+		has_no_ytdl=1
+	fi
+done
+if [ "$has_no_ytdl" -ne 1 ]; then
+	/bin/rm -f "$OUT/00000001.jpg"
+	echo "expected --no-ytdl on loopback stream"
+	exit 2
+fi
+echo 'DURATION:120.0'
+`
+	stubFrameMPV(t, stubScript)
+
+	res, err := Frame(targetURL, 10, 0, 80)
+	if err != nil {
+		t.Fatalf("expected loopback cold attempt to pass --no-ytdl, got %v", err)
+	}
+	if res.Width != 64 || res.Height != 48 {
+		t.Errorf("unexpected frame dimensions %+v", res)
+	}
+}
+

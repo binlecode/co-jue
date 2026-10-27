@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image/jpeg"
 	"math"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -352,6 +353,9 @@ func Frame(rawURL string, at float64, width int, quality int) (*FrameResult, err
 			}
 
 			hotTimeout := 2 * time.Second
+			if isLoopbackHTTP(targetURL) {
+				hotTimeout = 7 * time.Second
+			}
 			if rem < hotTimeout {
 				hotTimeout = rem
 			}
@@ -424,7 +428,7 @@ func Frame(rawURL string, at float64, width int, quality int) (*FrameResult, err
 		return nil, sErr
 	}
 
-	coldArgs := buildArgs(coldScratch, targetURL, false, nil, "")
+	coldArgs := buildArgs(coldScratch, targetURL, isLoopbackHTTP(targetURL), nil, "")
 	outStr, waitErr, coldDead, timedOut, launchErr := executeOneShotMPV(sigCtx, coldDeadline, coldArgs, coldScratch)
 	if launchErr != nil {
 		if coldDead {
@@ -492,6 +496,19 @@ func Frame(rawURL string, at float64, width int, quality int) (*FrameResult, err
 		_ = os.RemoveAll(coldScratch)
 	}
 	return nil, fail(2, "error", "frame capture failed: stream ended or network error")
+}
+
+func isLoopbackHTTP(u string) bool {
+	p, err := url.Parse(u)
+	if err != nil || p.Scheme != "http" || p.User != nil {
+		return false
+	}
+	switch strings.ToLower(p.Hostname()) {
+	case "127.0.0.1", "localhost", "::1":
+		return true
+	default:
+		return false
+	}
 }
 
 func nonEmptyFile(path string) bool {

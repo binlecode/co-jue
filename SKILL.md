@@ -17,14 +17,14 @@ jue 是专为 Agent 设计的端侧微外设：
 
 ```sh
 jue --version                                   # 查：版本信息 (严格遵循 SemVer)
-jue inspect <url>                               # 看：极简提取章节时间轴 (Chapters) 与时长
-jue transcript <url> [--range 14:00-18:00]       # 读：纯净逐字原话证据 (支持秒数或分秒相交切片)
+jue inspect <url>                               # 看：极简提取章节时间轴 (Chapters)、时长与裸容器轨道 (tracks)
+jue transcript <url> [--range 14:00-18:00]       # 读：纯净逐字原话证据 (支持平台字幕、外挂 .srt/.vtt/.lrc 与容器内封字幕轨)
 jue frame <url> --at <time> [--width N]         # 截：单帧视觉感知 (输出临时图片路径直通 Agent read_image)
-jue play <url> [--start 60]                     # 放：后台起播 (单实例 mpv，替换整个队列，已等待声音就绪)
-jue queue add <url|query>                       # 排：空闲时即起播；在播时追加到队尾并立即返回
+jue play <url> [--start 60] [--video]           # 放：单实例 mpv 起播 (默认后台无头音频；加 --video 弹出桌面视频窗口)
+jue queue add <url|query> [--video]             # 排：空闲时即起播；在播时追加到队尾并立即返回
 jue queue list                                  # 排：查看队列 (pos 当前下标、count 总数、items)
 jue queue clear                                 # 排：清空待播，当前曲目继续
-jue status                                      # 查：时空遥测 (在播状态、当前秒数头、总时长、音量)
+jue status                                      # 查：时空遥测 (在播状态、当前秒数头、总时长、音量；视频窗口开启时带 video:true)
 jue control pause | resume | stop               # 控：即时静音、恢复或停止并退出 (stop 连同队列一起销毁)
 jue control next | prev                         # 切：下一首 / 上一首 (已等待新曲出声；越界退出码 4)
 jue control seek +30 | seek -15 | seek 14:05    # 跳：+N / -N 相对跳转；不带符号为绝对位置 (秒数或 mm:ss)
@@ -48,7 +48,7 @@ jue transcript "ytsearch1:Never Gonna Give You Up" --range 18-30
 - 只认 `ytsearch1:`（及等价的 `ytsearch:`），关键词必须加引号；`ytsearch5:`、`scsearch:` 等其它检索前缀一律退出码 1；
 - 前缀必须显式写出：裸关键词（如 `jue play 晴天`）会被当成本地文件路径，返回退出码 4；
 - 检索无结果返回退出码 4 `unavailable`；
-- 只覆盖 YouTube。B 站、网易云等其它站点仍需 Agent 自行拿到直链。
+- 只覆盖 YouTube。B 站、网易云等其它站点仍需 Agent 自行拿到直链；家庭 QNAP NAS 上的音视频由 `qnap-media search|url` 转为本地 `http://127.0.0.1:8999/...` 流 URL 后直接喂给 `jue`（听音频直接 `jue play <url>`，桌面弹窗看电影用 `jue play <url> --video`）。
 
 - **全命令默认输出单行紧凑 JSON**；
 - **四级退出码**：

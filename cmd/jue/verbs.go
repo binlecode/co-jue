@@ -18,8 +18,8 @@ import (
 const verbUsage = `usage: jue inspect <url>
        jue transcript <url> [--range START-END]
        jue frame <url> --at <time> [--width N] [--quality N]
-       jue play <url> [--start SEC]
-       jue queue add <url>|list|clear
+       jue play <url> [--start SEC] [--video]
+       jue queue add <url> [--video]|list|clear
        jue control pause|resume|stop|next|prev|seek <+SEC|-SEC|SEC|MM:SS>|volume <0-100>
        jue control duck [on|off] [--duration SEC] [--level 0-100] [--fade MS]
        jue status
@@ -81,6 +81,9 @@ func splitArgs(args []string, valued ...string) (string, map[string]string, erro
 		}
 		switch {
 		case known && i+1 < len(args):
+			if _, dup := flags[a]; dup {
+				return "", nil, usageErr(a + " given twice")
+			}
 			flags[a] = args[i+1]
 			i++
 		case known:
@@ -158,7 +161,32 @@ func runFrame(args []string) (any, error) {
 	return engine.Frame(u, at, width, quality)
 }
 
+// extractBoolFlag strips at most one occurrence of flag before "--".
+func extractBoolFlag(args []string, flag string) ([]string, bool, error) {
+	var out []string
+	found := false
+	for i, a := range args {
+		if a == "--" {
+			out = append(out, args[i:]...)
+			break
+		}
+		if a == flag {
+			if found {
+				return nil, false, usageErr(flag + " given twice")
+			}
+			found = true
+			continue
+		}
+		out = append(out, a)
+	}
+	return out, found, nil
+}
+
 func runPlay(args []string) (any, error) {
+	args, video, err := extractBoolFlag(args, "--video")
+	if err != nil {
+		return nil, err
+	}
 	u, flags, err := splitArgs(args, "--start")
 	if err != nil {
 		return nil, err
@@ -169,7 +197,7 @@ func runPlay(args []string) (any, error) {
 			return nil, usageErr(err.Error())
 		}
 	}
-	return engine.Play(u, start)
+	return engine.Play(u, start, video)
 }
 
 func runQueue(args []string) (any, error) {
@@ -178,11 +206,15 @@ func runQueue(args []string) (any, error) {
 	}
 	switch rest := args[1:]; args[0] {
 	case "add":
+		rest, video, err := extractBoolFlag(rest, "--video")
+		if err != nil {
+			return nil, err
+		}
 		u, _, err := splitArgs(rest)
 		if err != nil {
 			return nil, err
 		}
-		return engine.QueueAdd(u)
+		return engine.QueueAdd(u, video)
 	case "list", "clear":
 		if len(rest) != 0 {
 			return nil, usageErr("queue " + args[0] + " takes no arguments")

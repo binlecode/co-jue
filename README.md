@@ -1,6 +1,6 @@
 # co-jue (jue)
 
-**co-jue**（CLI 二进制命令为 `jue`）—— `co` 生态面向 AI Agent（Claude Code、OpenCode、co-cli、co-s2s）的轻量端侧视听感知与播放微外设（Go 静态单二进制，零 cgo，零第三方库，收容于 `~/workspace_genai/co-jue/`）。版本遵循 SemVer 规范，由根目录 `VERSION` 统一定义（当前版本：`2.3.0`）。
+**co-jue**（CLI 二进制命令为 `jue`）—— `co` 生态面向 AI Agent（Claude Code、OpenCode、co-cli、co-s2s）的轻量端侧视听感知与播放微外设（Go 静态单二进制，零 cgo，零第三方库，收容于 `~/workspace_genai/co-jue/`）。版本遵循 SemVer 规范，由根目录 `VERSION` 统一定义（当前版本：`2.4.0`）。
 
 进入“可抛弃客户端软件”时代后，jue 彻底废除所有 TUI/GUI 客户端界面与搜索推荐包袱，**让 Agent 成为唯一的端侧播放 UX**。jue 仅作为 Agent 挂载在宿主机上的两件基础外设：
 1. **输入端（感知外设）**：在 `yt-dlp` 与 `mpv --vo=image` 之上提供极简字段投影、章节索引与单帧视觉感知，提供可核验的时空原话与图像证据（严格防范 Token 爆炸与机翻污染）；
@@ -22,8 +22,9 @@ jue events                                                         # 管道流�
 
 # 2. 端侧播放执行平面 (Actuation)
 jue play "https://www.youtube.com/watch?v=dQw4w9WgXcQ" --start 18   # 后台起播 (自动 Lazy-start 托管单实例 mpv，替换整个队列)
+jue play "http://127.0.0.1:8999/external/movie.mkv" --video         # 桌面视频窗口起播 (同一 mpv 守护按条目开启视频窗口，切回音频自动关闭)
 jue play "ytsearch1:周杰伦 晴天"                                   # 显式检索前缀起播 (返回解析后的规范 watch URL)
-jue queue add "ytsearch1:周杰伦 七里香"                             # 空闲即起播，在播则追加到 mpv 瞬态内存队列
+jue queue add "ytsearch1:周杰伦 七里香"                             # 空闲即起播，在播则追加到 mpv 瞬态内存队列 (同样支持 --video)
 jue queue list                                                     # 查看队列 (pos / count / items)
 jue queue clear                                                    # 清空待播，当前曲目继续
 jue status                                                         # 时空遥测 (当前播放头、状态、音量)

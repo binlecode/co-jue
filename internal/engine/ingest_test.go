@@ -6,6 +6,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -661,3 +663,92 @@ func TestInspectID3Probe(t *testing.T) {
 		t.Error("audioExtRe: want .mp3 path matched case-blind, query ignored, other suffix refused")
 	}
 }
+
+func TestMpvInspectAndContainerTranscript(t *testing.T) {
+	tmp := t.TempDir()
+	bin := filepath.Join(tmp, "bin")
+	os.MkdirAll(bin, 0755)
+	t.Setenv("TMPDIR", tmp)
+
+	// Stub mpv that answers both mpvInspect and mpvEmbeddedSub.
+	mpvScript := `#!/bin/sh
+for a; do
+	case "$a" in
+		--script=*)
+			echo "[sub] JUE_CUE:1.500	3.000	<i>Embedded</i> hello"
+			echo "[sub] JUE_CUE:3.500	5.000	Second line"
+			exit 0
+			;;
+	esac
+done
+echo "JUE_TITLE:Sample Movie"
+echo "JUE_DURATION:120.5"
+echo 'JUE_CHAPTERS:[{"title":"Opening","time":0},{"title":"Climax","time":60.25}]'
+echo 'JUE_TRACKS:[{"id":1,"type":"video","codec":"h264"},{"id":1,"type":"audio","codec":"aac","lang":"jpn"},{"id":1,"type":"sub","codec":"ass","lang":"en"}]'
+`
+	os.WriteFile(filepath.Join(bin, "mpv"), []byte(mpvScript), 0755)
+	t.Setenv("PATH", bin)
+
+	movie := filepath.Join(tmp, "movie.mkv")
+	os.WriteFile(movie, []byte("fake-mkv"), 0600)
+
+	// 1. Inspect on local media container returns duration, chapters, and tracks.
+	ir, err := Inspect(movie)
+	if err != nil {
+		t.Fatalf("Inspect(local mkv) = %v", err)
+	}
+	wantChs := []Chapter{{0, "Opening"}, {60.25, "Climax"}}
+	wantTracks := []Track{
+		{ID: 1, Type: "video", Codec: "h264"},
+		{ID: 1, Type: "audio", Codec: "aac", Lang: "jpn"},
+		{ID: 1, Type: "sub", Codec: "ass", Lang: "en"},
+	}
+	if ir.Duration != 120.5 || !reflect.DeepEqual(ir.Chapters, wantChs) || !reflect.DeepEqual(ir.Tracks, wantTracks) {
+		t.Errorf("Inspect = %+v", ir)
+	}
+
+	// 2. Transcript on container without sidecar falls back to embedded sub track.
+	tr, err := Transcript(movie, 0, 10, true)
+	if err != nil {
+		t.Fatalf("Transcript(embedded sub) = %v", err)
+	}
+	wantCues := []Cue{{1.5, 3, "Embedded hello"}, {3.5, 5, "Second line"}}
+	if tr.Language != "en" || tr.IsAuto || !reflect.DeepEqual(tr.Segments, wantCues) {
+		t.Errorf("Transcript(embedded sub) = %+v", tr)
+	}
+
+	// 3. Sidecar .zh.srt next to the movie takes precedence over embedded track.
+	sidecar := filepath.Join(tmp, "movie.zh.srt")
+	os.WriteFile(sidecar, []byte("1\n00:00:02,000 --> 00:00:04,000\n中文字幕\n"), 0600)
+	trSide, err := Transcript(movie, 0, 10, true)
+	if err != nil || trSide.Language != "zh" || len(trSide.Segments) != 1 || trSide.Segments[0].Text != "中文字幕" {
+		t.Errorf("Transcript(sidecar) = %+v, %v", trSide, err)
+	}
+
+	// 4. Direct .srt file target works directly.
+	trDirect, err := Transcript(sidecar, 0, 10, true)
+	if err != nil || len(trDirect.Segments) != 1 || trDirect.Segments[0].Text != "中文字幕" {
+		t.Errorf("Transcript(direct .srt) = %+v, %v", trDirect, err)
+	}
+
+	// 5. Missing mpv on PATH returns exit 2 (not exit 4) for both Inspect and Transcript.
+	os.Remove(sidecar)
+	t.Setenv("PATH", "")
+	var f *Fail
+	if _, err := Inspect(movie); !errors.As(err, &f) || f.Code != 2 {
+		t.Errorf("Inspect without mpv = %v, want exit 2", err)
+	}
+	if _, err := Transcript(movie, 0, 10, false); !errors.As(err, &f) || f.Code != 2 {
+		t.Errorf("Transcript without mpv = %v, want exit 2", err)
+	}
+
+	// 6. Loopback URL host parsing rejects userinfo spoofing (http://127.0.0.1:80@evil.com/x.mkv).
+	if !isLoopbackHTTP("http://127.0.0.1:8999/a.mkv") || !isLoopbackHTTP("http://localhost:8999/a.mkv") || !isLoopbackHTTP("http://[::1]:8999/a.mkv") {
+		t.Error("expected real loopback URLs to match isLoopbackHTTP")
+	}
+	if isLoopbackHTTP("http://127.0.0.1:80@evil.com/a.mkv") || isLoopbackHTTP("https://127.0.0.1:8999/a.mkv") || isLoopbackHTTP("http://example.com/a.mkv") {
+		t.Error("expected spoofed/non-http/remote URLs to be rejected by isLoopbackHTTP")
+	}
+}
+
+

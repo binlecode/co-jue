@@ -269,10 +269,10 @@ block_a() {
     # grammar itself is unit-tested (cmd/jue); this proves the binary maps it to the contract.
     local -a usage=(
         "transcript $YT_NN --range 30-10" "transcript $YT_NN --range nan-10"
-        "play $WAV --start soon" "play $WAV --start inf"
+        "play $WAV --start soon" "play $WAV --start inf" "play --video" "play $WAV --video --video"
         "control volume 101" "control volume nan" "control seek" "control seek nan" "control seek +inf"
         "control rewind" "status now"
-        "queue shuffle" "queue list now"
+        "queue shuffle" "queue list now" "queue add --video"
         "events --until invalid_event" "events --timeout -5"
         "frame $YT_RR" "frame $YT_RR --at abc" "frame $YT_RR --at 1e999" "frame $YT_RR --at 10 --quality 105"
         "frame $YT_RR --at 10 --width 5000" "frame $YT_RR --at 10 --foo bar" "frame --option-inject --at 10"
@@ -521,6 +521,11 @@ srv.serve_forever()' "$srv" "$TMPDIR/port" &
         "$cjson" "$url2"
     v frame "$url" --at 0 --width 0
     expect "hot frame reads the cached direct URL: 640x480" 0 '.status=="ok" and .width==640 and .height==480'
+    v inspect "$url"
+    expect "inspect on a local HTTP stream: duration and video track" 0 '.status=="ok" and .duration>0 and (.tracks|length)>=1 and .tracks[0].type=="video"'
+    printf '1\n00:00:00,000 --> 00:00:01,000\n你好世界\n' > "$srv/a.zh.srt"
+    v transcript "$url"
+    expect "transcript on a local HTTP stream: sidecar SRT" 0 '.status=="ok" and .lang=="zh" and .segments[0].text=="你好世界"'
     kill "$srv_pid" 2>/dev/null; wait "$srv_pid" 2>/dev/null
 
     v frame "av://lavfi:testsrc=size=1080x1920:duration=1" --at 0 --width 960

@@ -63,13 +63,13 @@ func TestVerbUsageGates(t *testing.T) {
 	const u = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 	bad := map[string][]string{
 		"inspect":    {"", u + " " + u, u + " --bogus x"},
-		"transcript": {"", u + " --range", u + " --range 30-10", u + " --range nan-10", u + " --bogus 1"},
+		"transcript": {"", u + " --range", u + " --range 30-10", u + " --range nan-10", u + " --range 10-20 --range 30-40", u + " --bogus 1"},
 		"frame": {u, "--at 10", u + " --at", u + " --at abc", u + " --at 1e999", u + " --at nan",
 			u + " --at 10 --width -1", u + " --at 10 --width 3841", u + " --at 10 --width x",
 			u + " --at 10 --quality 0", u + " --at 10 --quality 101", u + " --at 10 --foo bar",
 			"--option-inject --at 10"},
-		"play":   {"", u + " --start", u + " --start soon", u + " --start inf", u + " " + u},
-		"queue":  {"", "shuffle", "add", "add " + u + " " + u, "list now", "clear now"},
+		"play":   {"", "--video", u + " --start", u + " --start soon", u + " --start inf", u + " --start 10 --start 20", u + " --video --video", u + " -- --video", u + " " + u},
+		"queue":  {"", "shuffle", "add", "add --video", "add " + u + " --video --video", "add " + u + " " + u, "list now", "clear now"},
 		"status": {"now"},
 		"control": {"", "rewind", "pause now", "stop now", "next 1", "seek", "seek 1 2", "seek nan",
 			"seek +inf", "seek ++5", "seek +-5", "volume", "volume 101", "volume -1", "volume nan"},

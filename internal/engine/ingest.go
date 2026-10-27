@@ -18,11 +18,13 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 	"unicode"
 	"unicode/utf16"
@@ -47,6 +49,14 @@ type Chapter struct {
 	Title string  `json:"title"`
 }
 
+type Track struct {
+	ID    int    `json:"id"`
+	Type  string `json:"type"`
+	Codec string `json:"codec,omitempty"`
+	Lang  string `json:"lang,omitempty"`
+	Title string `json:"title,omitempty"`
+}
+
 type InspectResponse struct {
 	Status   string    `json:"status"`
 	ID       string    `json:"id,omitempty"`
@@ -54,6 +64,7 @@ type InspectResponse struct {
 	Duration float64   `json:"duration,omitempty"`
 	Uploader string    `json:"uploader,omitempty"`
 	Chapters []Chapter `json:"chapters"`
+	Tracks   []Track   `json:"tracks,omitempty"`
 }
 
 type Cue struct {
@@ -246,6 +257,25 @@ func decodeDump(u string, raw []byte) ([]byte, *rawInfo, error) {
 }
 
 func Inspect(u string) (*InspectResponse, error) {
+	bare, err := normalizeForYtdlp(u)
+	if err != nil {
+		return nil, err
+	}
+	// A local media file or loopback HTTP media container is probed directly via mpv:
+	// yt-dlp's generic extractor either refuses local paths or returns zero duration/chapters.
+	if isLocalMediaFile(bare) || (isLoopbackHTTP(bare) && mediaExtRe.MatchString(urlPath(bare))) {
+		r, err := mpvInspect(bare)
+		if err != nil {
+			return nil, err
+		}
+		if len(r.Chapters) == 0 && isHTTP(bare) && audioExtRe.MatchString(urlPath(bare)) {
+			if head, _, _, err := httpGet(bare, id3ProbeBytes); err == nil {
+				r.Chapters = append(r.Chapters, id3Chapters(head)...)
+			}
+		}
+		return r, nil
+	}
+
 	_, info, err := dump(u)
 	if err != nil {
 		return nil, err
@@ -310,6 +340,10 @@ func Transcript(u string, start, end float64, hasRange bool) (*TranscriptRespons
 		r, err = neteaseLyrics(neteaseID(u))
 	case isFeedURL(u):
 		r, err = feedTranscript(u, false)
+	case isDirectSubTarget(u):
+		r, err = directSubTranscript(u)
+	case isLocalMediaFile(u) || (isLoopbackHTTP(u) && mediaExtRe.MatchString(urlPath(u))):
+		r, err = containerTranscript(u, start, end, hasRange)
 	default:
 		r, err = ytTranscript(u)
 		// A feed whose URL does not say so: yt-dlp finds no subtitles, the server says XML.
@@ -1098,3 +1132,425 @@ func id3Text(b []byte) string {
 	}
 	return cleanText(strings.TrimRight(s, "\x00"))
 }
+
+var (
+	mediaExtRe = regexp.MustCompile(`\.(mp4|mkv|mov|webm|avi|rmvb|flv|ts|m4v|mp3|flac|m4a|aac|ape|dsf|dff|wav|ogg|opus)$`)
+	subExtRe   = regexp.MustCompile(`\.(vtt|srt|lrc)$`)
+)
+
+func isLocalRegularFile(p string) bool {
+	if isHTTP(p) || searchPrefixRe.MatchString(p) {
+		return false
+	}
+	fi, err := os.Stat(p)
+	return err == nil && fi.Mode().IsRegular()
+}
+
+func isLocalMediaFile(p string) bool {
+	return isLocalRegularFile(p) && mediaExtRe.MatchString(strings.ToLower(p))
+}
+
+func isDirectSubTarget(u string) bool {
+	if isHTTP(u) {
+		return subExtRe.MatchString(urlPath(u))
+	}
+	return isLocalRegularFile(u) && subExtRe.MatchString(strings.ToLower(u))
+}
+
+func runOneShotHeadlessMPV(timeout time.Duration, args ...string) (string, error) {
+	if _, err := exec.LookPath("mpv"); err != nil {
+		return "", fail(2, "error", "mpv not found on PATH")
+	}
+	sigCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	ctx, cancel := context.WithTimeout(sigCtx, timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "mpv", args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.WaitDelay = 2 * time.Second
+	cmd.Cancel = func() error {
+		if cmd.Process != nil {
+			return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		}
+		return nil
+	}
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Start(); err != nil {
+		return "", fail(2, "error", "start mpv: %v", err)
+	}
+	pgid := cmd.Process.Pid
+	defer func() {
+		if pgid > 0 {
+			_ = syscall.Kill(-pgid, syscall.SIGKILL)
+		}
+	}()
+	_ = cmd.Wait()
+	if sigCtx.Err() != nil {
+		return out.String(), fail(2, "error", "interrupted")
+	}
+	if ctx.Err() == context.DeadlineExceeded {
+		return out.String(), fail(2, "error", "mpv timed out after %s", timeout)
+	}
+	return out.String(), nil
+}
+
+// mpvInspect probes a local media file or direct HTTP media container with a one-shot
+// headless mpv (--no-ytdl --vo=null --ao=null --no-sub --frames=1 --end=0.1) to extract
+// duration, container chapters, and stream tracks (video/audio/sub).
+func mpvInspect(u string) (*InspectResponse, error) {
+	out, err := runOneShotHeadlessMPV(20*time.Second,
+		"--no-config", "--no-ytdl", "--vo=null", "--ao=null", "--no-sub",
+		"--frames=1", "--end=0.1",
+		"--term-playing-msg=\nJUE_TITLE:${=media-title}\nJUE_DURATION:${=duration}\nJUE_CHAPTERS:${=chapter-list}\nJUE_TRACKS:${=track-list}",
+		"--", u,
+	)
+	if err != nil {
+		return nil, err
+	}
+	var title string
+	var dur float64
+	var chs []Chapter
+	var tracks []Track
+	sawTracks := false
+	for _, rawLine := range strings.Split(out, "\n") {
+		line := strings.TrimRight(rawLine, "\r")
+		switch {
+		case strings.HasPrefix(line, "JUE_TITLE:"):
+			title = cleanText(strings.TrimPrefix(line, "JUE_TITLE:"))
+		case strings.HasPrefix(line, "JUE_DURATION:"):
+			if v, err := strconv.ParseFloat(strings.TrimPrefix(line, "JUE_DURATION:"), 64); err == nil && v > 0 && !math.IsNaN(v) && !math.IsInf(v, 0) {
+				dur = math.Round(v*1000) / 1000
+			}
+		case strings.HasPrefix(line, "JUE_CHAPTERS:"):
+			var rawChs []struct {
+				Title string  `json:"title"`
+				Time  float64 `json:"time"`
+			}
+			if json.Unmarshal([]byte(strings.TrimPrefix(line, "JUE_CHAPTERS:")), &rawChs) == nil {
+				for _, c := range rawChs {
+					if c.Time >= 0 && !math.IsNaN(c.Time) && !math.IsInf(c.Time, 0) {
+						chs = append(chs, Chapter{Start: math.Round(c.Time*1000) / 1000, Title: cleanText(c.Title)})
+					}
+				}
+			}
+		case strings.HasPrefix(line, "JUE_TRACKS:"):
+			var rawTracks []struct {
+				ID    int    `json:"id"`
+				Type  string `json:"type"`
+				Codec string `json:"codec"`
+				Lang  string `json:"lang"`
+				Title string `json:"title"`
+			}
+			if json.Unmarshal([]byte(strings.TrimPrefix(line, "JUE_TRACKS:")), &rawTracks) == nil {
+				sawTracks = true
+				for _, tr := range rawTracks {
+					tracks = append(tracks, Track{
+						ID:    tr.ID,
+						Type:  tr.Type,
+						Codec: tr.Codec,
+						Lang:  tr.Lang,
+						Title: cleanText(tr.Title),
+					})
+				}
+			}
+		}
+	}
+	if !sawTracks || len(tracks) == 0 {
+		lower := strings.ToLower(out)
+		if strings.Contains(lower, "connection refused") ||
+			strings.Contains(lower, "connection timed out") ||
+			strings.Contains(lower, "network is unreachable") ||
+			strings.Contains(lower, "input/output error") ||
+			strings.Contains(lower, "server returned 5") {
+			return nil, fail(2, "error", "mpv cannot reach %s", u)
+		}
+		return nil, fail(4, "unavailable", "cannot inspect media container %s", u)
+	}
+	if chs == nil {
+		chs = []Chapter{}
+	}
+	base := filepath.Base(u)
+	if p, err := url.Parse(u); err == nil && isHTTP(u) {
+		if decoded, err := url.PathUnescape(filepath.Base(p.Path)); err == nil && decoded != "" {
+			base = decoded
+		}
+	}
+	id := strings.TrimSuffix(base, filepath.Ext(base))
+	if title == "" {
+		title = id
+	}
+	return &InspectResponse{
+		Status:   "ok",
+		ID:       id,
+		Title:    title,
+		Duration: dur,
+		Chapters: chs,
+		Tracks:   tracks,
+	}, nil
+}
+
+func parseSubBytes(ext string, body []byte) ([]Cue, error) {
+	switch strings.ToLower(ext) {
+	case ".vtt":
+		return parseVTT(body)
+	case ".srt":
+		return parseSRT(body)
+	case ".lrc":
+		return parseLRC(string(body)), nil
+	default:
+		return nil, fail(1, "error", "unsupported subtitle extension %q", ext)
+	}
+}
+
+func directSubTranscript(u string) (*TranscriptResponse, error) {
+	var body []byte
+	var ext string
+	if isHTTP(u) {
+		var err error
+		body, _, _, err = httpGet(u, maxFetchBytes)
+		if err != nil {
+			if strings.Contains(err.Error(), "HTTP 404") {
+				return nil, fail(4, "unavailable", "subtitle file not found: %s", u)
+			}
+			return nil, err
+		}
+		ext = filepath.Ext(urlPath(u))
+	} else {
+		f, err := os.Open(u)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil, fail(4, "unavailable", "subtitle file not found: %s", u)
+			}
+			return nil, fail(2, "error", "read %s: %v", u, err)
+		}
+		defer f.Close()
+		body, err = io.ReadAll(io.LimitReader(f, maxFetchBytes))
+		if err != nil {
+			return nil, fail(2, "error", "read %s: %v", u, err)
+		}
+		ext = filepath.Ext(u)
+	}
+	cues, err := parseSubBytes(ext, body)
+	if err != nil {
+		return nil, err
+	}
+	if len(cues) == 0 {
+		return nil, fail(4, "unavailable", "subtitle file %s is empty", u)
+	}
+	return &TranscriptResponse{Status: "ok", Segments: cues}, nil
+}
+
+var sidecarSuffixes = []struct {
+	suffix string
+	ext    string
+	lang   string
+}{
+	{".zh.vtt", ".vtt", "zh"},
+	{".zh.srt", ".srt", "zh"},
+	{".chs.srt", ".srt", "zh"},
+	{".ja.vtt", ".vtt", "ja"},
+	{".ja.srt", ".srt", "ja"},
+	{".jpn.srt", ".srt", "ja"},
+	{".en.vtt", ".vtt", "en"},
+	{".en.srt", ".srt", "en"},
+	{".eng.srt", ".srt", "en"},
+	{".vtt", ".vtt", ""},
+	{".srt", ".srt", ""},
+	{".lrc", ".lrc", ""},
+}
+
+func httpGetSidecar(u string) ([]byte, error) {
+	req, err := http.NewRequest("GET", u, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := (&http.Client{Timeout: 2 * time.Second}).Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 && resp.StatusCode != 206 {
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	return io.ReadAll(io.LimitReader(resp.Body, maxFetchBytes))
+}
+
+// containerTranscript extracts cues for a local media file or loopback HTTP media stream:
+// 1. Probes sidecar subtitle files alongside the media stem (.vtt/.srt/.lrc);
+// 2. Otherwise inspects container tracks via mpv and, if an embedded text subtitle track
+//    exists, extracts the windowed cues via a one-shot headless mpv Lua observer.
+func containerTranscript(u string, start, end float64, hasRange bool) (*TranscriptResponse, error) {
+	stem := strings.TrimSuffix(u, filepath.Ext(u))
+	if isHTTP(u) {
+		if p, err := url.Parse(u); err == nil {
+			ext := filepath.Ext(p.Path)
+			p.Path = strings.TrimSuffix(p.Path, ext)
+			p.RawPath = ""
+			p.RawQuery = ""
+			p.Fragment = ""
+			stem = p.String()
+		}
+	}
+	for _, sc := range sidecarSuffixes {
+		cand := stem + sc.suffix
+		var body []byte
+		if isHTTP(u) {
+			b, err := httpGetSidecar(cand)
+			if err != nil {
+				continue
+			}
+			body = b
+		} else {
+			if !isLocalRegularFile(cand) {
+				continue
+			}
+			f, err := os.Open(cand)
+			if err != nil {
+				continue
+			}
+			b, err := io.ReadAll(io.LimitReader(f, maxFetchBytes))
+			f.Close()
+			if err != nil {
+				continue
+			}
+			body = b
+		}
+		if cues, err := parseSubBytes(sc.ext, body); err == nil && len(cues) > 0 {
+			return &TranscriptResponse{Status: "ok", Language: sc.lang, Segments: cues}, nil
+		}
+	}
+
+	info, err := mpvInspect(u)
+	if err != nil {
+		var f *Fail
+		if errors.As(err, &f) && f.Code == 2 {
+			return nil, err
+		}
+		return nil, fail(4, "unavailable", "no original-language subtitles for %s", u)
+	}
+	subTrack := pickSubTrack(info.Tracks)
+	if subTrack == nil {
+		return nil, fail(4, "unavailable", "no original-language subtitles for %s", u)
+	}
+	return mpvEmbeddedSub(u, *subTrack, start, end, hasRange)
+}
+
+// pickSubTrack chooses a text subtitle track by language priority: Chinese -> Japanese -> English -> first available.
+func pickSubTrack(tracks []Track) *Track {
+	var subs []*Track
+	for i := range tracks {
+		tr := &tracks[i]
+		if tr.Type == "sub" && isTextSubCodec(tr.Codec) {
+			subs = append(subs, tr)
+		}
+	}
+	if len(subs) == 0 {
+		return nil
+	}
+	tiers := [][]string{
+		{"zh", "chi", "zho", "chs", "cht", "cmn"},
+		{"ja", "jpn"},
+		{"en", "eng"},
+	}
+	for _, tier := range tiers {
+		for _, tr := range subs {
+			l := strings.ToLower(strings.TrimSpace(tr.Lang))
+			for _, prefix := range tier {
+				if l == prefix || strings.HasPrefix(l, prefix+"-") || strings.HasPrefix(l, prefix+"_") {
+					return tr
+				}
+			}
+		}
+	}
+	return subs[0]
+}
+
+func isTextSubCodec(codec string) bool {
+	switch strings.ToLower(codec) {
+	case "subrip", "srt", "ass", "ssa", "webvtt", "vtt", "mov_text", "text", "ttml":
+		return true
+	default:
+		return false
+	}
+}
+
+const embeddedSubLua = `local last = ""
+local count = 0
+mp.observe_property("sub-text", "string", function(_, val)
+    if val and val ~= "" and val ~= last then
+        last = val
+        count = count + 1
+        local s = mp.get_property_number("sub-start") or mp.get_property_number("time-pos") or 0
+        local e = mp.get_property_number("sub-end") or s
+        print(string.format("JUE_CUE:%.3f\t%.3f\t%s", s, e, (val:gsub("[\r\n\t]+", " "))))
+        if count > 300 then
+            mp.commandv("quit")
+        end
+    end
+end)
+`
+
+func mpvEmbeddedSub(u string, tr Track, start, end float64, hasRange bool) (*TranscriptResponse, error) {
+	dir, err := scratchDir()
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(dir)
+	luaPath := filepath.Join(dir, "sub.lua")
+	if err := os.WriteFile(luaPath, []byte(embeddedSubLua), 0600); err != nil {
+		return nil, fail(2, "error", "write sub helper: %v", err)
+	}
+
+	args := []string{
+		"--no-config", "--no-ytdl", "--vo=null", "--ao=null", "--untimed", "--no-audio",
+		fmt.Sprintf("--sid=%d", tr.ID),
+		"--vd-lavc-skipframe=nonref", "--vd-lavc-skiploopfilter=all", "--vd-lavc-fast",
+	}
+	if hasRange {
+		args = append(args, fmt.Sprintf("--start=%g", start), fmt.Sprintf("--end=%g", end))
+	}
+	args = append(args, "--script="+luaPath, "--", u)
+
+	out, err := runOneShotHeadlessMPV(30*time.Second, args...)
+	if err != nil {
+		return nil, err
+	}
+
+	var cues []Cue
+	for _, rawLine := range strings.Split(out, "\n") {
+		line := strings.TrimSpace(rawLine)
+		var payload string
+		switch {
+		case strings.HasPrefix(line, "[sub] JUE_CUE:"):
+			payload = strings.TrimPrefix(line, "[sub] JUE_CUE:")
+		case strings.HasPrefix(line, "JUE_CUE:"):
+			payload = strings.TrimPrefix(line, "JUE_CUE:")
+		default:
+			continue
+		}
+		parts := strings.SplitN(payload, "\t", 3)
+		if len(parts) != 3 {
+			continue
+		}
+		s, err1 := strconv.ParseFloat(parts[0], 64)
+		e, err2 := strconv.ParseFloat(parts[1], 64)
+		text := cleanText(html.UnescapeString(stripTags(parts[2])))
+		if err1 != nil || err2 != nil || text == "" {
+			continue
+		}
+		cues = appendCue(cues, Cue{Start: math.Round(s*1000) / 1000, End: math.Round(max(s, e)*1000) / 1000, Text: text})
+	}
+	for i := 0; i+1 < len(cues); i++ {
+		if cues[i].End > cues[i+1].Start && cues[i+1].Start >= cues[i].Start {
+			cues[i].End = cues[i+1].Start
+		}
+	}
+	if len(cues) == 0 && !hasRange {
+		return nil, fail(4, "unavailable", "subtitle track is empty for %s", u)
+	}
+	return &TranscriptResponse{Status: "ok", Language: tr.Lang, IsAuto: false, Segments: cues}, nil
+}
+

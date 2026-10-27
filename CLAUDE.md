@@ -31,19 +31,19 @@ This file provides guidance to Claude Code (claude.ai/code) and all coding agent
 
 ## 项目性质
 
-**co-jue**（CLI 二进制命令为 `jue`）—— `co` 生态面向 AI Agent（Claude Code、OpenCode、co-cli、co-s2s）的端侧视听感知与播放微外设（Go 静态单二进制，收容于 `~/workspace_genai/co-jue/`）。版本严格遵循 SemVer 语义化规范（声明于根目录 `VERSION`，如 `2.3.0`；演进全表与更新日志见 `CHANGELOG.md`）。
+**co-jue**（CLI 二进制命令为 `jue`）—— `co` 生态面向 AI Agent（Claude Code、OpenCode、co-cli、co-s2s）的端侧视听感知与播放微外设（Go 静态单二进制，收容于 `~/workspace_genai/co-jue/`）。版本严格遵循 SemVer 语义化规范（声明于根目录 `VERSION`，如 `2.4.0`；演进全表与更新日志见 `CHANGELOG.md`）。
 
 - **感知平面 (Ingest)**：
-  - `jue inspect <url>`：极简提取章节时间轴（Chapters）与元数据，Token 开销 < 100 Tokens；
-  - `jue transcript <url> [--range START-END]`：提取声称级逐字原话证据（防机翻污染、带相交判定裁剪、超出 300 条自动截断），无字幕如实返回 `unavailable`（退出码 4）；
+  - `jue inspect <url>`：极简提取章节时间轴（Chapters）与元数据，Token 开销 < 100 Tokens；对本地媒体文件或本地回环 HTTP 流（如 `qnap-media`）通过瞬态无头 mpv 提取真实 `duration`、容器 `chapters` 与音视频/字幕轨道 `tracks`；
+  - `jue transcript <url> [--range START-END]`：提取声称级逐字原话证据（防机翻污染、带相交判定裁剪、超出 300 条自动截断；支持直链/同目录外挂 `.srt/.vtt/.lrc` 及本地/回环容器内封文本字幕轨），无字幕如实返回 `unavailable`（退出码 4）；
   - `jue events [--until <EVENT>] [--timeout SEC]`：毫秒级事件感知面（曲目放毕、AirPods 触控、章节切换、`--until queue_ended` 整个队列放毕、`audio_device_changed` 音频输出拓扑变化），彻底根除轮询 Token 开销；
   - 显式检索前缀：`inspect` / `transcript` / `play` / `queue add` 均接受 `ytsearch1:<关键词>`（白名单仅 `ytsearch1:` 与 `ytsearch:`，其余检索前缀退出码 1），复用 yt-dlp 原生检索，零自研爬虫。
 - **执行平面 (Daemon)**：
-  - `jue play <url> [--start SEC]`：Flock 互斥与 Lazy-start 托管单实例后台无头 mpv，替换整个队列，超时等待声音就绪（`file-loaded`），返回 mpv 解析后的规范 URL；
-  - `jue queue add <url|query> | list | clear`：mpv 原生瞬态内存播放列表（零持久化，随 mpv 生灭）；空闲时 add 即起播，播放中 add 追加立返；clear 只清待播；
+  - `jue play <url> [--start SEC] [--video]`：Flock 互斥与 Lazy-start 托管单实例后台 mpv（默认无头 `--no-video`；传 `--video` 时通过条目级 `vid=auto` 动态弹出原生视频窗口，切回音频自动销毁窗口），替换整个队列，超时等待声音就绪（`file-loaded`），返回 mpv 解析后的规范 URL；
+  - `jue queue add <url|query> [--video] | list | clear`：mpv 原生瞬态内存播放列表（零持久化，随 mpv 生灭）；空闲时 add 即起播，播放中 add 追加立返；clear 只清待播；
   - `jue control <pause|resume|seek|volume|stop|next|prev>`：毫秒级确定性控制，`next`/`prev` 越界返回退出码 4 `unavailable`，`stop` 后 mpv 自动优雅退出，不留僵尸守护；
   - `jue control duck [on|off] [--duration SEC] [--level 0-100] [--fade MS]`：声学闪避，Agent 说话时压低音乐；只写 mpv 独立增益级 `volume-gain`（与 `volume` 正交），渐变/保持/30s 看门狗全在 mpv 内嵌 Lua 助手 `jue_duck.lua`（`embed` 内嵌、`launch()` 写入运行时目录 0600 并 `--script=` 加载）里，CLI 发一条 `script-message-to` 立返；助手就绪标记 `user-data/jue/duck-helper` 缺失或协议不符为退出码 4 `unavailable`；
-  - `jue status`：时空同步遥测（返回播放头秒数、状态、总时长、音量；闪避中另带瞬时电平 `duck`）。
+  - `jue status`：时空同步遥测（返回播放头秒数、状态、总时长、音量；视频窗口开启时带 `"video":true`，闪避中另带瞬时电平 `duck`）。
 - **记忆平面 (History)**：
   - `jue history [list] [--limit N] | last | clear`：持久播放历史。`play` / `queue add` 成功后各记一条 `{timestamp, action:"play"|"queue_add", input, url, title, duration}`（`input` 为原始入参如 `ytsearch1:…`，`url` 为解析结果；排队未加载项 `title:""`、`duration:0`）。落盘 `$XDG_STATE_HOME/jue/history.jsonl`（未设或非绝对路径回落 `~/.local/state/jue/`），目录 0700/属主/非符号链接（与运行时目录同一门禁 `privateDir`），文件 0600、`O_NOFOLLOW` 读、temp+rename 原子重写、`history.lock` 串行化并发写，上限 500 条裁旧，坏行跳过。`list` 最新在前、默认 20 条、`--limit` 取 1–500；空历史 `last` 退出码 4 `unavailable`；读与 `clear` 不创建目录。记录失败一律吞掉，绝不让已出声的播放报错。
 - **物理逃生口**：
