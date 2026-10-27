@@ -1,6 +1,6 @@
 # ARCHITECTURE —— co-jue (jue)
 
-**co-jue**（CLI 二进制命令为 `jue`）—— `co` 生态面向 AI Agent（Claude Code、OpenCode、co-cli、co-s2s）的轻量端侧视听感知与播放微外设（Go 静态单二进制，纯 Go 标准库，代码规模遵循 Need-based 零冗余原则，无 cgo，无第三方依赖，收容于 `~/workspace_genai/co-jue/`）。版本遵循 SemVer 规范，单一数据源声明于根目录 `VERSION`（当前版本：`2.4.1`；演进历史与工程阶段全表见根目录 [`CHANGELOG.md`](../CHANGELOG.md)）。
+**co-jue**（CLI 二进制命令为 `jue`）—— `co` 生态面向 AI Agent（Claude Code、OpenCode、co-cli、co-s2s）的轻量端侧视听感知与播放微外设（Go 静态单二进制，纯 Go 标准库，代码规模遵循 Need-based 零冗余原则，无 cgo，无第三方依赖，收容于 `~/workspace_genai/co-jue/`）。版本遵循 SemVer 规范，单一数据源声明于根目录 `VERSION`（当前版本：`2.4.2`；演进历史与工程阶段全表见根目录 [`CHANGELOG.md`](../CHANGELOG.md)）。
 
 ---
 

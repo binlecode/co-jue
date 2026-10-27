@@ -18,7 +18,7 @@ jue 是专为 Agent 设计的端侧微外设：
 ```sh
 jue --version                                   # 查：版本信息 (严格遵循 SemVer)
 jue inspect <url>                               # 看：极简提取章节时间轴 (Chapters)、时长与裸容器轨道 (tracks)
-jue transcript <url> [--range 14:00-18:00]       # 读：纯净逐字原话证据 (支持平台字幕、外挂 .srt/.vtt/.lrc 与容器内封字幕轨)
+jue transcript <url> [--range 14:00-18:00]       # 读：纯净逐字原话证据 (支持平台字幕、外挂 .srt/.vtt/.ass/.ssa/.lrc 与容器内封字幕轨)
 jue frame <url> --at <time> [--width N]         # 截：单帧视觉感知 (输出临时图片路径直通 Agent read_image)
 jue play <url> [--start 60] [--video]           # 放：单实例 mpv 起播 (默认后台无头音频；加 --video 弹出桌面视频窗口)
 jue queue add <url|query> [--video]             # 排：空闲时即起播；在播时追加到队尾并立即返回

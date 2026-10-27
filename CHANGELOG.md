@@ -18,11 +18,22 @@
 | **Stage 5** | `v2.1.0` | 2026-10-07 | 认知信源扩展：跨平台结构化转录协议、免 Cookie 规范与海外顶级 IT/AI 信源拓扑落地 | 泛化 WebVTT/SRT 5 状态 FSM 清洗；下沉 Podcast 2.0 RSS 与 ID3v2 章节解包；落地方案 A 纯日常浏览器 Cookie 透传（零落盘文件）；全量端到端扩展至 267 项断言 | **开放协议标准化下沉，动态风控坚守底线**；静态协议入标准库，会话缓存留浏览器，只读凭证库绝不污染。 |
 | **Stage 6** | `v2.2.0` | 2026-10-08 | 语音 Agent（co-s2s）边放音乐边说话时人声被音乐淹没；设备热插拔对 Agent 不可见 | `control duck` 脉冲/边沿闪避：mpv 内嵌瞬态 Lua 助手独占 `volume-gain`，20ms 升余弦渐变与 30s 看门狗活在播放器里，CLI 一条 `script-message-to` 立返；版本化就绪标记判定助手在场；`events` 新增 `audio_device_changed`（首条有效通知基线 + 排序指纹）；端到端套件按六大能力平面重构为 20 块 333 项 | **包络归播放器，策略归 Go**：调用方可以崩溃，音乐不会被锁在低电平；投递回执不等于执行回执，在场与否要靠对方亲口写下的标记。 |
 | **Stage 7** | `v2.3.0` | 2026-10-22 | 队列随 mpv 生灭，`stop` 或换会话后“刚才放的那首是什么”无从回答 | 新增 `jue history [list] [--limit N]\|last\|clear`：成功的 `play` / `queue add` 记入 `$XDG_STATE_HOME/jue/history.jsonl`（0700 目录 / 0600 文件 / 拒收符号链接，与运行时目录共用 `privateDir` 门禁），`history.lock` 串行化、temp+rename 原子重写、500 条封顶；端到端套件新增 Block O，扩至 21 块 377 项 | **唯一的持久状态必须有界、原子、可丢弃**：记录是播放的副产品，失败只能丢记录，不能丢声音；只记事实，不做歌单与检索。 |
-| **Stage 8** | `v2.4.0` ~ `v2.4.1` | 2026-10-25 ~ 2026-10-27 | 家庭 NAS（`qnap-media`）等私有流媒体源接入时，裸容器（MKV/MP4）缺乏元数据/字幕提取且视频播放与音频守护分裂；YouTube `tv_samsung` 广告门控引发 403 | 确立“源（`qnap-media`）与器（`jue`）正交解耦”；`play`/`queue add` 新增 `--video` 基于 mpv 条目级 `vid=auto` 在同一守护进程内按需开关原生视频窗口，切回音频自动销毁窗口；`inspect` 新增 mpv 裸容器探测（`duration`/`chapters`/`tracks`）；`transcript` 新增直链/同目录外挂 `.srt/.vtt/.lrc` 与内封文本字幕轨（`sub-text` 观察器）提取；`frame` 新增本地回环流（`isLoopbackHTTP`）直通 `--no-ytdl` 快路；`mpvArgs` 与 `frame` 冷启动注入 `--ytdl-raw-options=extractor-args=youtube:player_client=-tv_samsung` 旁路 TV 广告门控 403 | **源只供流，器管感知与播放**：不造第二个播放器进程；条目级 `vid=auto` 让单实例守护在无头声卡与桌面影院间无态切换；既有 `mpv` 原语足以解包裸容器元数据与内封字幕，无需破戒引入 `ffprobe`。 |
+| **Stage 8** | `v2.4.0` ~ `v2.4.2` | 2026-10-25 ~ 2026-10-27 | 家庭 NAS（`qnap-media`）等私有流媒体源接入时，裸容器（MKV/MP4）与 `.m3u8` 直链缺乏元数据/字幕提取且视频播放与音频守护分裂；YouTube `tv_samsung` 广告门控引发 403 | 确立“源（`qnap-media`）与器（`jue`）正交解耦”；`play`/`queue add` 新增 `--video` 基于 mpv 条目级 `vid=auto` 在同一守护进程内按需开关原生视频窗口，对 `.m3u8` 与回环流注入 `ytdl=no` 跳过冗余 `yt-dlp` 解析，且 `control stop` 同步等待对端 IPC 断开消除退出竞态；`inspect` 新增 mpv 裸容器与 `.m3u8` 探测（`duration`/`chapters`/`tracks`）；`transcript` 新增直链/同目录外挂 `.srt/.vtt/.ass/.ssa/.lrc` 与内封文本字幕轨（`sub-text` 观察器）提取；`frame` 新增本地回环流与 `.m3u8` 直通 `--no-ytdl` 快路；`mpvArgs` 与 `frame` 冷启动注入 `--ytdl-raw-options=extractor-args=youtube:player_client=-tv_samsung` 旁路 TV 广告门控 403 | **源只供流，器管感知与播放**：不造第二个播放器进程；条目级 `vid=auto` 让单实例守护在无头声卡与桌面影院间无态切换；既有 `mpv` 原语足以解包裸容器元数据与内封字幕，无需破戒引入 `ffprobe`。 |
 
 ---
 
 ## 版本更新日志 (SemVer Releases)
+
+## [2.4.2] - 2026-10-27
+
+**`control stop` 同步挂断等待、`.m3u8`/回环流 `ytdl=no` 快路径与原生 `.ass`/`.ssa` 外挂/直链字幕解析。**
+
+- **`jue control stop` 消除异步退出竞态（`internal/engine/ipc.go`, `internal/engine/daemon.go`）**：新增 `IPCClient.WaitClosed(timeout)`；`Control("stop")` 在收到 `mpv` 对 `"quit"` 的 `success` 回执后等待对端关闭 IPC Socket（上限 500ms）再返回，确保紧随其后的 `jue status` 或新一次 `jue play` 确定性观测到 `idle` 状态，杜绝在 `loading` 阶段停止时连上垂死 `mpv.sock`。
+- **`.m3u8` 直链与本地回环流跳过冗余 `yt-dlp` 套娃（`internal/engine/daemon.go`, `internal/engine/ingest.go`, `internal/engine/frame.go`）**：
+  - `loadfileOpts` 对 `.m3u8` 直链（`isDirectHLS`）与本地回环流（`isLoopbackHTTP`）自动附加条目级 `ytdl=no`，免除 `mpv` 在 1,900+ 分片 HLS 流上先跑一遍 `ytdl_hook` 导致的 >10s 起播卡顿（实测起播降至 ~1.2s）；
+  - `Inspect` 与 `Frame` 将 `isDirectHLS` 纳入 `--no-ytdl` 直通快路，`jue inspect <m3u8>` 直接返回完整 `duration` 与音视频 `tracks`（`h264`/`aac`）。
+- **原生 `.ass` / `.ssa` 字幕解析（`internal/engine/ingest.go`）**：新增纯标准库 `parseASS`（支持自适应 `[Events] Format:` 列序、剥离 `{...}` 样式标签与 `\p1..\p0` 矢量绘图块、折叠 `\N`/`\n`/`\h` 换行并合并同时间戳双语行），并将 `.zh.ass` / `.chs.ass` / `.ja.ass` / `.jpn.ass` / `.en.ass` / `.eng.ass` / `.ass` / `.ssa` 纳入 `sidecarSuffixes` 与 `subExtRe`，使 `jue transcript` 与 `jue play --video` 的外挂字幕能力完全对齐。
+- **单元测试（`internal/engine/daemon_test.go`, `internal/engine/ingest_test.go`）**：新增 `TestControlStopWaitsForPeerHangup`、`TestDirectHLSAndLoopbackBypassYtdlHook` 及 `TestMpvInspectAndContainerTranscript` 中的 `.ass` 外挂/直链双语与绘图块过滤断言。
 
 ## [2.4.1] - 2026-10-27
 

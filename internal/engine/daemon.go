@@ -273,17 +273,22 @@ type PlayResponse struct {
 	Video  bool    `json:"video,omitempty"`
 }
 
-func loadfileOpts(start float64, video bool) string {
-	switch {
-	case start > 0 && video:
-		return fmt.Sprintf("start=%g,vid=auto", start)
-	case start > 0:
-		return fmt.Sprintf("start=%g", start)
-	case video:
-		return "vid=auto"
-	default:
-		return ""
+func isDirectHLS(u string) bool {
+	return isHTTP(u) && strings.HasSuffix(urlPath(u), ".m3u8")
+}
+
+func loadfileOpts(u string, start float64, video bool) string {
+	var parts []string
+	if start > 0 {
+		parts = append(parts, fmt.Sprintf("start=%g", start))
 	}
+	if video {
+		parts = append(parts, "vid=auto")
+	}
+	if isDirectHLS(u) || isLoopbackHTTP(u) {
+		parts = append(parts, "ytdl=no")
+	}
+	return strings.Join(parts, ",")
 }
 
 // Play replaces whatever is playing (the whole queue) with u and returns once mpv has loaded
@@ -297,7 +302,7 @@ func Play(u string, start float64, video ...bool) (*PlayResponse, error) {
 	}
 	c, id, err := flockAction(dir, func(c *IPCClient) (int64, error) {
 		args := []any{u, "replace", -1}
-		if opts := loadfileOpts(start, wantVideo); opts != "" {
+		if opts := loadfileOpts(u, start, wantVideo); opts != "" {
 			args = append(args, opts)
 		}
 		id, err := loadfile(c, args...)
@@ -377,8 +382,8 @@ func QueueAdd(u string, video ...bool) (*QueueAddResponse, error) {
 	}
 	r := &QueueAddResponse{Status: "ok", Action: "add", URL: u, Video: wantVideo}
 	appendArgs := []any{u, "append-play"}
-	if wantVideo {
-		appendArgs = append(appendArgs, -1, "vid=auto")
+	if opts := loadfileOpts(u, 0, wantVideo); opts != "" {
+		appendArgs = append(appendArgs, -1, opts)
 	}
 	c, id, err := flockAction(dir, func(c *IPCClient) (int64, error) {
 		pos := -1
@@ -631,6 +636,8 @@ func Control(action string, value float64, seekMode string) (*ControlResponse, e
 		return nil, fail(4, "unavailable", "start of playlist")
 	case r.Error != "success":
 		return nil, fail(4, "error", "mpv: %s", r.Error)
+	case action == "stop":
+		c.WaitClosed(500 * time.Millisecond)
 	case action == "next" || action == "prev":
 		if err := unpause(c); err != nil {
 			return nil, err

@@ -261,9 +261,10 @@ func Inspect(u string) (*InspectResponse, error) {
 	if err != nil {
 		return nil, err
 	}
-	// A local media file or loopback HTTP media container is probed directly via mpv:
-	// yt-dlp's generic extractor either refuses local paths or returns zero duration/chapters.
-	if isLocalMediaFile(bare) || (isLoopbackHTTP(bare) && mediaExtRe.MatchString(urlPath(bare))) {
+	// A local media file, loopback HTTP media container, or direct HLS .m3u8 stream is probed
+	// directly via mpv: yt-dlp's generic extractor either refuses local paths, omits tracks, or
+	// redundantly walks every HLS segment before returning.
+	if isLocalMediaFile(bare) || (isLoopbackHTTP(bare) && mediaExtRe.MatchString(urlPath(bare))) || isDirectHLS(bare) {
 		r, err := mpvInspect(bare)
 		if err != nil {
 			return nil, err
@@ -1135,7 +1136,8 @@ func id3Text(b []byte) string {
 
 var (
 	mediaExtRe = regexp.MustCompile(`\.(mp4|mkv|mov|webm|avi|rmvb|flv|ts|m4v|mp3|flac|m4a|aac|ape|dsf|dff|wav|ogg|opus)$`)
-	subExtRe   = regexp.MustCompile(`\.(vtt|srt|lrc)$`)
+	subExtRe   = regexp.MustCompile(`\.(vtt|srt|ass|ssa|lrc)$`)
+	assDrawRe  = regexp.MustCompile(`\\p[1-9]`)
 )
 
 func isLocalRegularFile(p string) bool {
@@ -1298,11 +1300,112 @@ func parseSubBytes(ext string, body []byte) ([]Cue, error) {
 		return parseVTT(body)
 	case ".srt":
 		return parseSRT(body)
+	case ".ass", ".ssa":
+		return parseASS(body)
 	case ".lrc":
 		return parseLRC(string(body)), nil
 	default:
 		return nil, fail(1, "error", "unsupported subtitle extension %q", ext)
 	}
+}
+
+// parseASS reads an ASS/SSA subtitle file into cues, honoring [Events] Format: field order,
+// stripping {...} override tags and vector drawing blocks (\p1..\p0), and folding \N/\n/\h.
+func parseASS(body []byte) ([]Cue, error) {
+	body = bytes.TrimPrefix(body, []byte("\uFEFF"))
+	lines := strings.Split(strings.ReplaceAll(string(body), "\r\n", "\n"), "\n")
+	startIdx, endIdx, textIdx, nFields := 1, 2, 9, 10
+	timed := false
+	var rawCues []Cue
+	for _, rawLine := range lines {
+		line := strings.TrimSpace(strings.TrimSuffix(rawLine, "\r"))
+		if line == "" || strings.HasPrefix(line, ";") {
+			continue
+		}
+		lower := strings.ToLower(line)
+		if strings.HasPrefix(lower, "format:") {
+			cols := strings.Split(line[len("format:"):], ",")
+			sI, eI, tI := -1, -1, -1
+			for i, col := range cols {
+				switch strings.ToLower(strings.TrimSpace(col)) {
+				case "start":
+					sI = i
+				case "end":
+					eI = i
+				case "text":
+					tI = i
+				}
+			}
+			if sI >= 0 && eI >= 0 && tI >= 0 {
+				startIdx, endIdx, textIdx, nFields = sI, eI, tI, len(cols)
+			}
+			continue
+		}
+		if !strings.HasPrefix(lower, "dialogue:") {
+			continue
+		}
+		parts := strings.SplitN(strings.TrimSpace(line[len("dialogue:"):]), ",", nFields)
+		if len(parts) < nFields || startIdx >= len(parts) || endIdx >= len(parts) || textIdx >= len(parts) {
+			continue
+		}
+		s, ok1 := parseStamp(parts[startIdx])
+		e, ok2 := parseStamp(parts[endIdx])
+		if !ok1 || !ok2 {
+			continue
+		}
+		timed = true
+		if text := cleanASSText(parts[textIdx]); text != "" {
+			rawCues = append(rawCues, Cue{Start: s, End: max(s, e), Text: text})
+		}
+	}
+	if !timed && strings.TrimSpace(string(body)) != "" &&
+		!strings.Contains(strings.ToLower(string(body)), "[script info]") &&
+		!strings.Contains(strings.ToLower(string(body)), "[events]") {
+		return nil, fail(2, "error", "no cue timings in subtitle file")
+	}
+	sort.SliceStable(rawCues, func(i, j int) bool { return rawCues[i].Start < rawCues[j].Start })
+	var cues []Cue
+	for _, c := range rawCues {
+		if n := len(cues); n > 0 && cues[n-1].Start == c.Start && cues[n-1].End == c.End {
+			if cues[n-1].Text != c.Text && !strings.Contains(cues[n-1].Text, c.Text) {
+				cues[n-1].Text += " " + c.Text
+			}
+			continue
+		}
+		cues = appendCue(cues, c)
+	}
+	return cues, nil
+}
+
+func cleanASSText(s string) string {
+	var b strings.Builder
+	drawing := false
+	for len(s) > 0 {
+		i := strings.IndexByte(s, '{')
+		if i < 0 {
+			if !drawing {
+				b.WriteString(s)
+			}
+			break
+		}
+		if !drawing && i > 0 {
+			b.WriteString(s[:i])
+		}
+		j := strings.IndexByte(s[i:], '}')
+		if j < 0 {
+			break
+		}
+		tag := s[i+1 : i+j]
+		if assDrawRe.MatchString(tag) {
+			drawing = true
+		}
+		if strings.Contains(tag, `\p0`) {
+			drawing = false
+		}
+		s = s[i+j+1:]
+	}
+	res := strings.NewReplacer(`\N`, " ", `\n`, " ", `\h`, " ").Replace(b.String())
+	return cleanText(html.UnescapeString(stripTags(res)))
 }
 
 func directSubTranscript(u string) (*TranscriptResponse, error) {
@@ -1351,14 +1454,22 @@ var sidecarSuffixes = []struct {
 	{".zh.vtt", ".vtt", "zh"},
 	{".zh.srt", ".srt", "zh"},
 	{".chs.srt", ".srt", "zh"},
+	{".zh.ass", ".ass", "zh"},
+	{".chs.ass", ".ass", "zh"},
 	{".ja.vtt", ".vtt", "ja"},
 	{".ja.srt", ".srt", "ja"},
 	{".jpn.srt", ".srt", "ja"},
+	{".ja.ass", ".ass", "ja"},
+	{".jpn.ass", ".ass", "ja"},
 	{".en.vtt", ".vtt", "en"},
 	{".en.srt", ".srt", "en"},
 	{".eng.srt", ".srt", "en"},
+	{".en.ass", ".ass", "en"},
+	{".eng.ass", ".ass", "en"},
 	{".vtt", ".vtt", ""},
 	{".srt", ".srt", ""},
+	{".ass", ".ass", ""},
+	{".ssa", ".ssa", ""},
 	{".lrc", ".lrc", ""},
 }
 

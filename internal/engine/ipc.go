@@ -38,6 +38,20 @@ func newIPCClient(c net.Conn) *IPCClient {
 
 func (c *IPCClient) Close() error { return c.conn.Close() }
 
+// WaitClosed drains the connection until the peer hangs up or timeout expires,
+// ensuring mpv has actually torn down its IPC listener after a quit command.
+func (c *IPCClient) WaitClosed(timeout time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.conn.SetReadDeadline(time.Now().Add(timeout))
+	defer c.conn.SetReadDeadline(time.Time{})
+	for {
+		if _, err := c.reader.ReadBytes('\n'); err != nil {
+			return
+		}
+	}
+}
+
 // ClearEvents drops any asynchronous events buffered so far.
 func (c *IPCClient) ClearEvents() {
 	c.mu.Lock()

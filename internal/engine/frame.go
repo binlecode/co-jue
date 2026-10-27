@@ -431,7 +431,7 @@ func Frame(rawURL string, at float64, width int, quality int) (*FrameResult, err
 		return nil, sErr
 	}
 
-	coldArgs := buildArgs(coldScratch, targetURL, isLoopbackHTTP(targetURL), nil, "")
+	coldArgs := buildArgs(coldScratch, targetURL, isLoopbackHTTP(targetURL) || isDirectHLS(targetURL), nil, "")
 	outStr, waitErr, coldDead, timedOut, launchErr := executeOneShotMPV(sigCtx, coldDeadline, coldArgs, coldScratch)
 	if launchErr != nil {
 		if coldDead {

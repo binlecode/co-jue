@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // isolate points os.TempDir at a fresh directory and returns where runtimeDir will look.
@@ -181,6 +182,9 @@ func startFakeMPV(t testing.TB, reply func(cmd []any, id int64) []string) *fakeM
 					}
 					for _, l := range lines {
 						conn.Write([]byte(l + "\n"))
+					}
+					if len(req.Command) > 0 && req.Command[0] == "quit" {
+						return
 					}
 				}
 			}()
@@ -662,4 +666,80 @@ func TestPlayAndQueueAddVideoFlag(t *testing.T) {
 		t.Errorf("Status JSON = %s, want video:true", b)
 	}
 }
+
+func TestDirectHLSAndLoopbackBypassYtdlHook(t *testing.T) {
+	fakeYtdlp(t)
+	f := startFakeMPV(t, queueMPV())
+	if _, err := Play("https://cdn.example.com/live/index.m3u8", 0); err != nil {
+		t.Fatalf("Play(m3u8) = %v", err)
+	}
+	if got := f.sent(); len(got) == 0 || got[0] != `["loadfile","https://cdn.example.com/live/index.m3u8","replace",-1,"ytdl=no"]` {
+		t.Errorf("sent %v, want ytdl=no on direct m3u8", got)
+	}
+
+	f2 := startFakeMPV(t, queueMPV())
+	if _, err := QueueAdd("http://127.0.0.1:8999/external/movie.mp4", true); err != nil {
+		t.Fatalf("QueueAdd(loopback --video) = %v", err)
+	}
+	want := []string{`["playlist-clear"]`, `["loadfile","http://127.0.0.1:8999/external/movie.mp4","append-play",-1,"vid=auto,ytdl=no"]`, `["set_property","pause",false]`}
+	if got := f2.sent(); !reflect.DeepEqual(got, want) {
+		t.Errorf("sent %v, want %v", got, want)
+	}
+}
+
+func TestControlStopWaitsForPeerHangup(t *testing.T) {
+	base, err := os.MkdirTemp("/tmp", "jue-t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(base) })
+	t.Setenv("TMPDIR", base)
+	dir, err := runtimeDir(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln, err := net.Listen("unix", filepath.Join(dir, "mpv.sock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+
+	var closed bool
+	var mu sync.Mutex
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		line, err := bufio.NewReader(conn).ReadBytes('\n')
+		if err != nil {
+			return
+		}
+		var req struct {
+			RequestID int64 `json:"request_id"`
+		}
+		json.Unmarshal(line, &req)
+		conn.Write([]byte(answer(req.RequestID, nil) + "\n"))
+		time.Sleep(40 * time.Millisecond)
+		mu.Lock()
+		closed = true
+		mu.Unlock()
+		ln.Close()
+	}()
+
+	if r, err := Control("stop", 0, ""); err != nil || r.Action != "stop" {
+		t.Fatalf("Control(stop) = %+v, %v", r, err)
+	}
+	mu.Lock()
+	wasClosed := closed
+	mu.Unlock()
+	if !wasClosed {
+		t.Error("Control(stop) returned before peer closed connection")
+	}
+	if st, err := Status(); err != nil || st.State != "idle" {
+		t.Errorf("Status after stop = %+v, %v; want idle", st, err)
+	}
+}
+
 

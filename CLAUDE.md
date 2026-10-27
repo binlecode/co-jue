@@ -31,11 +31,11 @@ This file provides guidance to Claude Code (claude.ai/code) and all coding agent
 
 ## 项目性质
 
-**co-jue**（CLI 二进制命令为 `jue`）—— `co` 生态面向 AI Agent（Claude Code、OpenCode、co-cli、co-s2s）的端侧视听感知与播放微外设（Go 静态单二进制，收容于 `~/workspace_genai/co-jue/`）。版本严格遵循 SemVer 语义化规范（声明于根目录 `VERSION`，如 `2.4.1`；演进全表与更新日志见 `CHANGELOG.md`）。
+**co-jue**（CLI 二进制命令为 `jue`）—— `co` 生态面向 AI Agent（Claude Code、OpenCode、co-cli、co-s2s）的端侧视听感知与播放微外设（Go 静态单二进制，收容于 `~/workspace_genai/co-jue/`）。版本严格遵循 SemVer 语义化规范（声明于根目录 `VERSION`，如 `2.4.2`；演进全表与更新日志见 `CHANGELOG.md`）。
 
 - **感知平面 (Ingest)**：
-  - `jue inspect <url>`：极简提取章节时间轴（Chapters）与元数据，Token 开销 < 100 Tokens；对本地媒体文件或本地回环 HTTP 流（如 `qnap-media`）通过瞬态无头 mpv 提取真实 `duration`、容器 `chapters` 与音视频/字幕轨道 `tracks`；
-  - `jue transcript <url> [--range START-END]`：提取声称级逐字原话证据（防机翻污染、带相交判定裁剪、超出 300 条自动截断；支持直链/同目录外挂 `.srt/.vtt/.lrc` 及本地/回环容器内封文本字幕轨），无字幕如实返回 `unavailable`（退出码 4）；
+  - `jue inspect <url>`：极简提取章节时间轴（Chapters）与元数据，Token 开销 < 100 Tokens；对本地媒体文件、本地回环 HTTP 流（如 `qnap-media`）或 `.m3u8` 直链通过瞬态无头 mpv 提取真实 `duration`、容器 `chapters` 与音视频/字幕轨道 `tracks`；
+  - `jue transcript <url> [--range START-END]`：提取声称级逐字原话证据（防机翻污染、带相交判定裁剪、超出 300 条自动截断；支持直链/同目录外挂 `.srt/.vtt/.ass/.ssa/.lrc` 及本地/回环容器内封文本字幕轨），无字幕如实返回 `unavailable`（退出码 4）；
   - `jue events [--until <EVENT>] [--timeout SEC]`：毫秒级事件感知面（曲目放毕、AirPods 触控、章节切换、`--until queue_ended` 整个队列放毕、`audio_device_changed` 音频输出拓扑变化），彻底根除轮询 Token 开销；
   - 显式检索前缀：`inspect` / `transcript` / `play` / `queue add` 均接受 `ytsearch1:<关键词>`（白名单仅 `ytsearch1:` 与 `ytsearch:`，其余检索前缀退出码 1），复用 yt-dlp 原生检索，零自研爬虫。
 - **执行平面 (Daemon)**：

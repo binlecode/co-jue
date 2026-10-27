@@ -749,6 +749,27 @@ echo 'JUE_TRACKS:[{"id":1,"type":"video","codec":"h264"},{"id":1,"type":"audio",
 	if isLoopbackHTTP("http://127.0.0.1:80@evil.com/a.mkv") || isLoopbackHTTP("https://127.0.0.1:8999/a.mkv") || isLoopbackHTTP("http://example.com/a.mkv") {
 		t.Error("expected spoofed/non-http/remote URLs to be rejected by isLoopbackHTTP")
 	}
+
+	// 7. Sidecar .ass and direct .ass target work with ASS tag/drawing stripping and bilingual merging.
+	assBody := "[Script Info]\nTitle: Test\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n" +
+		"Dialogue: 0,0:00:01.50,0:00:03.20,Default,,0,0,0,,{\\an8\\fs16}第一行\\N{\\c&HFFFFFF&}Second line, with comma\n" +
+		"Dialogue: 0,0:00:04.00,0:00:06.00,Default,,0,0,0,,{\\p1}m 0 0 l 100 0 100 100{\\p0}\n" +
+		"Dialogue: 0,0:00:07.00,0:00:09.00,Default,,0,0,0,,双语上半句\n" +
+		"Dialogue: 0,0:00:07.00,0:00:09.00,Eng,,0,0,0,,Bilingual lower half\n"
+	assSidecar := filepath.Join(tmp, "movie.zh.ass")
+	os.WriteFile(assSidecar, []byte(assBody), 0600)
+	trASS, err := Transcript(movie, 0, 10, true)
+	wantASS := []Cue{
+		{Start: 1.5, End: 3.2, Text: "第一行 Second line, with comma"},
+		{Start: 7, End: 9, Text: "双语上半句 Bilingual lower half"},
+	}
+	if err != nil || trASS.Language != "zh" || !reflect.DeepEqual(trASS.Segments, wantASS) {
+		t.Errorf("Transcript(.zh.ass sidecar) = %+v, %v; want %+v", trASS, err, wantASS)
+	}
+	trASSDirect, err := Transcript(assSidecar, 0, 10, true)
+	if err != nil || !reflect.DeepEqual(trASSDirect.Segments, wantASS) {
+		t.Errorf("Transcript(direct .ass) = %+v, %v; want %+v", trASSDirect, err, wantASS)
+	}
 }
 
 
