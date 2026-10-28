@@ -49,6 +49,11 @@ func TestDuckHelperEmbedsMarker(t *testing.T) {
 	if !strings.Contains(s, `mp.set_property("`+duckMarker+`", PROTOCOL)`) || !strings.Contains(s, `PROTOCOL = "`+duckProtocol+`"`) {
 		t.Errorf("embedded helper does not set %s to %q", duckMarker, duckProtocol)
 	}
+	for _, want := range []string{`"/usr/bin/pmset"`, `"power-sample"`, `"idle-active"`, `mp.command("quit")`} {
+		if !strings.Contains(s, want) {
+			t.Errorf("embedded helper missing battery/idle guard token %s", want)
+		}
+	}
 }
 
 // duckMPV is a playing player whose helper reports marker (nil: absent) and answers

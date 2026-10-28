@@ -1167,8 +1167,14 @@ block_n() {
     check "N25 the link is replaced, its target untouched, the helper a 0600 file" \
         test "$(cat "$TMPDIR/bait")" = bait -a -f "$helper" -a ! -L "$helper" -a "$(stat -f %Lp "$helper")" = 600
 
-    "$BIN" control stop >/dev/null
-    check "N26 zero residual player in block n" poll 3 no_mpv
+    # N26 Starting on Battery keeps playing; AC -> Battery unplug transition quits mpv immediately.
+    mpv_ipc cmd '["script-message-to","jue_duck","power-sample","reset"]' >/dev/null
+    mpv_ipc cmd '["script-message-to","jue_duck","power-sample","Now drawing from '\''Battery Power'\''"]' >/dev/null
+    v status
+    expect "N26 initial Battery Power does not stop playback" 0 '.state=="playing"'
+    mpv_ipc cmd '["script-message-to","jue_duck","power-sample","Now drawing from '\''AC Power'\''"]' >/dev/null
+    mpv_ipc cmd '["script-message-to","jue_duck","power-sample","Now drawing from '\''Battery Power'\''"]' >/dev/null
+    check "N26 AC -> Battery transition auto-quits mpv and leaves zero residual player" poll 3 no_mpv
 }
 
 # ---- NW: the duck watchdog ----------------------------------------------------------------

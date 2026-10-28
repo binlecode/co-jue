@@ -62,4 +62,63 @@ mp.register_script_message("unduck", function(back)
     glide(1, back)
 end)
 
+-- Battery unplug guard & idle reaper:
+-- 1) If mpv was running on AC Power and the Mac switches to Battery Power, quit immediately
+--    so background playback never drains the battery after unplugging. Starting play while
+--    already on Battery Power sets on_ac = false and is left alone.
+-- 2) If mpv stays idle (idle-active == true) for IDLE_MAX seconds, quit so the daemon never
+--    lingers indefinitely after a queue finishes.
+local IDLE_MAX, POWER_POLL = 600, 10
+local on_ac, power_inflight, power_timer, idle_timer = nil, false, nil, nil
+
+local function on_power_sample(out)
+    if type(out) ~= "string" then return end
+    if out == "reset" then
+        on_ac = nil
+    elseif out:find("'AC Power'", 1, true) then
+        on_ac = true
+    elseif out:find("'Battery Power'", 1, true) then
+        if on_ac then
+            mp.msg.info("jue_duck: unplugged from AC power; quitting mpv")
+            mp.command("quit")
+        elseif on_ac == nil then
+            on_ac = false
+        end
+    end
+end
+
+local function poll_power()
+    if power_inflight then return end
+    power_inflight = true
+    mp.command_native_async({
+        name = "subprocess",
+        args = {"/usr/bin/pmset", "-g", "batt"},
+        playback_only = false,
+        capture_stdout = true,
+        capture_stderr = true,
+    }, function(ok, res)
+        power_inflight = false
+        if ok and res and res.status == 0 then
+            on_power_sample(res.stdout)
+        elseif power_timer then
+            power_timer:kill()
+        end
+    end)
+end
+
+mp.register_script_message("power-sample", on_power_sample)
+poll_power()
+power_timer = mp.add_periodic_timer(POWER_POLL, poll_power)
+
+mp.observe_property("idle-active", "bool", function(_, idle)
+    if idle_timer then idle_timer:kill(); idle_timer = nil end
+    if idle then
+        idle_timer = mp.add_timeout(IDLE_MAX, function()
+            idle_timer = nil
+            mp.msg.info("jue_duck: idle timeout reached; quitting mpv")
+            mp.command("quit")
+        end)
+    end
+end)
+
 mp.set_property("user-data/jue/duck-helper", PROTOCOL)   -- last: every handler above is in place
