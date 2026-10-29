@@ -117,95 +117,24 @@ func TestStreamCachePutGetExpire(t *testing.T) {
 }
 
 func TestParseStreamURLPositiveEvidence(t *testing.T) {
-	// Case 1: Valid single mp4 stream with valid duration, clean Referer and UserAgent
-	validOut := `DURATION:120.500000
-FILE_FORMAT:mov,mp4,m4a,3gp,3g2,mj2
-STREAM_URL:https://rr1.googlevideo.com/videoplayback?id=123
-HTTP_HEADERS:Referer: https://youtube.com/
-USER_AGENT:Custom-Client/2.0
-LAVF_OPTS:
-`
+	validOut := "DURATION:120.500000\nFILE_FORMAT:mov,mp4,m4a,3gp,3g2,mj2\nSTREAM_URL:https://rr1.googlevideo.com/videoplayback?id=123\nHTTP_HEADERS:Referer: https://youtube.com/\nUSER_AGENT:Custom-Client/2.0\nLAVF_OPTS:\n"
 	dURL, headers, ua, ok := parseStreamURLFromOutput(validOut)
-	if !ok || dURL != "https://rr1.googlevideo.com/videoplayback?id=123" {
-		t.Errorf("expected valid stream parse, got ok=%v, url=%q", ok, dURL)
-	}
-	if headers["Referer"] != "https://youtube.com/" {
-		t.Errorf("expected Referer header parsed, got %v", headers)
-	}
-	if ua != "Custom-Client/2.0" {
-		t.Errorf("expected User-Agent parsed, got %q", ua)
+	if !ok || dURL != "https://rr1.googlevideo.com/videoplayback?id=123" || headers["Referer"] != "https://youtube.com/" || ua != "Custom-Client/2.0" {
+		t.Errorf("valid stream parse = (%v, %q, %v, %q)", ok, dURL, headers, ua)
 	}
 
-	// Case 2: EDL format rejected
-	edlOut := `DURATION:120.500000
-FILE_FORMAT:mov,mp4,m4a,3gp,3g2,mj2
-STREAM_URL:edl://https://cdn.example.com/part1;https://cdn.example.com/part2
-HTTP_HEADERS:
-USER_AGENT:
-LAVF_OPTS:
-`
-	if _, _, _, ok := parseStreamURLFromOutput(edlOut); ok {
-		t.Error("expected EDL stream to be rejected")
+	rejected := map[string]string{
+		"EDL stream":                "DURATION:120.5\nFILE_FORMAT:mov,mp4\nSTREAM_URL:edl://https://cdn.example.com/a;b\nHTTP_HEADERS:\nUSER_AGENT:\nLAVF_OPTS:\n",
+		"HLS manifest":              "DURATION:120.5\nFILE_FORMAT:hls,applehttp\nSTREAM_URL:https://cdn.example.com/p.m3u8\nHTTP_HEADERS:\nUSER_AGENT:\nLAVF_OPTS:\n",
+		"cookie lavf opt":           "DURATION:120.5\nFILE_FORMAT:matroska,webm\nSTREAM_URL:https://cdn.example.com/v.webm\nHTTP_HEADERS:\nUSER_AGENT:\nLAVF_OPTS:cookies=auth_token=abcdef\n",
+		"comma-separated headers":   "DURATION:120.5\nFILE_FORMAT:mov,mp4\nSTREAM_URL:https://cdn.example.com/v.mp4\nHTTP_HEADERS:X-1: a,X-2: b\nUSER_AGENT:\nLAVF_OPTS:\n",
+		"Cookie in lavf headers":    "DURATION:120.5\nFILE_FORMAT:mov,mp4\nSTREAM_URL:https://cdn.example.com/v.mp4\nHTTP_HEADERS:\nUSER_AGENT:\nLAVF_OPTS:headers=Cookie: session=xyz\n",
+		"non-empty lavf http_proxy": "DURATION:120.5\nFILE_FORMAT:mov,mp4\nSTREAM_URL:https://cdn.example.com/v.mp4\nHTTP_HEADERS:\nUSER_AGENT:\nLAVF_OPTS:http_proxy=http://127.0.0.1:3128\n",
 	}
-
-	// Case 3: HLS/DASH manifest format rejected
-	hlsOut := `DURATION:120.500000
-FILE_FORMAT:hls,applehttp
-STREAM_URL:https://cdn.example.com/playlist.m3u8
-HTTP_HEADERS:
-USER_AGENT:
-LAVF_OPTS:
-`
-	if _, _, _, ok := parseStreamURLFromOutput(hlsOut); ok {
-		t.Error("expected HLS format to be rejected")
-	}
-
-	// Case 4: Dynamic cookie injection rejected
-	cookieOut := `DURATION:120.500000
-FILE_FORMAT:matroska,webm
-STREAM_URL:https://cdn.example.com/video.webm
-HTTP_HEADERS:
-USER_AGENT:
-LAVF_OPTS:cookies=auth_token=abcdef
-`
-	if _, _, _, ok := parseStreamURLFromOutput(cookieOut); ok {
-		t.Error("expected cookie binding to be rejected")
-	}
-
-	// Case 5: Ambiguous comma-separated headers rejected
-	ambiguousHeaderOut := `DURATION:120.500000
-FILE_FORMAT:mov,mp4,m4a,3gp,3g2,mj2
-STREAM_URL:https://cdn.example.com/video.mp4
-HTTP_HEADERS:X-Header-1: val1,X-Header-2: val2
-USER_AGENT:
-LAVF_OPTS:
-`
-	if _, _, _, ok := parseStreamURLFromOutput(ambiguousHeaderOut); ok {
-		t.Error("expected ambiguous comma-separated headers to be rejected")
-	}
-
-	// Case 6: Headers containing cookie injected via stream-lavf-o rejected
-	headerCookieOut := `DURATION:120.500000
-FILE_FORMAT:mov,mp4,m4a,3gp,3g2,mj2
-STREAM_URL:https://cdn.example.com/video.mp4
-HTTP_HEADERS:
-USER_AGENT:
-LAVF_OPTS:headers=Cookie: session=xyz
-`
-	if _, _, _, ok := parseStreamURLFromOutput(headerCookieOut); ok {
-		t.Error("expected headers=Cookie: lavf opts to be rejected")
-	}
-
-	// Case 7: Any non-empty lavf opts (e.g. http_proxy) rejected to prevent lost options
-	proxyOut := `DURATION:120.500000
-FILE_FORMAT:mov,mp4,m4a,3gp,3g2,mj2
-STREAM_URL:https://cdn.example.com/video.mp4
-HTTP_HEADERS:
-USER_AGENT:
-LAVF_OPTS:http_proxy=http://127.0.0.1:3128
-`
-	if _, _, _, ok := parseStreamURLFromOutput(proxyOut); ok {
-		t.Error("expected non-empty lavf opts (http_proxy) to be rejected")
+	for name, out := range rejected {
+		if _, _, _, ok := parseStreamURLFromOutput(out); ok {
+			t.Errorf("%s: expected rejection", name)
+		}
 	}
 }
 

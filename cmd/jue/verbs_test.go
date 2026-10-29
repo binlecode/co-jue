@@ -3,11 +3,26 @@ package main
 import (
 	"errors"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/binlecode/co-jue/internal/engine"
 )
+
+var semverRegex = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$`)
+
+func TestSemverParity(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "VERSION"))
+	if err != nil {
+		t.Fatalf("read VERSION: %v", err)
+	}
+	want := strings.TrimSpace(string(data))
+	if version != want || !semverRegex.MatchString(version) {
+		t.Errorf("version = %q, want SemVer matching VERSION (%q)", version, want)
+	}
+}
 
 func TestParseDuck(t *testing.T) {
 	ok := []struct {

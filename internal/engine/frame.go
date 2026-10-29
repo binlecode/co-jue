@@ -173,7 +173,7 @@ func executeOneShotMPV(parentCtx context.Context, deadline time.Time, args []str
 		return "", nil, true, false, fail(2, "error", "failed to start mpv: %v", err)
 	}
 	pgid = cmd.Process.Pid
-	stdout.pgid.Store(int64(pgid))
+	stdout.setPgid(pgid)
 	if err := writePgidFile(filepath.Join(scratch, "pgid"), []byte(strconv.Itoa(pgid)), 0600); err != nil {
 		_ = syscall.Kill(-pgid, syscall.SIGKILL)
 		_ = cmd.Wait()
@@ -524,6 +524,15 @@ type firstEntryGuard struct {
 	buf  bytes.Buffer
 	seen int
 	pgid atomic.Int64
+}
+
+func (g *firstEntryGuard) setPgid(pgid int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.pgid.Store(int64(pgid))
+	if pgid > 0 && g.seen > 1 {
+		_ = syscall.Kill(-pgid, syscall.SIGKILL)
+	}
 }
 
 func (g *firstEntryGuard) Write(p []byte) (int, error) {

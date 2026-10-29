@@ -156,7 +156,7 @@ func TestWaitForPlaybackSuccess(t *testing.T) {
 				c.eventQueue = append(c.eventQueue, m)
 			}
 			send(peer, tc.wire...)
-			err := c.WaitForPlaybackSuccess(2, 300*time.Millisecond)
+			err := c.WaitForPlaybackSuccess(2, 30*time.Millisecond)
 			switch {
 			case tc.wantErr == "" && err != nil:
 				t.Errorf("err = %v, want success", err)
@@ -209,7 +209,7 @@ func TestWaitForPlaybackSuccessAnyEntry(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			c, peer, _ := pipeClient(t)
 			send(peer, tc.wire...)
-			err := c.WaitForPlaybackSuccess(-1, 300*time.Millisecond)
+			err := c.WaitForPlaybackSuccess(-1, 30*time.Millisecond)
 			if (tc.wantErr == "") != (err == nil) || (err != nil && !strings.HasPrefix(err.Error(), tc.wantErr)) {
 				t.Errorf("err = %v, want %q", err, tc.wantErr)
 			}

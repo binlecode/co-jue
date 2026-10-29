@@ -18,266 +18,102 @@ import (
 )
 
 func TestFrameParamValidation(t *testing.T) {
-	// 1. Invalid 'at' values: negative, NaN, Inf, >= 1e8
-	invalidAt := []float64{
-		-1.0,
-		-0.001,
-		math.NaN(),
-		math.Inf(1),
-		math.Inf(-1),
-		1e8,
-		1e8 + 1,
-		1e9,
+	for _, at := range []float64{-1, -0.001, math.NaN(), math.Inf(1), math.Inf(-1), 1e8, 1e9} {
+		wantFail(t, func() error { _, err := Frame("https://example.com/v.mp4", at, 960, 80); return err }(), 1, "error", "--at")
 	}
-	for _, at := range invalidAt {
-		_, err := Frame("https://example.com/video.mp4", at, 960, 80)
-		var f *Fail
-		if !errors.As(err, &f) || f.Code != 1 {
-			t.Errorf("Frame with at=%v: expected *Fail with Code=1, got %v", at, err)
-		}
+	for _, w := range []int{-1, -100, 3841, 10000} {
+		wantFail(t, func() error { _, err := Frame("https://example.com/v.mp4", 10, w, 80); return err }(), 1, "error", "width")
 	}
-
-	// 2. Invalid 'width' values: < 0 or > 3840
-	invalidWidth := []int{-1, -100, 3841, 4000, 10000}
-	for _, w := range invalidWidth {
-		_, err := Frame("https://example.com/video.mp4", 10.0, w, 80)
-		var f *Fail
-		if !errors.As(err, &f) || f.Code != 1 {
-			t.Errorf("Frame with width=%d: expected *Fail with Code=1, got %v", w, err)
-		}
+	for _, q := range []int{0, -1, 101, 200} {
+		wantFail(t, func() error { _, err := Frame("https://example.com/v.mp4", 10, 960, q); return err }(), 1, "error", "quality")
 	}
-
-	// 3. Invalid 'quality' values: < 1 or > 100
-	invalidQuality := []int{0, -1, -50, 101, 150, 200}
-	for _, q := range invalidQuality {
-		_, err := Frame("https://example.com/video.mp4", 10.0, 960, q)
-		var f *Fail
-		if !errors.As(err, &f) || f.Code != 1 {
-			t.Errorf("Frame with quality=%d: expected *Fail with Code=1, got %v", q, err)
-		}
+	for _, u := range []string{"bilisearch:bad", "gsearch:query", "ytsearch2:query", "customsearch:foo"} {
+		wantFail(t, func() error { _, err := Frame(u, 10, 960, 80); return err }(), 1, "error", "unsupported search prefix")
 	}
 }
 
-func TestFrameSearchPrefix(t *testing.T) {
-	// Unsupported search prefixes must be rejected with Exit 1
-	unsupported := []string{
-		"bilisearch:bad",
-		"gsearch:query",
-		"ytsearch2:query",
-		"customsearch:foo",
+func mkScratch(t *testing.T, root, name, pgid string, age time.Duration) string {
+	t.Helper()
+	d := filepath.Join(root, name)
+	if err := os.Mkdir(d, 0700); err != nil {
+		t.Fatal(err)
 	}
-	for _, u := range unsupported {
-		_, err := Frame(u, 10.0, 960, 80)
-		var f *Fail
-		if !errors.As(err, &f) || f.Code != 1 {
-			t.Errorf("Frame with url=%q: expected *Fail with Code=1, got %v", u, err)
+	if pgid != "" {
+		if err := os.WriteFile(filepath.Join(d, "pgid"), []byte(pgid), 0600); err != nil {
+			t.Fatal(err)
 		}
 	}
+	if age > 0 {
+		ts := time.Now().Add(-age)
+		_ = os.Chtimes(d, ts, ts)
+	}
+	return d
 }
 
 func TestSyncOpportunisticGC(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "jue-test-gc-*")
-	if err != nil {
-		t.Fatal(err)
+	tmp := t.TempDir()
+	dead := 99999999
+	for syscall.Kill(-dead, 0) == nil {
+		dead++
 	}
-	defer os.RemoveAll(tmpDir)
+	deadStr := strconv.Itoa(dead)
 
-	oldTime := time.Now().Add(-2 * time.Hour)
-	recentTime := time.Now()
-
-	// Dead PGID that will definitely yield ESRCH
-	deadPgid := 99999999
-	for syscall.Kill(-deadPgid, 0) == nil {
-		deadPgid++
-	}
-
-	// Case 1: Expired scratch-frame-* dir with dead pgid -> MUST be deleted
-	dirExpiredDead := filepath.Join(tmpDir, "scratch-frame-expired-dead")
-	if err := os.Mkdir(dirExpiredDead, 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dirExpiredDead, "pgid"), []byte(strconv.Itoa(deadPgid)), 0600); err != nil {
-		t.Fatal(err)
-	}
-	_ = os.Chtimes(dirExpiredDead, oldTime, oldTime)
-
-	// Case 2: Recent scratch-frame-* dir with dead pgid -> MUST be retained
-	dirRecent := filepath.Join(tmpDir, "scratch-frame-recent")
-	if err := os.Mkdir(dirRecent, 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dirRecent, "pgid"), []byte(strconv.Itoa(deadPgid)), 0600); err != nil {
-		t.Fatal(err)
-	}
-	_ = os.Chtimes(dirRecent, recentTime, recentTime)
-
-	// Case 3: Expired non-frame dir -> MUST be retained
-	dirOther := filepath.Join(tmpDir, "scratch-other-expired")
-	if err := os.Mkdir(dirOther, 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dirOther, "pgid"), []byte(strconv.Itoa(deadPgid)), 0600); err != nil {
-		t.Fatal(err)
-	}
-	_ = os.Chtimes(dirOther, oldTime, oldTime)
-
-	// Case 4: Expired scratch-frame-* dir with corrupt pgid -> MUST be retained
-	dirCorrupt := filepath.Join(tmpDir, "scratch-frame-corrupt")
-	if err := os.Mkdir(dirCorrupt, 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dirCorrupt, "pgid"), []byte("not-a-number"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	_ = os.Chtimes(dirCorrupt, oldTime, oldTime)
-
-	// Case 5: Expired scratch-frame-* dir with missing pgid -> MUST be retained
-	dirNoPgid := filepath.Join(tmpDir, "scratch-frame-nopgid")
-	if err := os.Mkdir(dirNoPgid, 0700); err != nil {
-		t.Fatal(err)
-	}
-	_ = os.Chtimes(dirNoPgid, oldTime, oldTime)
-
-	// Case 6: Expired scratch-frame-* dir with living process group -> MUST be retained
-	alivePgid := syscall.Getpgrp()
-	dirAlive := filepath.Join(tmpDir, "scratch-frame-alive")
-	if err := os.Mkdir(dirAlive, 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dirAlive, "pgid"), []byte(strconv.Itoa(alivePgid)), 0600); err != nil {
-		t.Fatal(err)
-	}
-	_ = os.Chtimes(dirAlive, oldTime, oldTime)
-
-	// Run GC with 1h TTL
-	syncOpportunisticGC(tmpDir, time.Hour)
-
-	// Assertions
-	if _, err := os.Stat(dirExpiredDead); !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("expected dirExpiredDead to be deleted, got err=%v", err)
-	}
-	if _, err := os.Stat(dirRecent); err != nil {
-		t.Errorf("expected dirRecent to be preserved, got err=%v", err)
-	}
-	if _, err := os.Stat(dirOther); err != nil {
-		t.Errorf("expected dirOther to be preserved, got err=%v", err)
-	}
-	if _, err := os.Stat(dirCorrupt); err != nil {
-		t.Errorf("expected dirCorrupt to be preserved, got err=%v", err)
-	}
-	if _, err := os.Stat(dirNoPgid); err != nil {
-		t.Errorf("expected dirNoPgid to be preserved, got err=%v", err)
-	}
-	if _, err := os.Stat(dirAlive); err != nil {
-		t.Errorf("expected dirAlive to be preserved, got err=%v", err)
-	}
-}
-
-func TestSyncOpportunisticGC30ItemLimit(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldTime := time.Now().Add(-2 * time.Hour)
-	deadPgid := 99999999
-
-	// Create 40 expired eligible scratch directories
-	for i := 0; i < 40; i++ {
-		d := filepath.Join(tmpDir, fmt.Sprintf("scratch-frame-item-%02d", i))
-		if err := os.Mkdir(d, 0700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(d, "pgid"), []byte(strconv.Itoa(deadPgid)), 0600); err != nil {
-			t.Fatal(err)
-		}
-		_ = os.Chtimes(d, oldTime, oldTime)
+	expiredDead := mkScratch(t, tmp, "scratch-frame-expired-dead", deadStr, 2*time.Hour)
+	kept := []string{
+		mkScratch(t, tmp, "scratch-frame-recent", deadStr, 0),
+		mkScratch(t, tmp, "scratch-other-expired", deadStr, 2*time.Hour),
+		mkScratch(t, tmp, "scratch-frame-corrupt", "not-a-number", 2*time.Hour),
+		mkScratch(t, tmp, "scratch-frame-nopgid", "", 2*time.Hour),
+		mkScratch(t, tmp, "scratch-frame-alive", strconv.Itoa(syscall.Getpgrp()), 2*time.Hour),
 	}
 
-	// Single GC run must process at most 30 entries
-	syncOpportunisticGC(tmpDir, time.Hour)
+	syncOpportunisticGC(tmp, time.Hour)
 
-	entries, err := os.ReadDir(tmpDir)
-	if err != nil {
-		t.Fatal(err)
+	if _, err := os.Stat(expiredDead); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("expired dead scratch not deleted: %v", err)
 	}
-	// At least 10 entries must remain due to the 30-item bound
-	if len(entries) < 10 {
-		t.Errorf("expected at least 10 entries preserved due to 30-item limit, got %d", len(entries))
-	}
-}
-
-// TestSyncOpportunisticGCNoStarvation: young directories ahead in listing order are
-// skipped without spending the 30-candidate budget, so expired ones behind them are reaped.
-func TestSyncOpportunisticGCNoStarvation(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldTime := time.Now().Add(-2 * time.Hour)
-	for i := 0; i < 40; i++ {
-		d := filepath.Join(tmpDir, fmt.Sprintf("scratch-frame-a-%02d", i))
-		if err := os.Mkdir(d, 0700); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for i := 0; i < 5; i++ {
-		d := filepath.Join(tmpDir, fmt.Sprintf("scratch-frame-z-%02d", i))
-		if err := os.Mkdir(d, 0700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(d, "pgid"), []byte("99999999"), 0600); err != nil {
-			t.Fatal(err)
-		}
-		_ = os.Chtimes(d, oldTime, oldTime)
-	}
-
-	syncOpportunisticGC(tmpDir, time.Hour)
-
-	entries, err := os.ReadDir(tmpDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 40 {
-		t.Errorf("expected the 40 young dirs kept and 5 expired reaped, got %d entries", len(entries))
-	}
-	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), "scratch-frame-z-") {
-			t.Errorf("expired %s survived behind young entries", e.Name())
+	for _, d := range kept {
+		if _, err := os.Stat(d); err != nil {
+			t.Errorf("expected %s retained, got %v", filepath.Base(d), err)
 		}
 	}
 }
 
-// TestSyncOpportunisticGCCorruptHeadNoStarvation: expired dirs with missing or corrupt
-// pgid files ahead in listing order do not spend the budget; reapable ones behind are reaped.
-func TestSyncOpportunisticGCCorruptHeadNoStarvation(t *testing.T) {
-	tmpDir := t.TempDir()
-	oldTime := time.Now().Add(-2 * time.Hour)
-	for i := 0; i < 40; i++ {
-		d := filepath.Join(tmpDir, fmt.Sprintf("scratch-frame-a-%02d", i))
-		if err := os.Mkdir(d, 0700); err != nil {
-			t.Fatal(err)
+func TestSyncOpportunisticGCBudgetAndStarvation(t *testing.T) {
+	t.Run("30-item cap", func(t *testing.T) {
+		tmp := t.TempDir()
+		for i := 0; i < 40; i++ {
+			mkScratch(t, tmp, fmt.Sprintf("scratch-frame-item-%02d", i), "99999999", 2*time.Hour)
 		}
-		if i%2 == 0 {
-			if err := os.WriteFile(filepath.Join(d, "pgid"), []byte("garbage"), 0600); err != nil {
-				t.Fatal(err)
+		syncOpportunisticGC(tmp, time.Hour)
+		if left, _ := os.ReadDir(tmp); len(left) < 10 {
+			t.Errorf("got %d remaining, want >=10 (30-item cap)", len(left))
+		}
+	})
+	t.Run("young or corrupt head does not starve expired tail", func(t *testing.T) {
+		for _, mode := range []string{"young", "corrupt"} {
+			tmp := t.TempDir()
+			for i := 0; i < 40; i++ {
+				if mode == "young" {
+					mkScratch(t, tmp, fmt.Sprintf("scratch-frame-a-%02d", i), "", 0)
+				} else {
+					pgid := ""
+					if i%2 == 0 {
+						pgid = "garbage"
+					}
+					mkScratch(t, tmp, fmt.Sprintf("scratch-frame-a-%02d", i), pgid, 2*time.Hour)
+				}
+			}
+			for i := 0; i < 5; i++ {
+				mkScratch(t, tmp, fmt.Sprintf("scratch-frame-z-%02d", i), "99999999", 2*time.Hour)
+			}
+			syncOpportunisticGC(tmp, time.Hour)
+			left, _ := os.ReadDir(tmp)
+			if len(left) != 40 {
+				t.Errorf("%s: got %d entries, want 40 head kept and 5 tail reaped", mode, len(left))
 			}
 		}
-		_ = os.Chtimes(d, oldTime, oldTime)
-	}
-	for i := 0; i < 5; i++ {
-		d := filepath.Join(tmpDir, fmt.Sprintf("scratch-frame-z-%02d", i))
-		if err := os.Mkdir(d, 0700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(d, "pgid"), []byte("99999999"), 0600); err != nil {
-			t.Fatal(err)
-		}
-		_ = os.Chtimes(d, oldTime, oldTime)
-	}
-
-	syncOpportunisticGC(tmpDir, time.Hour)
-
-	entries, err := os.ReadDir(tmpDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 40 {
-		t.Errorf("expected the 40 corrupt dirs kept and 5 dead reaped, got %d entries", len(entries))
-	}
+	})
 }
 
 // stubFrameMPV installs an mpv stub that copies a real JPEG to <outdir>/00000001.jpg,
@@ -327,13 +163,13 @@ func TestFrameNoVideoWithoutArtifact(t *testing.T) {
 // TestFramePlaylistStopsAfterFirstEntry: the second entry's "Playing:" kills mpv instead
 // of letting it decode the rest of the playlist.
 func TestFramePlaylistStopsAfterFirstEntry(t *testing.T) {
-	stubFrameMPV(t, "echo 'Playing: a.mkv'\necho 'Playing: b.mkv'\n/bin/sleep 60 &\nwait\n")
+	stubFrameMPV(t, "echo 'Playing: a.mkv'\necho 'Playing: b.mkv'\nread _\n")
 	start := time.Now()
 	res, err := Frame("/tmp/list.m3u", 0, 0, 80)
 	if err != nil {
 		t.Fatalf("expected ok, got %v", err)
 	}
-	if time.Since(start) > 5*time.Second {
+	if time.Since(start) > 2*time.Second {
 		t.Errorf("mpv not stopped after the first entry: took %v", time.Since(start))
 	}
 	if res.Width != 64 {
@@ -345,10 +181,10 @@ func TestFramePlaylistStopsAfterFirstEntry(t *testing.T) {
 // or failed) must not fall through to a later entry's frame: the second "Playing:"
 // kills mpv before it can write one.
 func TestFramePlaylistAudioFirstEntryNoFallthrough(t *testing.T) {
-	stubFrameMPV(t, "/bin/rm -f \"$OUT/00000001.jpg\"\necho 'Playing: a.mp3'\necho 'Playing: b.mkv'\n/bin/sleep 60\n/bin/cp \"$OUT/../src.jpg\" \"$OUT/00000001.jpg\"\n")
+	stubFrameMPV(t, "/bin/rm -f \"$OUT/00000001.jpg\"\necho 'Playing: a.mp3'\necho 'Playing: b.mkv'\nread _\n/bin/cp \"$OUT/../src.jpg\" \"$OUT/00000001.jpg\"\n")
 	start := time.Now()
 	_, err := Frame("/tmp/list.m3u", 0, 0, 80)
-	if time.Since(start) > 5*time.Second {
+	if time.Since(start) > 2*time.Second {
 		t.Errorf("mpv not stopped at the second entry: took %v", time.Since(start))
 	}
 	var f *Fail
@@ -526,36 +362,8 @@ func TestFrameTimeoutReap(t *testing.T) {
 }
 
 func TestFrameProductionTimeoutBudget(t *testing.T) {
-	// Verifies that production time budget parameters strictly bind to specification invariants
-	if frameTimeout != 15*time.Second {
-		t.Errorf("production frameTimeout = %v, want 15s", frameTimeout)
-	}
-	if frameWaitDelay != 2*time.Second {
-		t.Errorf("production frameWaitDelay = %v, want 2s", frameWaitDelay)
-	}
-	if frameTeardownPoll != 500*time.Millisecond {
-		t.Errorf("production frameTeardownPoll = %v, want 500ms", frameTeardownPoll)
-	}
-	totalHardLimit := frameTimeout + frameWaitDelay + frameTeardownPoll
-	if totalHardLimit != 17500*time.Millisecond {
-		t.Errorf("total physical hard limit = %v, want 17.5s", totalHardLimit)
-	}
-
-	// Verify two-attempt budget partition:
-	// Hot: 2.0s work + 2.5s teardown = 4.5s
-	// Cold: 10.3s work + 2.5s teardown = 12.8s
-	// Total dispatch budget = 4.5s + 12.8s = 17.3s
-	// Dedicated delivery budget = 200ms
-	// Grand total strictly equals 17.5s (17500ms)
-	hotWork := 2 * time.Second
-	hotTeardown := frameWaitDelay + frameTeardownPoll
-	coldWork := 10300 * time.Millisecond
-	coldTeardown := frameWaitDelay + frameTeardownPoll
-	deliveryBudget := 200 * time.Millisecond
-
-	totalCalculated := hotWork + hotTeardown + coldWork + coldTeardown + deliveryBudget
-	if totalCalculated != 17500*time.Millisecond {
-		t.Errorf("partition budget sum = %v, want 17500ms", totalCalculated)
+	if frameTimeout != 15*time.Second || frameWaitDelay != 2*time.Second || frameTeardownPoll != 500*time.Millisecond {
+		t.Errorf("production frame budget = (%v, %v, %v), want (15s, 2s, 500ms)", frameTimeout, frameWaitDelay, frameTeardownPoll)
 	}
 }
 

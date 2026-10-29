@@ -26,11 +26,14 @@
 
 ## [2.4.3] - 2026-10-27
 
-**AC → Battery 拔电自动停止与 600s 空闲守护回收（`internal/engine/jue_duck.lua`）。**
+**AC → Battery 拔电自动停止、600s 空闲守护回收与第一性原理测试体系重构（`internal/engine/jue_duck.lua`, `internal/engine/frame.go`, `tests/test_suite.sh`）。**
 
 - **AC → Battery 拔电边沿自动退出（`internal/engine/jue_duck.lua`）**：内嵌 Lua 助手新增异步电源状态探测（macOS `/usr/bin/pmset -g batt`；非 macOS 首探失败即停用定时器，零无效轮询）。当 `mpv` 在 `AC Power` 下运行并切换至 `Battery Power` 时立即执行 `mp.command("quit")` 退出，防止拔电离席后后台音视频继续耗电；若在电池供电下主动发起 `jue play`（初态即为 `Battery Power`）则正常播放。
 - **600s 空闲自动回收（`internal/engine/jue_duck.lua`）**：监听 `idle-active` 属性，队列播毕进入 `idle` 满 600s 自动执行 `mp.command("quit")` 退出守护进程，杜绝 `--idle=yes` 守护进程跨夜常驻。
-- **测试覆盖（`internal/engine/duck_test.go`, `tests/test_suite.sh`）**：扩展 `TestDuckHelperEmbedsMarker` 与端到端套件 `N26`（验证电池初态不误杀、`AC Power` → `Battery Power` 边沿自动退出并零残留）。
+- **`firstEntryGuard.setPgid` 启动竞态闭环（`internal/engine/frame.go`）**：修复 `cmd.Start()` 返回前子进程快速输出多条 `Playing: ` 行导致 `pgid` 尚未写入而漏发 `SIGKILL` 的启动竞态。
+- **第一性原理 + KISS 测试分层重构（`cmd/jue/*_test.go`, `internal/engine/*_test.go`, `tests/test_suite.sh`, `install.sh`）**：
+  - **单元层提速 ~4x（8.98s → 2.29s）**：修复歌单截断单测中 `sh` 子进程 `posix_spawn` 与 `killpg` 竞态触发 2s `WaitDelay` 的问题；内存 `net.Pipe` 超时统一收紧至 30ms；合入 `TestSemverParity` 并删除独立 `version_test.go` 硬编码版本号；表驱动化缓存流解析与 GC 样板，合并重复的 2MB 超长坏行历史测试。
+  - **端到端层正交去重（21 块 → 15 块，304 项断言，35s 稳定全绿）**：`Block A` 收敛为每动词 1 条代表性用法闸门；原 `Block H` 文本纯净度与 `unavailable` → `inspect` 兜底并入 `Block B`；原 `Block G` 200ms 起播即停/暂停冻结并入 `Block C`；6 路冷启动 `queue add` 并发并入 `Block D`；原 7 个工作流块剔除 Bash `printf` 假卡片同义反复，收敛为 `E-a` 多模态章节研读与 `E-b` 实时播放头锚定；`now_ms()` 改用 `perl -MTime::HiRes` 且 `samples()` 改为单进程 Python 循环采样，根除 `pyenv` shim 与循环 fork 导致的 `N6` 采样饥饿；清退 `install.sh` 中旧 `ting` / `co-ting` 过渡期清理分支。
 
 ## [2.4.2] - 2026-10-27
 

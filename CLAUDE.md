@@ -31,7 +31,7 @@ This file provides guidance to Claude Code (claude.ai/code) and all coding agent
 
 ## 项目性质
 
-**co-jue**（CLI 二进制命令为 `jue`）—— `co` 生态面向 AI Agent（Claude Code、OpenCode、co-cli、co-s2s）的端侧视听感知与播放微外设（Go 静态单二进制，收容于 `~/workspace_genai/co-jue/`）。版本严格遵循 SemVer 语义化规范（声明于根目录 `VERSION`，如 `2.4.2`；演进全表与更新日志见 `CHANGELOG.md`）。
+**co-jue**（CLI 二进制命令为 `jue`）—— `co` 生态面向 AI Agent（Claude Code、OpenCode、co-cli、co-s2s）的端侧视听感知与播放微外设（Go 静态单二进制，收容于 `~/workspace_genai/co-jue/`）。版本严格遵循 SemVer 语义化规范（单一真源声明于根目录 `VERSION`；演进全表与更新日志见 `CHANGELOG.md`）。
 
 - **感知平面 (Ingest)**：
   - `jue inspect <url>`：极简提取章节时间轴（Chapters）与元数据，Token 开销 < 100 Tokens；对本地媒体文件、本地回环 HTTP 流（如 `qnap-media`）或 `.m3u8` 直链通过瞬态无头 mpv 提取真实 `duration`、容器 `chapters` 与音视频/字幕轨道 `tracks`；
@@ -73,24 +73,18 @@ bash tests/test_suite.sh
 ./jue transcript "https://www.youtube.com/watch?v=dQw4w9WgXcQ" --range 18-30
 ./jue play "https://www.youtube.com/watch?v=dQw4w9WgXcQ" --start 18
 ./jue status
-./jue control pause
-./jue control resume
-./jue control volume 50
-./jue control duck on
-./jue control duck off
+./jue control pause | resume | volume 50 | duck on | duck off | next | stop
 ./jue queue add "ytsearch1:Never Gonna Give You Up"
 ./jue queue list
-./jue control next
 ./jue events --until queue_ended --timeout 600
-./jue control stop
 ```
 
 ---
 
 ## 测试分层
 
-- **单元层** `internal/engine/*_test.go`：`ingest_test.go`（ParseRange/ParseTime、json3 去重清洗、LRC 时间推导、网易云 id、pickTrack 语言链、检索前缀白名单与头部锚定、检索 playlist 外壳 `entries[0]` 解包与空结果）、`frame_test.go`（参数与溢出校验、NaN/Inf/1e8 拦截、width/quality 边界、检索前缀分流、GC 30 项门限与进程存活安全门禁、超时强杀与 WaitDelay 回收）、`ipc_test.go`（request_id 匹配、事件入队、`WaitForPlaybackSuccess` 的加载成功/失败/被顶替/redirect/超时/任意条目 `-1`）、`daemon_test.go`（runtimeDir 0700 放行，宽权限/符号链接/普通文件拒收，只读动词不落盘；`queue add` 空闲起播/播放中追加/并发同锁、`queue list` 信封与空闲不落盘、`queue clear`、`next`/`prev` 及越界、play 返回规范 URL）、`events_test.go`（snapshot 与初值压制、`start-file` 刷新 URL、`queue_ended` 触发/stop 不触发/空闲拒收/中途退出、`audio_device_changed` 首条有效通知为基线/排序指纹/null 与 [] 等同/空闲可等）、`duck_test.go`（助手 0600 temp+rename 写入且不跟随符号链接、就绪标记两侧一致、三模式线协议逐字、空闲/标记缺失/协议不符/投递拒绝、`BenchmarkDuckRoundTrip`）；`daemon_test.go` 另含 `mpvArgs` 加载助手且不设 `volume-gain`、`status.duck` 换算；`history_test.go`（记录与倒序列表、`last` 空历史 4、`clear`、500 条裁旧与零临时文件残留、并发记录零丢失、坏行跳过、0700/0600/符号链接/宽权限门禁、相对 `XDG_STATE_HOME` 回落、`play`/`queue add` 记录内容、历史不可写不影响播放；包级 `TestMain` 把 `XDG_STATE_HOME` 指向临时目录，单测绝不写真实历史）；`cmd/jue/verbs_test.go`（`parseDuck` 默认值、后缀、边界、NaN/Inf/溢出、重复与模式不符；`TestVerbUsageGates` 九个动词语法闸门在清空 `PATH`/`TMPDIR`/`XDG_STATE_HOME` 下逐项退出码 1 且不留状态）。IPC 测试在内存管道另一端扮演 mpv 的线协议。
-- **端到端层** `tests/test_suite.sh`：按六大能力平面分组，块字母为稳定标识。**Boundary**：A 安全边界与用法闸门（0700/符号链接拒收、无播放器各动词不落盘、全部动词用法错 exit 1）· F Token 预算（信封无多余字段/转义/浮点噪声，越界窗口返回空）。**Ingest**：B 感知契约（章节、窗口、300 条截断、unavailable、LRC）· K 显式检索解析（`ytsearch1:` 各动词解析为规范 watch URL、非白名单前缀 exit 1、`search_query` 普通 URL 不误判）· M 视觉帧感知（0700/0600、纯音频与内嵌封面 MP3 拒收、时长越界、真实网络流单帧、流缓存冷/热、双边等比外框、零残留）。**Playback**：C 播放状态机（本地 + 网络音频、全部 control、stop 回收、kill -9 后恢复）· D 冷/热并发 play · J 瞬态队列（冷/热 add、list、next/prev 及越界、暂停态切歌、clear、play 替换整队、6 路并发冷启动 add）· L 队列放毕（`--until queue_ended`、空闲 exit 4、stop 中断 `player exited`）· O 持久历史（空历史信封与 `last` exit 4、读不落盘、play/queue add 记录字段、倒序与 `--limit`、0700/0600、stop 后仍在、失败播放不记、坏行跳过、500 条裁旧、`clear`、符号链接文件与 0755 目录被拒但播放照常）；J 另核 6 路并发 add 历史零丢失，K 另核检索词 `input` 与解析后 `url`。**Acoustic**：G 声学人机（起播即停 200ms 内回收、暂停 200ms 内冻结）· N 声学闪避（非阻塞、渐变中间值、`--fade 0`、脉冲与续期、音量正交、−96 dB 地板、外部非有限值、零 `audio-reconfig`、生命周期、旧助手/协议不符、符号链接防御）· NW 闪避看门狗（生产 30s 墙钟，独立成块与 N 并行）。**Events**：I 事件契约（snapshot、边沿、eof、stop、超时、`audio_device_changed` 基线）。**Agent workflows**：E-a 章节研读 · E-b+f 背景听歌卡片后取播放头下的歌词行（一条 NetEase 流）· E-c 暂停追问播放头附近原话 · E-d 自动续播 DJ · E-e AirPods 触控倒带 · E-g 视觉证据卡片 · H 落地为资产（`&t=` 逐字引用块；无字幕时 inspect 兜底）。共 21 块 377 项断言。韧性：跨网动词经 `net`/`fetch` 只对瞬态结果（exit 2，或 exit 4 且 `status=="error"`）最多重试 3 次并在报告中标注；`need` 前置条件失败止于一条 FAIL；每块 300s 看门狗，`mpv_ipc`（测试侧 `python3` 直读 mpv socket）5s 超时；`subscribe` 以 `lsof` 确认事件订阅已连接再触发。各块独立 `TMPDIR` 与 `XDG_STATE_HOME`（绝不触碰用户真实历史）、各自的 mpv，并行执行；网络音频前先 `volume 0`，套件全程静音。退出时只按本套件 socket 路径回收 mpv 并删除临时目录，最后一行断言零残留。
+- **单元层** `cmd/jue/verbs_test.go` & `internal/engine/*_test.go`：`verbs_test.go`（`VERSION` SemVer 单一真源校验、`parseDuck` 语法与边界、九个动词 `TestVerbUsageGates` 在清空 `PATH`/`TMPDIR`/`XDG_STATE_HOME` 下逐项退出码 1 且不留状态）、`ingest_test.go`（ParseRange/ParseTime、json3/VTT/SRT/ASS/LRC/Podcast 2.0/ID3v2 解析、网易云 id、pickTrack 语言链、检索前缀白名单、容器内封与外挂字幕）、`frame_test.go`（参数与检索前缀门禁、GC 30 项门限与进程存活/防饥饿、`firstEntryGuard` 歌单首项截断、超时强杀与进程组回收、流缓存冷/热回退与回环直连）、`cache_test.go`（0700/0600 与符号链接拒收、TTL 过期与 TOCTOU 指纹删除、正证据单流解析表）、`ipc_test.go`（request_id 匹配、事件入队、`WaitForPlaybackSuccess` 状态机）、`daemon_test.go`（runtimeDir 0700/宽权限/符号链接门禁、只读动词不落盘、`play`/`queue`/`control`/`status` 线协议与并发同锁、`stop` 同步等待对端挂断）、`events_test.go`（snapshot 与初值压制、`start-file` 刷新 URL、`queue_ended`、`audio_device_changed` 基线与排序指纹）、`duck_test.go`（助手 0600 原子写入与符号链接防御、就绪标记与电池/空闲看门狗令牌、三模式线协议）、`history_test.go`（倒序列表与 `--limit`、500 条原子裁旧、并发零丢失、坏行/超长行跳过与重写净化、0700/0600/FIFO/符号链接门禁、历史不可写不影响播放）。
+- **端到端层** `tests/test_suite.sh`：按六大能力平面编排 15 个并行隔离块（共 304 项断言）。**Boundary**：A 安全边界与各动词代表性用法闸门 · F Token 预算（章节与字幕信封字节上限、越界窗口为空）。**Ingest**：B 感知契约（章节、窗口、300 条截断、纯净无标签文本、B 站/网易云纯音乐 `unavailable` 与 `inspect` 兜底、LRC）· K 显式检索解析（`ytsearch1:` 全动词解析与非白名单前缀拦截）· M 视觉帧感知（0700/0600、纯音频/封面 MP3 拒收、真实流单帧、流缓存冷/热、本地 HTTP 容器 `inspect`/外挂字幕、外框等比缩放、零残留）。**Playback**：C 播放状态机与声学人机（本地 + 网络音频、起播即停 200ms 回收与暂停 200ms 冻结、全部 control、kill -9 死 socket 恢复）· D 并发（6 路冷/热 `play` 竞态与 6 路冷启动 `queue add` 竞态，同锁单 mpv 零丢失）· J 瞬态队列状态机 · L 队列放毕（`--until queue_ended`）· O 持久历史。**Acoustic**：N 声学闪避（脉冲/持续/恢复、单进程采样渐变、音量正交、−96 dB 地板、非有限值防御、零重配置、跨曲/跳转/暂停保持、旧助手/协议不符、符号链接防御、AC→Battery 拔电自动退出）· NW 闪避 30s 生产看门狗。**Events**：I 事件契约。**Agent workflows**：E-a 多模态章节研读（`inspect` → `transcript --range` → `frame --at`）· E-b 实时播放头原话锚定与倒带续播（`play` → `pause` → `transcript` → `seek` → `resume` → `stop`）。
 
 ---
 

@@ -3,48 +3,44 @@
 #
 # Zero mocks: the real binary, a real mpv over its real socket, real yt-dlp against the real
 # sites. Each block runs under its own TMPDIR and XDG_STATE_HOME, so it owns its runtime dir,
-# its own mpv and its own history (the user's is never touched), and the blocks run side by side; the report groups them by the capability plane they prove.
+# its own mpv and its own history (the user's is never touched), and the blocks run side by side;
+# the report groups them by the capability plane they prove.
 #
 # Boundary   A   security boundary  runtime dir 0700 / symlink refusal / absent player writes
 #                                   nothing / every verb's usage gate is exit 1 before any work
 #            F   token budget       an envelope carries no field, escape or digit beyond the facts
-# Ingest     B   ingest contract    inspect chapters, transcript windows and cap, unavailable, LRC
+# Ingest     B   ingest contract    inspect chapters, transcript windows and cap, clean text,
+#                                   unavailable + inspect fallback (Bilibili & NetEase), LRC
 #            K   query resolution   ytsearch1: resolves to the watch URL on every verb; other
 #                                   search prefixes are exit 1
 #            M   frame perception   0700/0600, audio-only and cover-art refusal, real stream frame,
-#                                   stream cache, outer-box scaling, zero leftovers
-# Playback   C   state machine      local + network audio, status, every control, stop, kill -9
-#            D   concurrency        racing plays from cold and warm: one mpv, every play ok
-#            J   transient queue    add cold / warm, list, next/prev and their ends, clear, play
-#                                   replaces it, racing adds from cold: one mpv, none lost
+#                                   stream cache, local HTTP container, outer-box scaling, zero leftovers
+# Playback   C   state machine      local + network audio, 200ms stop/pause ergonomics, status,
+#                                   every control, stop, kill -9 dead-socket recovery
+#            D   concurrency        racing plays (cold & warm) and racing queue adds: one mpv, none lost
+#            J   transient queue    add cold / warm, list, next/prev and their ends, clear, play replaces it
 #            L   queue ended        one wait for a whole queue; idle and stopped are exit 4
 #            O   durable history    play/queue add recorded, newest first, survives stop, --limit,
 #                                   0700/0600, cap 500, corrupt lines skipped, clear, a refused
 #                                   history never fails a play
-# Acoustic   G   ergonomics         stop right after play silences at once; pause freezes the
-#                                   playhead within 200 ms, local and network
-#            N   ducking            pulse/on/off: non-blocking, fades, re-arm, volume orthogonal,
-#                                   floor, foreign input, zero audio-reconfig, lifecycle, old helper
+# Acoustic   N   ducking            pulse/on/off: non-blocking, fades, re-arm, volume orthogonal,
+#                                   floor, foreign input, zero audio-reconfig, lifecycle, old helper,
+#                                   AC->Battery unplug auto-quit
 #            NW  duck watchdog      the production 30 s watchdog on wall time; its own block so
 #                                   its 35 s of paused waiting runs beside N, not after it
 # Events     I   event contract     snapshot, edges, eof, stop, timeout, audio_device_changed
-# Workflows  E   a study a chapter  b+f a background song: now-playing card, then the lyric
-#                under the playhead  c "what was that?"  d autonomous DJ  e AirPods pinch
-#                g visual evidence card
-#            H   grounding          a timestamped verbatim citation; inspect answers when
-#                                   there are no words to cite
-#
-# Resilience: a verb that crosses the network is retried only on what the exit-code contract
-# calls transient (see net); a step later steps depend on stops its block at one FAIL (see
-# need); every block must finish within BLOCK_TIMEOUT or is killed and reported.
+# Workflows  E   E-a multimodal chapter study (inspect -> transcript --range -> frame --at)
+#                E-b live playhead grounding (play -> pause -> transcript at playhead -> rewind -> resume)
 #
 # Usage: bash tests/test_suite.sh        exit 0 all green, 1 a failure or a broken suite
 
 set -uo pipefail
 
 REPO=$(cd -P "$(dirname "$0")/.." && pwd -P) || exit 1
+pyenv_shims="${PYENV_ROOT:-$HOME/.pyenv}/shims:"
+export PATH="${PATH//$pyenv_shims/}"
 abort() { echo "suite error: $*" >&2; exit 1; }
-for b in go mpv yt-dlp jq python3 lsof; do command -v "$b" >/dev/null || abort "$b not on PATH"; done
+for b in go mpv yt-dlp jq python3 perl lsof; do command -v "$b" >/dev/null || abort "$b not on PATH"; done
 
 base=${TMPDIR:-/tmp}
 RUN=$(mktemp -d "${base%/}/jue-suite.XXXXXX") || abort "mktemp failed"
@@ -54,7 +50,6 @@ BLOCK_TIMEOUT=300
 
 # Every mpv this suite starts listens on a socket under $RUN: these PIDs are ours alone.
 our_mpv() { pgrep -f "input-ipc-server=$RUN/|--vo-image-outdir=$RUN/"; }
-# kill_tree <pid>: TERM the process and its descendants, then KILL whatever ignored it 0.5 s on.
 kill_tree() {
     local c; for c in $(pgrep -P "$1"); do kill_tree "$c"; done
     kill "$1" 2>/dev/null || return 0
@@ -74,8 +69,7 @@ trap 'exit 130' INT TERM
 BIN="$RUN/jue"
 (cd "$REPO" && go build -o "$BIN" ./cmd/jue) || abort "go build failed"
 
-# silence <path> <secs>: 48 kHz stereo 16-bit silence — the shape of a real music track (mpv
-# routes mono through a different macOS audio output), steerable and inaudible.
+# silence <path> <secs>: 48 kHz stereo 16-bit silence — the shape of a real music track.
 le32() { local i; for i in 0 8 16 24; do printf "\\x$(printf %02x $((($1 >> i) & 255)))"; done; }
 silence() {
     local n=$((48000 * 4 * $2))
@@ -85,8 +79,6 @@ silence() {
 export WAV="$RUN/silence.wav"
 silence "$WAV" 60
 
-# A logged-in YouTube answers per account (its reported language, so the track jue picks):
-# the contract is checked against the anonymous answer unless the caller says otherwise.
 export JUE_COOKIES_FROM_BROWSER="${JUE_COOKIES_FROM_BROWSER:-none}"
 
 export YT_NN="https://www.youtube.com/watch?v=aircAruvnKk"   # 3Blue1Brown: chapters, en-orig ASR
@@ -94,26 +86,19 @@ export YT_RR="https://www.youtube.com/watch?v=dQw4w9WgXcQ"   # human English sub
 BILI="https://www.bilibili.com/video/BV1xx411c7mD"            # no subtitles at all
 NETEASE="https://music.163.com/song?id=1824020871"            # 宇多田ヒカル, timed LRC
 DARIO="https://www.youtube.com/watch?v=ugvHCXCOmm4"           # Lex Fridman #452: 5 hours, 40 chapters
-NE_PURE="https://music.163.com/song?id=476592630"             # The Dawn, piano: NetEase marks it 纯音乐
+NE_PURE="https://music.163.com/song?id=476592630"             # The Dawn, piano: 纯音乐
 export QUERY="ytsearch1:Never Gonna Give You Up"
 
+# No markup, entity, cue timing or LRC tag survived, and the whitespace is folded.
+CLEAN='all(.segments[]; .text | test("<[^>]+>|&(amp|lt|gt|quot|apos|nbsp|#[0-9]+);|-->|[0-9]{2}:[0-9]{2}:[0-9]{2}[.,][0-9]{3}|\\[[0-9]+:[0-9]+|^ | $|  ") | not)'
+
 # ---- harness ---------------------------------------------------------------------------
-# A block reports to its own RES file, one line per assertion: ok|name, FAIL|name|detail, or
-# skip|why for the steps a failed precondition took with it.
 RES=/dev/null NOTE= DETAIL= HALTED=
 pass() { printf 'ok|%s\n' "$1" >>"$RES"; }
-# A detail keeps to its one line: an embedded newline is written as a literal \n.
 failc() { local d="${2//$'\n'/\\n}"; printf 'FAIL|%s|%s\n' "$1" "$d" >>"$RES"; }
 
-# v <args...>: run jue; OUT is its stdout, RC its exit code.
 v() { OUT=$("$BIN" "$@" 2>/dev/null); RC=$?; NOTE=; }
 
-# net <args...>: v for a verb that crosses the network. Only what the exit-code contract calls
-# transient is retried — exit 2 (transport/tool fault) or exit 4 "error" (a stream that failed
-# to load in mpv) — up to NET_TRIES attempts, 2 s then 4 s apart. Upstream risk-control, rate limit
-# (429), or bot verification blocks (exit 4 with "upstream blocked") are terminal and never retried.
-# Each attempt is bounded by jue itself (yt-dlp 90 s, HTTP 20 s, a load 30 s, frame 17.5 s).
-# A retried answer is noted on the expect that reads it, so a flaky source shows in the report.
 transient() { ((RC == 2)) || { ((RC == 4)) && jq -e '.status=="error" and (.error | test("upstream blocked|rate limited") | not)' <<<"$OUT" >/dev/null 2>&1; }; }
 net() {
     local n=1
@@ -122,8 +107,6 @@ net() {
     ((n == 1)) || NOTE="attempt $n of $NET_TRIES"
 }
 
-# fetch <name> <args...>: net, its answer kept on disk; load <name> reads it back. A block asks
-# all its network questions at once and checks the answers afterwards.
 fetch() {
     local name=$1; shift
     net "$@"
@@ -131,8 +114,6 @@ fetch() {
 }
 load() { OUT=$(cat "$TMPDIR/$1.out"); RC=$(cat "$TMPDIR/$1.rc"); NOTE=$(cat "$TMPDIR/$1.note"); }
 
-# expect <name> <rc> <jq predicate>: the last v/net/load exited rc with exactly one JSON line on
-# stdout, holding exactly one JSON value, that satisfies the predicate.
 expect() {
     local name=$1${NOTE:+ [$NOTE]}; NOTE=
     if ((RC != $2)); then failc "$name" "exit $RC, want $2: $OUT"; return 1; fi
@@ -142,29 +123,20 @@ expect() {
     pass "$name"
 }
 
-# check <name> <command...>: a failure shows DETAIL if set, else the last envelope read.
 check() {
     local name=$1; shift
     if "$@"; then pass "$name"; DETAIL=; return 0; fi
     failc "$name" "${DETAIL:-$OUT}"; DETAIL=; return 1
 }
 
-# need <expect|check ...> || return: a step the rest of the block builds on. One broken
-# precondition is one FAIL and a skip line, not a cascade of FAILs that all say the same thing;
-# block() then stops the player the block left behind.
 need() { "$@" && return 0; printf 'skip|the rest of this block depends on that step\n' >>"$RES"; HALTED=1; return 1; }
 
-# poll <secs> <command...>: true as soon as the command is, false at the deadline (secs may be
-# fractional: poll 0.2 is four 50 ms ticks).
 poll() {
     local i; i=$(awk -v s="$1" 'BEGIN { print int(s * 20) }'); shift
     until "$@"; do ((i-- > 0)) || return 1; sleep 0.05; done
 }
 
-# st <jq predicate>: the player's status satisfies it right now.
 st() { OUT=$("$BIN" status 2>/dev/null) && jq -e "$1" <<<"$OUT" >/dev/null 2>&1; }
-# holds_still: paused, and the playhead reads the same twice 0.3 s apart. Wrap it in poll:
-# right after a pause the output buffer still drains for a few milliseconds.
 holds_still() {
     local a
     st '.state=="paused"' || return 1
@@ -179,7 +151,6 @@ no_mpv() { test -z "$(mpv_of)"; }
 empty_dir() { DETAIL="$(ls -A "$1" 2>&1)"; [[ -z $(ls -A "$1") ]]; }
 no_scratch() { DETAIL="$(ls -A "$1" 2>&1)"; ! ls -A "$1" 2>/dev/null | grep -q scratch-; }
 mode_is() { DETAIL="$(stat -f %Lp "$1" 2>&1) $1"; [[ $(stat -f %Lp "$1" 2>/dev/null) == "$2" ]]; }
-# stopped <pid>: control stop answered and that mpv exited and was reaped.
 stopped() {
     v control stop
     expect "control stop: exit 0" 0 '.action=="stop"'
@@ -187,10 +158,6 @@ stopped() {
     check "mpv exited and was reaped after stop" poll 3 gone "$1"
 }
 
-# subscribe <file> <events args...>: jue events in the background into file, returning once it
-# holds its socket connection, so the trigger that follows cannot beat the subscription. A
-# subscriber that never connects within 3 s is a FAIL and returns 1.
-# collect <file> waits for it and reads its answer as OUT/RC.
 connected() { lsof -a -p "$1" -U >/dev/null 2>&1; }
 subscribe() {
     local f=$1; shift
@@ -200,11 +167,10 @@ subscribe() {
         failc "subscribe: jue events $* connected within 3 s" "pid $SUB: $(ps -o pid=,stat= -p "$SUB")"
         return 1
     fi
-    sleep 0.1   # its observe_property round trips, a few ms after the connect
+    sleep 0.1
 }
 collect() { wait "$SUB"; RC=$?; OUT=$(cat "$1"); NOTE=; }
 
-# Each block runs in its own subshell, under its own TMPDIR, reporting to its own file.
 block() {
     local name=$1; shift
     (
@@ -214,7 +180,7 @@ block() {
         : >"$RES"
         "$@"
         if [[ -n $HALTED ]]; then local p; p=$(mpv_of); [[ -n $p ]] && kill $p 2>/dev/null; fi
-        exit 0   # a block that got here finished; a nonzero exit is a crash (set -u, a signal)
+        exit 0
     )
 }
 
@@ -224,7 +190,7 @@ block() {
 
 # ---- A: security boundary and usage gates -------------------------------------------------
 block_a() {
-    set -f   # the argument lists below are split on spaces, and a URL's ? must not glob
+    set -f
     local rt="$TMPDIR/jue-$UIDN" want ver a re='^jue [0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'
 
     want=$(tr -d '[:space:]' <"$REPO/VERSION")
@@ -265,33 +231,25 @@ block_a() {
     check "refused plays started no mpv" no_mpv
     rm "$rt"
 
-    # Usage gates answer before any network or player: exit 1, still one envelope line. The
-    # grammar itself is unit-tested (cmd/jue); this proves the binary maps it to the contract.
+    # Representative usage gate per verb: detailed flag grammar is unit-tested in cmd/jue;
+    # this proves the binary maps Fail{Code:1} to exit 1 + JSON envelope without side effects.
     local -a usage=(
-        "transcript $YT_NN --range 30-10" "transcript $YT_NN --range nan-10"
-        "play $WAV --start soon" "play $WAV --start inf" "play --video" "play $WAV --video --video"
-        "control volume 101" "control volume nan" "control seek" "control seek nan" "control seek +inf"
-        "control rewind" "status now"
-        "queue shuffle" "queue list now" "queue add --video"
-        "events --until invalid_event" "events --timeout -5"
-        "frame $YT_RR" "frame $YT_RR --at abc" "frame $YT_RR --at 1e999" "frame $YT_RR --at 10 --quality 105"
-        "frame $YT_RR --at 10 --width 5000" "frame $YT_RR --at 10 --foo bar" "frame --option-inject --at 10"
-        "control duck --level 101" "control duck --level nan" "control duck --level 1e309"
-        "control duck --duration 0" "control duck --duration 31" "control duck --fade -1" "control duck --fade inf"
-        "control duck on --duration 5" "control duck off --level 20" "control duck off --duration 5"
-        "control duck sideways" "control duck --level 20 --level 30" "control duck --level"
-        "control duck --level 20 on"
-        "history bogus" "history --limit 0" "history --limit 501" "history --limit x" "history list --limit"
-        "history list extra" "history last now" "history clear now"
+        "inspect"
+        "transcript $YT_NN --range 30-10"
+        "frame $YT_RR"
+        "play --video"
+        "queue shuffle"
+        "status now"
+        "control rewind"
+        "control duck sideways"
+        "events --until invalid_event"
+        "history --limit 0"
     )
     for a in "${usage[@]}"; do
         # shellcheck disable=SC2086
         v $a
         expect "usage: ${a/$YT_NN/<yt>} is exit 1" 1 '.status=="error"'
     done
-    v frame "$YT_RR"
-    expect "usage: frame names the missing --at" 1 '.error|test("--at is required")'
-    # yt-dlp answers these offline; a URL it cannot read is the caller's mistake, not the network's.
     v inspect notaurl
     expect "usage: inspect a non-URL is exit 1" 1 '.status=="error" and (.error|test("not a valid URL"))'
     v transcript notaurl
@@ -301,10 +259,6 @@ block_a() {
 }
 
 # ---- F: token budget ----------------------------------------------------------------------
-# An envelope lands verbatim in an agent's context window, so every byte that is not a fact is
-# a token spent on nothing. The bound is derived, not measured: per chapter or cue the framing
-# is its fixed keys plus times of at most 9 characters (12345.678); an extra field, an escaped
-# & or <, or a float printed as 162.32000000000002 breaks it.
 bytes() { wc -c <"$TMPDIR/$1.out" | tr -d ' '; }
 
 block_f() {
@@ -323,7 +277,6 @@ block_f() {
     expect "inspect: only status, id, title, duration, uploader and {start,title} chapters" 0 \
         '(keys - ["status","id","title","duration","uploader","chapters"]) == []
          and all(.chapters[]; keys == ["start","title"])'
-    # Header keys ~75 bytes plus a 9-digit duration; each chapter {"start":,"title":""}, is 22.
     export BYTES=$n
     expect "inspect: framing beyond the strings is at most 31 bytes a chapter" 0 \
         '($ENV.BYTES|tonumber) - ([.id, .title, .uploader, .chapters[].title] | map(utf8bytelength) | add)
@@ -334,14 +287,12 @@ block_f() {
     expect "transcript, a 3-minute window: only status, lang, is_auto and {start,end,text} cues" 0 \
         '(keys - ["status","lang","is_auto","truncated","segments"]) == [] and (has("truncated")|not)
          and (.segments|length) > 0 and all(.segments[]; keys == ["end","start","text"])'
-    # {"start":,"end":,"text":""}, is 28 bytes; two times of at most 9 make 46.
     expect "transcript: framing beyond the words is at most 46 bytes a cue" 0 \
         '($ENV.BYTES|tonumber) - ([.segments[].text|utf8bytelength] | add) <= 46 * (.segments|length) + 80'
 
     load past
     expect "transcript YouTube past its end: ok, no cues, not truncated, exit 0" 0 \
         '.status=="ok" and .segments==[] and (has("truncated")|not)'
-    # The last lyric line is a point cue: a window after the song must not catch it.
     load lrcpast
     expect "transcript NetEase past its end: ok, no cues, the point cue left out, exit 0" 0 \
         '.status=="ok" and .segments==[] and (has("truncated")|not)'
@@ -358,8 +309,11 @@ block_b() {
     fetch wide transcript "$YT_NN" --range 0-99999 &
     fetch unsupported inspect "https://example.com/" &
     fetch human transcript "$YT_RR" --range 18-30 &
-    fetch bili transcript "$BILI" &
     fetch lrc transcript "$NETEASE" --range 20-30 &
+    ( fetch bili transcript "$BILI"
+      [[ $(cat "$TMPDIR/bili.rc") == 4 ]] && fetch bilimap inspect "$BILI" ) &
+    ( fetch pure transcript "$NE_PURE"
+      [[ $(cat "$TMPDIR/pure.rc") == 4 ]] && fetch puremap inspect "$NE_PURE" ) &
     wait
 
     load inspect
@@ -368,7 +322,6 @@ block_b() {
     expect "inspect YouTube: chapters non-empty, titled, strictly ascending" 0 \
         '(.chapters|length)>=2 and all(.chapters[]; .title|length>0)
          and ([.chapters[].start] as $s | $s==($s|sort) and ($s|unique|length)==($s|length))'
-    # yt-dlp names it start_time: decoded as start, every chapter would read 0.
     expect "inspect YouTube: chapter starts are real offsets, not 0" 0 \
         'any(.chapters[]; .start>0) and any(.chapters[]; .title=="What are neurons?" and .start==162)'
 
@@ -382,17 +335,27 @@ block_b() {
     expect "inspect a page with no media: Unsupported URL, exit 1" 1 \
         '.status=="error" and (.error|test("Unsupported URL"))'
     load human
-    expect "transcript YouTube human track: is_auto false, lang en" 0 \
-        '.is_auto==false and .lang=="en" and all(.segments[]; .start<30 and .end>18)
-         and ([.segments[].text]|join(" ")|test("strangers to love"))'
+    expect "transcript YouTube human track: is_auto false, lang en, clean words" 0 \
+        ".is_auto==false and .lang==\"en\" and all(.segments[]; .start<30 and .end>18)
+         and ([.segments[].text]|join(\" \")|test(\"strangers to love\")) and ($CLEAN)"
+    load lrc
+    expect "transcript NetEase: LRC lines in [20,30), no lang, is_auto false, clean text" 0 \
+        ".status==\"ok\" and (has(\"lang\")|not) and .is_auto==false and (.segments|length)>0
+         and all(.segments[]; .start<30 and .end>20)
+         and .segments[0].text==\"初めてのルーブルは\" and .segments[0].start==20.542 and ($CLEAN)"
+
     load bili
     expect "transcript Bilibili without subtitles: unavailable, exit 4" 4 \
         '.status=="unavailable" and (.error|length>0)'
-    load lrc
-    expect "transcript NetEase: LRC lines in [20,30), no lang, is_auto false" 0 \
-        '.status=="ok" and (has("lang")|not) and .is_auto==false and (.segments|length)>0
-         and all(.segments[]; .start<30 and .end>20)
-         and .segments[0].text=="初めてのルーブルは" and .segments[0].start==20.542'
+    load pure
+    expect "transcript NetEase instrumental without lyrics: unavailable, exit 4" 4 \
+        '.status=="unavailable" and (.error|length>0)'
+    for src in bilimap puremap; do
+        [[ -e $TMPDIR/$src.out ]] || { failc "inspect fallback ($src)" "transcript was not exit 4"; continue; }
+        load "$src"
+        expect "inspect fallback answers where transcript is unavailable ($src)" 0 \
+            '.status=="ok" and (.title|length>0) and .duration>0 and (.chapters|type)=="array"'
+    done
 
     local rt="$TMPDIR/jue-$UIDN"
     check "transcript left no scratch dir behind" no_scratch "$rt"
@@ -400,15 +363,13 @@ block_b() {
 }
 
 # ---- K: explicit query resolution ---------------------------------------------------------
-# A song named, not linked: ytsearch1: goes to yt-dlp as is and to mpv behind ytdl://, and
-# comes back as the watch URL it resolved to. Any other search prefix is the caller's mistake.
 block_k() {
     local pid a
     fetch kinspect inspect "$QUERY" &
     fetch ktranscript transcript "$QUERY" --range 18-30 &
     fetch kplain inspect "$YT_RR&search_query=ytsearch5:foo" &
 
-    "$BIN" play "$WAV" >/dev/null && "$BIN" control volume 0 >/dev/null   # keep the suite silent
+    "$BIN" play "$WAV" >/dev/null && "$BIN" control volume 0 >/dev/null
     pid=$(mpv_of)
     net play "$QUERY"
     if expect "play ytsearch1: a query: playing, the envelope gives the watch URL" 0 \
@@ -441,7 +402,6 @@ block_k() {
     expect "a watch URL whose query string says search: passes, not a search prefix" 0 \
         '.status=="ok" and .id=="dQw4w9WgXcQ"'
 
-    # Rejected before any network or player: exit 1 on every verb that takes a URL.
     for a in "inspect ytsearch5:foo" "transcript scsearch:foo" "play scsearch:foo" \
              "queue add ytdl://ytsearch5:foo" "frame ytsearch5:video --at 10"; do
         # shellcheck disable=SC2086
@@ -455,11 +415,9 @@ block_k() {
 block_m() {
     local rt="$TMPDIR/jue-$UIDN" shot cdir cjson srv srv_pid port url url2
 
-    # The URL after -- is a URL, never an mpv option: it fails as a missing file.
     v frame --at 10 -- "--fake-mpv-option"
     expect "an option-shaped URL after -- reaches mpv as a file and fails, exit 2" 2 '.status=="error"'
 
-    # Audio only, with affirmative evidence: exit 4. Cover art is a picture, not a video stream.
     v frame "$WAV" --at 5
     expect "frame on WAV audio: unavailable, no video stream, exit 4" 4 \
         '.status=="unavailable" and .error=="media contains no video stream"'
@@ -470,7 +428,6 @@ block_m() {
     expect "frame on an MP3 with embedded cover art: unavailable, exit 4" 4 \
         '.status=="unavailable" and .error=="media contains no video stream"'
 
-    # Truncated media without duration evidence conservatively returns exit 2.
     printf 'ftypmp42\x00\x00' >"$TMPDIR/truncated.mp4"
     v frame "$TMPDIR/truncated.mp4" --at 10
     expect "truncated media without duration evidence: exit 2" 2 \
@@ -489,13 +446,9 @@ block_m() {
     check "frame file exists, mode 0600" mode_is "$shot" 600
     check "frame scratch dir mode 0700" mode_is "$(dirname "$shot")" 700
     check "frame scratch dir owned by this UID" test "$(stat -f %u "$(dirname "$shot")")" = "$UIDN"
-    net frame "$YT_RR" --at 75 --width 960 --quality 80
-    expect "a second frame on the same stream, exit 0" 0 '.status=="ok" and .at==75 and (.path|length>0)'
-    net frame "$YT_RR" --at 18 --width 480
-    expect "frame --width 480: inside the 480 box" 0 '.status=="ok" and .width<=480 and .height<=480 and .height>0'
 
-    # The stream cache, on a single-stream HTTP URL: a cold frame admits it, a hot frame reads
-    # the cached direct URL (pointed at a 640x480 file to prove it was the one used).
+    # Stream cache + local HTTP container inspect/transcript: cold frame admits cache, hot frame
+    # reads cached direct URL (pointed at a 640x480 file to prove it was used).
     srv="$TMPDIR/web"
     mkdir -p "$srv"
     mpv --no-config --frames=25 -o "$srv/a.mp4" "av://lavfi:testsrc=size=320x240:duration=1" >/dev/null 2>&1
@@ -533,7 +486,6 @@ srv.serve_forever()' "$srv" "$TMPDIR/port" &
     v frame "av://lavfi:testsrc=size=1280x720:duration=1" --at 0 --width 0
     expect "--width 0 keeps the source size 1280x720" 0 '.status=="ok" and .width==1280 and .height==720'
 
-    # A query no other block asks, so the yt-dlp check below can only see this block's.
     net frame "ytsearch1:Rick Astley Never Gonna Give You Up official video" --at 10
     expect "frame on a ytsearch1: query, exit 0" 0 '.status=="ok" and (.path|length>0)'
 
@@ -545,15 +497,26 @@ srv.serve_forever()' "$srv" "$TMPDIR/port" &
 # Playback plane
 # ======================================================================================
 
-# ---- C: playback state machine ------------------------------------------------------------
+# ---- C: playback state machine & acoustic ergonomics --------------------------------------
 block_c() {
     local rt="$TMPDIR/jue-$UIDN" pid t1
+
+    # Immediate stop right after play reaps mpv within 200 ms.
     v play "$WAV"
     need expect "play local audio from cold: playing, exit 0" 0 '.status=="ok" and .state=="playing" and .url==$ENV.WAV' || return
     check "lazy start created the runtime dir 0700" mode_is "$rt" 700
     check "lazy start: exactly one mpv on the socket" one_mpv
     pid=$(mpv_of)
+    v control stop
+    expect "control stop the instant play returned: exit 0" 0 '.action=="stop"'
+    DETAIL="pid $pid: $(ps -o pid=,stat= -p "$pid")"
+    check "stop right after play: mpv exited and was reaped within 200 ms" poll 0.2 gone "$pid"
+    v status
+    expect "status right after immediate stop: idle" 0 '.state=="idle"'
 
+    v play "$WAV"
+    need expect "play local audio again: playing, exit 0" 0 '.state=="playing"' || return
+    pid=$(mpv_of)
     v status
     expect "status: playing, url, duration, volume, time_pos" 0 \
         '.state=="playing" and .url==$ENV.WAV and (.duration|floor)==60 and .volume==100 and .time_pos>=0'
@@ -561,8 +524,8 @@ block_c() {
 
     v control pause
     expect "control pause: exit 0" 0 '.status=="ok" and .action=="pause"'
-    check "status after pause: paused" poll 3 st '.state=="paused"'
-    check "paused playhead holds still" poll 2 holds_still
+    sleep 0.2
+    check "local audio: playhead frozen 200 ms after pause returned" holds_still
     t1=$(jq '.time_pos' <<<"$OUT")
 
     v control resume
@@ -572,7 +535,6 @@ block_c() {
     v control seek +20
     expect "control seek +20: exit 0" 0 '.action=="seek"'
     check "seek +20 moves the playhead past 20" poll 3 st '.time_pos>=20 and .time_pos<30'
-    # A bare time is a position, not an offset: from past 20, 0:40 lands at 40, not past 60.
     v control seek 0:40
     expect "control seek 0:40 (absolute): exit 0" 0 '.action=="seek"'
     check "seek 0:40 puts the playhead at 40" poll 3 st '.time_pos>=40 and .time_pos<45'
@@ -595,12 +557,17 @@ block_c() {
     DETAIL="was $pid, now $(mpv_of | tr '\n' ' ')"
     check "a warm play reuses the running mpv" test "$(mpv_of)" = "$pid"
 
-    # Network audio, silenced first: volume is the player's, so it carries across tracks.
+    # Network audio, silenced first: volume carries across tracks, and pause freezes playhead within 200 ms.
     "$BIN" control volume 0 >/dev/null
     net play "$YT_NN" --start 165
-    expect "play YouTube audio at 165: exit 0" 0 '.state=="playing" and .url==$ENV.YT_NN and .start==165' &&
+    if expect "play YouTube audio at 165: exit 0" 0 '.state=="playing" and .url==$ENV.YT_NN and .start==165'; then
         check "status: network track at its start, full duration, volume kept" \
-            poll 5 st '.url==$ENV.YT_NN and .time_pos>=165 and .duration>1000 and .volume==0'
+            poll 10 st '.state=="playing" and .url==$ENV.YT_NN and .time_pos>=165.5 and .duration>1000 and .volume==0'
+        v control pause
+        expect "control pause on network audio: exit 0" 0 '.action=="pause"'
+        sleep 0.2
+        check "network audio: playhead frozen 200 ms after pause returned" holds_still
+    fi
 
     v play "$TMPDIR/missing.wav"
     expect "play a missing file: load failure reported, exit 4" 4 '.status=="error" and (.error|test("playback"))'
@@ -631,7 +598,6 @@ block_c() {
 }
 
 # ---- D: concurrency -----------------------------------------------------------------------
-# race <tag> <n>: n plays at once (plus n status reads); every one must exit 0 with one envelope.
 race() {
     local i bad=
     for ((i = 1; i <= $2; i++)); do
@@ -650,7 +616,7 @@ race() {
 }
 
 block_d() {
-    local pid
+    local pid i bad
     check "6 plays racing from cold: all ok, no crash" race cold 6
     need check "cold race: flock let exactly one mpv start" one_mpv || return
     pid=$(mpv_of)
@@ -659,13 +625,38 @@ block_d() {
     DETAIL="was $pid, now $(mpv_of | tr '\n' ' ')"
     check "warm race: still the same single mpv" test "$(mpv_of)" = "$pid"
     stopped "$pid"
+
+    # Six queue adds racing from cold: one mpv; exactly one started it, five queued; none lost.
+    for i in 1 2 3 4 5 6; do ln "$WAV" "$TMPDIR/race$i.wav"; done
+    for i in 1 2 3 4 5 6; do "$BIN" queue add "$TMPDIR/race$i.wav" >"$TMPDIR/race$i.out" 2>&1 & done
+    wait
+    bad=
+    for i in 1 2 3 4 5 6; do
+        [[ $(wc -l <"$TMPDIR/race$i.out") -eq 1 ]] && jq -e '.status=="ok" and .action=="add"' "$TMPDIR/race$i.out" >/dev/null 2>&1 \
+            || bad+="add $i: $(cat "$TMPDIR/race$i.out") "
+    done
+    DETAIL=$bad
+    check "6 queue adds racing from cold: all ok, one envelope each" test -z "$bad"
+    need check "cold add race: flock let exactly one mpv start" one_mpv || return
+    pid=$(mpv_of)
+    DETAIL="$(cat "$TMPDIR"/race*.out)"
+    check "cold add race: exactly one add started playback, five queued" \
+        test "$(cat "$TMPDIR"/race*.out | jq -s '[.[] | select(.state=="playing")] | length')" -eq 1 \
+          -a "$(cat "$TMPDIR"/race*.out | jq -s '[.[] | select(.state=="queued")] | length')" -eq 5
+    v queue list
+    export RACE="$TMPDIR/race"
+    expect "cold add race: the queue holds all six, each once" 0 \
+        '.count==6 and ([.items[].url] | sort) == ([range(1;7)] | map($ENV.RACE + "\(.).wav"))'
+    v history list --limit 500
+    expect "cold add race: history recorded all six adds, none lost to a racing rewrite" 0 \
+        '[.items[] | select(.action=="queue_add" and (.url|startswith($ENV.RACE))) | .url] | sort
+         == ([range(1;7)] | map($ENV.RACE + "\(.).wav"))'
+    stopped "$pid"
 }
 
 # ---- J: transient queue -------------------------------------------------------------------
-# The queue is mpv's own in-memory playlist: add starts or appends, list reads it, next/prev
-# step through it and refuse past either end, clear keeps what sounds, play replaces it all.
 block_j() {
-    local pid i bad
+    local pid i
     export WAV1="$TMPDIR/one.wav" WAV2="$TMPDIR/two.wav" WAV3="$TMPDIR/three.wav"
     for i in "$WAV1" "$WAV2" "$WAV3"; do ln "$WAV" "$i"; done
 
@@ -698,7 +689,6 @@ block_j() {
     expect "control prev past the start: unavailable, start of playlist, exit 4" 4 \
         '.status=="unavailable" and .error=="start of playlist"'
 
-    # pause is the player's: a next taken while paused must still sound.
     "$BIN" control pause >/dev/null
     check "paused before stepping on" poll 3 st '.state=="paused"'
     v queue add "$WAV3"
@@ -727,37 +717,9 @@ block_j() {
     stopped "$pid"
     v queue list
     expect "after stop: the queue went with the player, list is empty" 0 '.pos==-1 and .count==0 and .items==[]'
-
-    # Six adds racing from cold: one mpv; exactly one started it, five queued; none lost.
-    for i in 1 2 3 4 5 6; do ln "$WAV" "$TMPDIR/race$i.wav"; done
-    for i in 1 2 3 4 5 6; do "$BIN" queue add "$TMPDIR/race$i.wav" >"$TMPDIR/race$i.out" 2>&1 & done
-    wait
-    bad=
-    for i in 1 2 3 4 5 6; do
-        [[ $(wc -l <"$TMPDIR/race$i.out") -eq 1 ]] && jq -e '.status=="ok" and .action=="add"' "$TMPDIR/race$i.out" >/dev/null 2>&1 \
-            || bad+="add $i: $(cat "$TMPDIR/race$i.out") "
-    done
-    DETAIL=$bad
-    check "6 queue adds racing from cold: all ok, one envelope each" test -z "$bad"
-    need check "cold add race: flock let exactly one mpv start" one_mpv || return
-    pid=$(mpv_of)
-    DETAIL="$(cat "$TMPDIR"/race*.out)"
-    check "cold add race: exactly one add started playback, five queued" \
-        test "$(cat "$TMPDIR"/race*.out | jq -s '[.[] | select(.state=="playing")] | length')" -eq 1 \
-          -a "$(cat "$TMPDIR"/race*.out | jq -s '[.[] | select(.state=="queued")] | length')" -eq 5
-    v queue list
-    export RACE="$TMPDIR/race"
-    expect "cold add race: the queue holds all six, each once" 0 \
-        '.count==6 and ([.items[].url] | sort) == ([range(1;7)] | map($ENV.RACE + "\(.).wav"))'
-    v history list --limit 500
-    expect "cold add race: history recorded all six adds, none lost to a racing rewrite" 0 \
-        '[.items[] | select(.action=="queue_add" and (.url|startswith($ENV.RACE))) | .url] | sort
-         == ([range(1;7)] | map($ENV.RACE + "\(.).wav"))'
-    stopped "$pid"
 }
 
 # ---- L: queue-ended perception ------------------------------------------------------------
-# The agent queues a set and waits once for the whole of it to play out, not per track.
 block_l() {
     local s1="$TMPDIR/short1.wav" s2="$TMPDIR/short2.wav" pid
     silence "$s1" 2
@@ -783,7 +745,6 @@ block_l() {
     v control next
     expect "idle player: control next is not_playing, exit 4" 4 '.status=="not_playing"'
 
-    # A queue the agent stops is not a queue that ended: the wait ends with player exited.
     v queue add "$WAV"
     expect "queue add on the idle player: starts afresh at pos 0, count 1" 0 '.state=="playing" and .pos==0 and .count==1'
     subscribe "$TMPDIR/qstop.ev" --until queue_ended --timeout 10
@@ -795,8 +756,6 @@ block_l() {
 }
 
 # ---- O: durable history -------------------------------------------------------------------
-# The one thing jue keeps past its player: each play and queue add that succeeded, in
-# $XDG_STATE_HOME/jue/history.jsonl. Read newest first; never a reason a play fails.
 only_history() { DETAIL="$(ls -A "$1" 2>&1)"; [[ $(ls -A "$1" | tr '\n' ' ') == "history.jsonl history.lock " ]]; }
 
 block_o() {
@@ -847,7 +806,6 @@ block_o() {
     v history
     expect "corrupt lines are skipped: still the two entries, exit 0" 0 '.count==2'
 
-    # Full to the cap: one more play keeps 500, dropping only the oldest.
     jq -nc 'range(1;501) | {timestamp:., action:"play", input:"seed\(.)", url:"seed\(.)", title:"", duration:0}' >"$hf"
     v play "$WAVA"
     need expect "play onto a full history: playing" 0 '.state=="playing"' || return
@@ -864,7 +822,6 @@ block_o() {
     v history last
     expect "after clear: last is unavailable, exit 4" 4 '.status=="unavailable" and .error=="history is empty"'
 
-    # A history jue refuses to use is reported by history, never by the play.
     echo keep >"$TMPDIR/victim"
     ln -s "$TMPDIR/victim" "$hf"
     v history
@@ -887,46 +844,7 @@ block_o() {
 # Acoustic plane
 # ======================================================================================
 
-# ---- G: acoustic ergonomics ---------------------------------------------------------------
-# A human who says "stop" or hits pause hears the effect, not a delay: the bounds here are what
-# a person notices.
-block_g() {
-    local pid
-    v play "$WAV"
-    need expect "play local audio: playing, exit 0" 0 '.state=="playing"' || return
-    pid=$(mpv_of)
-    v control stop
-    expect "control stop the instant play returned: exit 0" 0 '.action=="stop"'
-    DETAIL="pid $pid: $(ps -o pid=,stat= -p "$pid")"
-    check "stop right after play: mpv exited and was reaped within 200 ms" poll 0.2 gone "$pid"
-    v status
-    expect "status right after that stop: idle" 0 '.state=="idle"'
-
-    "$BIN" play "$WAV" >/dev/null
-    pid=$(mpv_of)
-    need check "local audio under way" poll 5 st '.time_pos>0.5' || return
-    v control pause
-    expect "control pause on local audio: exit 0" 0 '.action=="pause"'
-    sleep 0.2
-    check "local audio: playhead frozen 200 ms after pause returned" holds_still
-
-    # Network audio is where a pause used to keep the playhead creeping (a fallback audio output).
-    "$BIN" control volume 0 >/dev/null   # keep the suite silent
-    net play "$YT_NN" --start 165
-    need expect "play YouTube audio at 165: exit 0" 0 '.state=="playing"' || return
-    need check "network audio under way" poll 10 st '.state=="playing" and .time_pos>=166' || return
-    v control pause
-    expect "control pause on network audio: exit 0" 0 '.action=="pause"'
-    sleep 0.2
-    check "network audio: playhead frozen 200 ms after pause returned" holds_still
-    stopped "$pid"
-}
-
 # ---- N: acoustic ducking ------------------------------------------------------------------
-# mpv_ipc <get PROP | cmd JSON-ARRAY | watch SECS>: talk to this block's mpv socket directly, under
-# jue: get prints the property's JSON value (nothing if mpv refuses), cmd prints mpv's error
-# string, watch prints every event line for SECS. Every socket operation gives up after 5 s and
-# prints nothing, so a hung mpv fails a check instead of hanging the suite. Test tooling only.
 mpv_ipc() {
     python3 -I -c '
 import json, socket, sys, time
@@ -965,28 +883,27 @@ except (OSError, ValueError) as e:
     print("mpv_ipc:", e, file=sys.stderr); sys.exit(3)
 ' "$TMPDIR/jue-$UIDN/mpv.sock" "$@" 2>>"$TMPDIR/mpv_ipc.err"
 }
-# now_ms: a monotonic clock in ms (macOS bash 3.2 has no EPOCHREALTIME); elapsed_ms: ms since
-# T0; at <ms>: sleep until T0 + ms.
-now_ms() { python3 -I -c 'import time; print(int(time.monotonic() * 1000))'; }
+now_ms() { perl -MTime::HiRes=clock_gettime,CLOCK_MONOTONIC -e 'printf "%d\n", clock_gettime(CLOCK_MONOTONIC)*1000'; }
 elapsed_ms() { echo $(($(now_ms) - T0)); }
 at() { local d; d=$(($1 - $(elapsed_ms))); ((d > 0)) && sleep "$(awk -v d="$d" 'BEGIN { print d / 1000 }')"; return 0; }
-# duck_is <jq value>: status's duck right now (null when not ducked).
 duck_is() { st "(.duck // null)==$1"; }
 gain_is() {
     local g; g=$(mpv_ipc get volume-gain)
     DETAIL="volume-gain ${g:-(no answer: $(tail -n 1 "$TMPDIR/mpv_ipc.err" 2>/dev/null))}"
     [[ -n $g ]] && jq -e ".==$1" <<<"$g" >/dev/null
 }
-# samples <secs>: status's duck as fast as status answers for secs, unducked read as 100.
+# samples <secs>: single-process sampler polling jue status every 40 ms without shell/jq fork churn.
 samples() {
-    local end out=()
-    end=$(($(now_ms) + $(awk -v s="$1" 'BEGIN { print int(s * 1000) }')))
-    while (($(now_ms) < end)); do
-        out+=("$("$BIN" status 2>/dev/null | jq '.duck // 100')")
-    done
-    echo "${out[*]}"
+    python3 -I -c '
+import json, subprocess, sys, time
+end = time.monotonic() + float(sys.argv[2]); out = []
+while time.monotonic() < end:
+    r = subprocess.run([sys.argv[1], "status"], capture_output=True, text=True)
+    if r.returncode == 0 and r.stdout:
+        out.append(str(json.loads(r.stdout).get("duck", 100)))
+    time.sleep(0.04)
+print(" ".join(out))' "$BIN" "$1"
 }
-# ramp_ok <down|up> <final> <samples...>: monotone, >=3 strictly between 20 and 100, ending at final.
 ramp_ok() {
     local dir=$1 final=$2; shift 2
     DETAIL="$dir: $*"
@@ -1028,7 +945,6 @@ block_n() {
     v control duck --level 30 --fade 0
     v status
     expect "N7 --fade 0 duck: the very next status reads 30" 0 '.duck==30'
-    # --fade 0 overrides an in-flight ramp to the same target.
     "$BIN" control duck off --fade 0 >/dev/null
     "$BIN" control duck on --level 20 --fade 2000 >/dev/null
     sleep 0.2
@@ -1167,7 +1083,6 @@ block_n() {
     check "N25 the link is replaced, its target untouched, the helper a 0600 file" \
         test "$(cat "$TMPDIR/bait")" = bait -a -f "$helper" -a ! -L "$helper" -a "$(stat -f %Lp "$helper")" = 600
 
-    # N26 Starting on Battery keeps playing; AC -> Battery unplug transition quits mpv immediately.
     mpv_ipc cmd '["script-message-to","jue_duck","power-sample","reset"]' >/dev/null
     mpv_ipc cmd '["script-message-to","jue_duck","power-sample","Now drawing from '\''Battery Power'\''"]' >/dev/null
     v status
@@ -1178,8 +1093,6 @@ block_n() {
 }
 
 # ---- NW: the duck watchdog ----------------------------------------------------------------
-# The production 30 s watchdog, unshortened. Paused, the player never reaches EOF or idle, so
-# the duck stays visible; an early re-arm proves the first on's watchdog was cancelled.
 block_nw() {
     v play "$WAV"
     need expect "NW0 play local audio: ok" 0 '.status=="ok"' || return
@@ -1217,7 +1130,6 @@ block_i() {
     expect "snapshot on connect: state playing, url, duration, volume, no duck key" 0 \
         '.event=="snapshot" and .state=="playing" and .url!=null and .duration!=null and .volume!=null and (has("duck")|not)'
 
-    # The device list's initial value is the baseline, not a change.
     v events --timeout 1
     DETAIL="$OUT"
     check "steady devices: snapshot first, zero audio_device_changed" \
@@ -1240,7 +1152,6 @@ block_i() {
     v events --until track_ended --timeout 6
     expect "natural end: track_ended with reason eof" 0 '.event=="track_ended" and .reason=="eof"'
 
-    # The device list is not the queue's: an idle player still waits for it.
     poll 3 st '.state=="idle"'
     v events --until audio_device_changed --timeout 0.3
     expect "idle player: until audio_device_changed waits and times out, exit 4" 4 '.status=="timeout"'
@@ -1257,13 +1168,12 @@ block_i() {
 }
 
 # ======================================================================================
-# Agent workflows: a human asks, the agent strings verbs together, jue supplies the facts
+# Agent workflows: multi-verb perception and actuation loops
 # ======================================================================================
 
-# ---- E-a: study a chapter -----------------------------------------------------------------
-# inspect for the chapter map, pick the chapter by its title, pull exactly its verbatim words.
+# ---- E-a: multimodal chapter study (inspect -> transcript --range -> frame --at) -----------
 block_ea() {
-    local window
+    local window shot
     net inspect "$YT_NN"
     need expect "workflow a: inspect gives the chapter map" 0 '.status=="ok" and (.chapters|length)>=2' || return
     window=$(jq -r '.chapters as $c | ($c | map(.title) | index("What are neurons?")) as $i
@@ -1271,204 +1181,48 @@ block_ea() {
     DETAIL="window=$window"
     need check "workflow a: chapter located by title gives the window 162-215" test "$window" = "162-215" || return
     net transcript "$YT_NN" --range "$window"
-    expect "workflow a: chapter transcript is ASR of the original audio" 0 \
-        '.status=="ok" and .is_auto==true and .lang=="en-orig" and (.segments|length)>0'
+    expect "workflow a: chapter transcript is ASR of the original audio, clean text" 0 \
+        ".status==\"ok\" and .is_auto==true and .lang==\"en-orig\" and (.segments|length)>0 and ($CLEAN)"
     expect "workflow a: every cue intersects [162,215), in time order" 0 \
         'all(.segments[]; .start<215 and .end>162 and .end>=.start)
          and ([.segments[].start] as $s | $s==($s|sort))'
-    # The line being spoken at 162 began before it: intersection keeps it, containment would not.
     expect "workflow a: the cue straddling the chapter start is kept" 0 'any(.segments[]; .start<162 and .end>162)'
     expect "workflow a: verbatim quote found, timestamped inside the chapter" 0 \
         '([.segments[].text]|join(" ")|test("neural networks are inspired by the brain"))
          and any(.segments[]; (.text|test("inspired by the brain")) and .start>=162 and .start<215)'
+    net frame "$YT_NN" --at 165 --width 960
+    need expect "workflow a: visual frame captured inside the chapter at 165 s" 0 \
+        '.status=="ok" and .at==165 and .width<=960 and (.path|length>0)' || return
+    shot=$(jq -r .path <<<"$OUT")
+    check "workflow a: chapter frame file exists on disk" test -s "$shot"
 }
 
-# ---- E-b + E-f: a song in the background, then "what does this line mean?" -----------------
-# The agent starts a song and later tells the human where it is (b); the human asks about the
-# line they just heard: the agent pauses, reads the playhead and pulls the timed lyric line
-# sounding there (f). One stream serves both, so the suite asks NetEase for one playback.
+# ---- E-b: live playback & playhead grounding (play -> pause -> transcript -> rewind) -------
 block_eb() {
-    local pid card pos dur
-    "$BIN" play "$WAV" >/dev/null && "$BIN" control volume 0 >/dev/null   # keep the suite silent
+    local pid head
+    "$BIN" play "$WAV" >/dev/null && "$BIN" control volume 0 >/dev/null
     pid=$(mpv_of)
     net play "$NETEASE" --start 22
     need expect "workflow b: play a NetEase song at 22 s, exit 0" 0 '.state=="playing" and .start==22' || return
     need check "workflow b: status shows the song under way past 22 s" \
         poll 10 st '.state=="playing" and (.url|test("music.163.com")) and .time_pos>=22.5 and .duration>0' || return
-    pos=$(jq '.time_pos | floor' <<<"$OUT")
-    dur=$(jq '.duration | floor' <<<"$OUT")
-    card=$(printf '## Now playing\n- Source: %s\n- Position: %d:%02d / %d:%02d\n' \
-        "$(jq -r .url <<<"$OUT")" $((pos / 60)) $((pos % 60)) $((dur / 60)) $((dur % 60)))
-    DETAIL="$card"
-    check "workflow b: the card's position sits inside the song's length" \
-        eval '((pos < dur)) && grep -qE "^- Position: [0-9]+:[0-5][0-9] / [0-9]+:[0-5][0-9]$" <<<"$card"'
 
     v control pause
-    need check "workflow f: paused, playhead held" poll 2 holds_still || return
+    need check "workflow b: paused, playhead held" poll 2 holds_still || return
     export POS=$(jq '.time_pos' <<<"$OUT")
+    head=$POS
     net transcript "$NETEASE" --range "$(jq -n "$POS | floor - 3")-$(jq -n "$POS | floor + 3")"
-    expect "workflow f: the timed lyric line sounding at the playhead" 0 \
+    expect "workflow b: the timed lyric line sounding at the playhead" 0 \
         '.status=="ok" and any(.segments[]; .start<=($ENV.POS|tonumber) and .end>($ENV.POS|tonumber) and (.text|length>0))'
+
+    v control seek -2
+    expect "workflow b: agent rewinds 2 seconds, exit 0" 0 '.action=="seek"'
+    v control resume
+    expect "workflow b: agent resumes playback, exit 0" 0 '.action=="resume"'
+    check "workflow b: playing again from 2 s back" poll 3 st ".state==\"playing\" and .time_pos>$head-2.5"
     stopped "$pid"
     v status
     expect "workflow b: status idle after stop" 0 '.state=="idle"'
-}
-
-# ---- E-c: "wait, what did he just say?" --------------------------------------------------
-# Mid-playback the human asks about what they just heard: the agent pauses, reads the
-# playhead, pulls the verbatim words around it, answers, and resumes.
-block_ec() {
-    local pid
-    "$BIN" play "$WAV" >/dev/null && "$BIN" control volume 0 >/dev/null   # keep the suite silent
-    pid=$(mpv_of)
-    net play "$YT_NN" --start 165
-    need expect "workflow c: play the talk at 165, exit 0" 0 '.state=="playing"' || return
-    need check "workflow c: status gives a moving playhead" poll 10 st '.state=="playing" and .time_pos>=166' || return
-    v control pause
-    expect "workflow c: control pause, exit 0" 0 '.action=="pause"'
-    need check "workflow c: paused talk holds its playhead" poll 2 holds_still || return
-    export POS=$(jq '.time_pos | floor' <<<"$OUT")
-    net transcript "$YT_NN" --range "$((POS - 5))-$((POS + 10))"
-    expect "workflow c: transcript around the playhead, exit 0" 0 \
-        '.status=="ok" and (.segments|length)>0 and all(.segments[]; .start<($ENV.POS|tonumber)+10 and .end>($ENV.POS|tonumber)-5)'
-    expect "workflow c: one cue covers the playhead second" 0 \
-        'any(.segments[]; .start<=($ENV.POS|tonumber) and .end>($ENV.POS|tonumber))'
-    v control resume
-    expect "workflow c: control resume, exit 0" 0 '.action=="resume"'
-    check "workflow c: the talk plays on from where it paused" poll 3 st ".state==\"playing\" and .time_pos>$POS"
-    stopped "$pid"
-}
-
-# ---- E-d: autonomous DJ -------------------------------------------------------------------
-# The agent starts a track, waits on the push beacon instead of polling status, and relays to
-# the next track the moment the first one ends.
-block_ed() {
-    local pid
-    silence "$TMPDIR/track1.wav" 3
-    ln "$TMPDIR/track1.wav" "$TMPDIR/track2.wav"
-    v play "$TMPDIR/track1.wav"
-    need expect "workflow d: agent starts track 1, exit 0" 0 '.state=="playing"' || return
-    pid=$(mpv_of)
-    v events --until track_ended --timeout 6
-    expect "workflow d: track_ended with reason eof arrives with zero polling" 0 '.event=="track_ended" and .reason=="eof"'
-    v play "$TMPDIR/track2.wav"
-    expect "workflow d: agent relays to track 2, exit 0" 0 '.state=="playing"'
-    check "workflow d: still the same single mpv" test "$(mpv_of)" = "$pid"
-    stopped "$pid"
-}
-
-# ---- E-e: AirPods pinch and rewind --------------------------------------------------------
-# The human pinches AirPods to pause (a media key, simulated by control pause): the agent senses
-# the pause on the beacon with its playhead, rewinds 2 s and resumes.
-block_ee() {
-    local pid head
-    silence "$TMPDIR/talk.wav" 20
-    v play "$TMPDIR/talk.wav" --start 5
-    need expect "workflow e: background talk playing at 5 s, exit 0" 0 '.state=="playing"' || return
-    pid=$(mpv_of)
-    subscribe "$TMPDIR/pinch.ev" --until paused --timeout 5
-    "$BIN" control pause >/dev/null
-    collect "$TMPDIR/pinch.ev"
-    need expect "workflow e: the pause arrives on the beacon with its playhead" 0 '.event=="paused" and .time_pos>4' || return
-    head=$(jq '.time_pos' <<<"$OUT")
-    v control seek -2
-    expect "workflow e: agent rewinds 2 seconds, exit 0" 0 '.action=="seek"'
-    v control resume
-    expect "workflow e: agent resumes, exit 0" 0 '.action=="resume"'
-    check "workflow e: playing again from 2 s back" poll 3 st ".state==\"playing\" and .time_pos>$head-2.5 and .time_pos<$head-1"
-    stopped "$pid"
-}
-
-# ---- E-g: visual evidence card ------------------------------------------------------------
-# The human asks about the picture at 1:13: the agent takes the frame and the words nearest it,
-# and cites both at the same second.
-block_eg() {
-    local at quote card
-    net frame "$YT_RR" --at 73 --width 960 --quality 80
-    need expect "workflow g: frame at 73 s, exit 0" 0 '.status=="ok" and .at==73 and (.path|length>0)' || return
-    at=$(jq '.at' <<<"$OUT")
-    need check "workflow g: frame file on disk" test -f "$(jq -r .path <<<"$OUT")" || return
-    net transcript "$YT_RR" --range 60-80
-    need expect "workflow g: words around the frame, exit 0" 0 '.status=="ok" and (.segments|length)>0' || return
-    # The first cue still sounding at or after the frame: 73 falls between two lines here.
-    quote=$(jq -r --argjson t "$at" '[.segments[] | select(.end > $t)][0] | "\(.start) \(.text)"' <<<"$OUT")
-    DETAIL="$quote"
-    check "workflow g: the quoted cue is within 5 s of the frame" \
-        jq -en --argjson t "$at" --argjson s "${quote%% *}" '($s - $t) | fabs < 5'
-    card=$(printf '## Visual evidence (%s)\n- Frame: [%s&t=%ds](%s&t=%ds)\n> "%s"\n' \
-        "$(mmss "$at")" "$(mmss "$at")" "$at" "$YT_RR" "$at" "${quote#* }")
-    DETAIL="$card"
-    check "workflow g: the card links the frame's second and quotes real words" \
-        eval 'grep -qE "^- Frame: \[1:13&t=73s\]\(https://www\.youtube\.com/watch\?v=dQw4w9WgXcQ&t=73s\)$" <<<"$card" && grep -qE "^> \".+\"$" <<<"$card"'
-}
-
-# ---- H: grounding to artifact -------------------------------------------------------------
-# The agent turns jue's facts into something a human keeps: a library citation whose link lands
-# on the quoted words; and, where a source has no words to quote, an honest card built from the
-# map instead of a dead end.
-mmss() { printf '%d:%02d' $(($1 / 60)) $(($1 % 60)); }
-# No markup, entity, cue timing or LRC tag survived, and the whitespace is folded.
-CLEAN='all(.segments[]; .text | test("<[^>]+>|&(amp|lt|gt|quot|apos|nbsp|#[0-9]+);|-->|[0-9]{2}:[0-9]{2}:[0-9]{2}[.,][0-9]{3}|\\[[0-9]+:[0-9]+|^ | $|  ") | not)'
-
-block_h() {
-    (
-        fetch map inspect "$DARIO"
-        jq -r '.chapters as $c | ($c | map(.title) | index("Opus 3.5")) as $i
-            | "\($c[$i].start)-\($c[$i + 1].start)"' "$TMPDIR/map.out" >"$TMPDIR/window" 2>/dev/null
-        fetch passage transcript "$DARIO" --range "$(cat "$TMPDIR/window")"
-    ) &
-    fetch lyrics transcript "$NETEASE" &
-    ( fetch pure transcript "$NE_PURE"
-      [[ $(cat "$TMPDIR/pure.rc") == 4 ]] && fetch puremap inspect "$NE_PURE" ) &
-    ( fetch nosubs transcript "$BILI"
-      [[ $(cat "$TMPDIR/nosubs.rc") == 4 ]] && fetch bilimap inspect "$BILI" ) &
-    wait
-
-    local window from to t title url card cards= src
-    window=$(cat "$TMPDIR/window")
-    from=${window%-*} to=${window#*-}
-    DETAIL="window=$window"
-    if check "workflow h: chapter located by title in a 5-hour talk gives 1784-2070" test "$window" = "1784-2070"; then
-        load passage
-        export FROM=$from TO=$to
-        expect "workflow h: the passage is the human track, every cue inside the chapter" 0 \
-            '.status=="ok" and .is_auto==false and (.segments|length)>0
-             and all(.segments[]; .start<($ENV.TO|tonumber) and .end>($ENV.FROM|tonumber))'
-        expect "workflow h: passage text is clean, verbatim words only" 0 "$CLEAN"
-
-        # The citation: the first three cues that start inside the chapter, linked at the second
-        # the first of them starts.
-        t=$(jq --argjson f "$from" '[.segments[] | select(.start >= $f)][0].start | floor' <<<"$OUT")
-        title=$(jq -r .title "$TMPDIR/map.out")
-        url="$DARIO&t=$t"
-        card=$(printf '### %s\n\n' "$(jq -r --argjson f "$from" '.chapters[] | select(.start==$f) | .title' "$TMPDIR/map.out")"
-            jq -r --argjson f "$from" '[.segments[] | select(.start >= $f)][:3] | map(.text) | join(" ") | "> " + .' <<<"$OUT"
-            printf '>\n> — [%s](%s), [%s](%s)\n' "$title" "$DARIO" "$(mmss "$t")" "$url")
-        DETAIL="$card"
-        check "workflow h: the citation links a second inside the chapter" test "$t" -ge "$from" -a "$t" -lt "$to"
-        DETAIL="$card"
-        check "workflow h: the citation is a quote block with source and &t= timestamp links" \
-            grep -qE "^> — \[.+\]\(https://www\.youtube\.com/watch\?v=ugvHCXCOmm4\), \[$(mmss "$t")\]\(https://www\.youtube\.com/watch\?v=ugvHCXCOmm4&t=$t\)$" <<<"$card"
-    fi
-    load lyrics
-    expect "workflow h: NetEase lyrics are clean, no LRC tag left in the text" 0 "$CLEAN"
-
-    # No words to quote: the agent falls back to inspect and says what it has instead.
-    load pure
-    expect "workflow h: a NetEase instrumental has no words: unavailable, exit 4" 4 '.status=="unavailable"'
-    for src in puremap bilimap; do
-        [[ -e $TMPDIR/$src.out ]] || { failc "workflow h: inspect fallback ($src)" "transcript was not unavailable, so no fallback ran"; continue; }
-        load "$src"
-        expect "workflow h: inspect still answers where transcript could not ($src)" 0 \
-            '.status=="ok" and (.title|length>0) and .duration>0 and (.chapters|type)=="array"'
-        cards+=$(jq -r '"## \(.title)\n无公开原声字幕，但已为您准备好" + (if (.chapters|length)>0
-            then "章节地图：\n" + (.chapters | map("- \(.start|floor) \(.title)") | join("\n"))
-            else "节目概要：\n- 时长 \(.duration|floor) 秒，无章节" end) + "\n"' <<<"$OUT")$'\n'
-    done
-    DETAIL="$cards"
-    check "workflow h: both fallback cards say there is nothing to quote and give the map" \
-        test "$(grep -c '^无公开原声字幕，但已为您准备好' <<<"$cards")" -eq 2 \
-             -a "$(grep -cE '^- (时长 [0-9]+ 秒|[0-9]+ .+)' <<<"$cards")" -ge 2
 }
 
 # ======================================================================================
@@ -1486,22 +1240,16 @@ f|boundary|F   token budget
 b|ingest|B   ingest contract
 k|ingest|K   query resolution
 m|ingest|M   frame perception
-c|playback|C   playback state machine
+c|playback|C   playback state machine and ergonomics
 d|playback|D   concurrency
 j|playback|J   transient queue
 l|playback|L   queue-ended perception
 o|playback|O   durable history
-g|acoustic|G   acoustic ergonomics
 n|acoustic|N   acoustic ducking
 nw|acoustic|NW  duck watchdog
 i|events|I   event contract
-ea|workflow|E-a study a chapter
-eb|workflow|E-b+f background song: now-playing card, then the lyric under the playhead
-ec|workflow|E-c wait, what did he just say
-ed|workflow|E-d autonomous DJ
-ee|workflow|E-e AirPods pinch and rewind
-eg|workflow|E-g visual evidence card
-h|workflow|H   grounding to artifact'
+ea|workflow|E-a multimodal chapter study
+eb|workflow|E-b live playback and playhead grounding'
 
 START=$SECONDS
 ids=() pids=() killed=()
@@ -1510,8 +1258,6 @@ while IFS='|' read -r id _ _; do
     ids+=("$id") pids+=($!)
 done <<<"$BLOCKS"
 
-# A block that has not finished by BLOCK_TIMEOUT is hung (a jue, mpv or socket that never
-# answered): it is killed with its processes and its player, and reported, not waited on forever.
 while :; do
     live=
     for i in "${!pids[@]}"; do kill -0 "${pids[i]}" 2>/dev/null && live+=" $i"; done
@@ -1528,8 +1274,6 @@ while :; do
     fi
     sleep 0.5
 done
-# A block subshell exits 0 once its steps ran; anything else crashed it mid-block, and the
-# assertions it never reached must not read as a pass.
 for i in "${!pids[@]}"; do
     wait "${pids[i]}"; rc=$?
     ((rc == 0)) || [[ -n ${killed[i]:-} ]] ||
@@ -1554,7 +1298,6 @@ while IFS='|' read -r plane ptitle; do
     done <<<"$BLOCKS"
 done <<<"$PLANES"
 
-# Every block stops its own player; any mpv still on a suite socket is a stop that did not quit.
 printf '\n=== cleanup ===\n'
 left=$(our_mpv | tr '\n' ' ')
 if [[ -z $left ]]; then

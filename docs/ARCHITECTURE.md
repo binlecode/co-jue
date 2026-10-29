@@ -1,6 +1,6 @@
 # ARCHITECTURE —— co-jue (jue)
 
-**co-jue**（CLI 二进制命令为 `jue`）—— `co` 生态面向 AI Agent（Claude Code、OpenCode、co-cli、co-s2s）的轻量端侧视听感知与播放微外设（Go 静态单二进制，纯 Go 标准库，代码规模遵循 Need-based 零冗余原则，无 cgo，无第三方依赖，收容于 `~/workspace_genai/co-jue/`）。版本遵循 SemVer 规范，单一数据源声明于根目录 `VERSION`（当前版本：`2.4.2`；演进历史与工程阶段全表见根目录 [`CHANGELOG.md`](../CHANGELOG.md)）。
+**co-jue**（CLI 二进制命令为 `jue`）—— `co` 生态面向 AI Agent（Claude Code、OpenCode、co-cli、co-s2s）的轻量端侧视听感知与播放微外设（Go 静态单二进制，纯 Go 标准库，代码规模遵循 Need-based 零冗余原则，无 cgo，无第三方依赖，收容于 `~/workspace_genai/co-jue/`）。版本遵循 SemVer 规范，单一数据源声明于根目录 `VERSION`（演进历史与工程阶段全表见根目录 [`CHANGELOG.md`](../CHANGELOG.md)）。
 
 ---
 
@@ -246,6 +246,7 @@ mpv 启动时配置 `--input-media-keys=yes`。在 macOS 上原生接管全局�
 - **看门狗不变量**：任何单条指令下发后，最迟 30s **开始**渐显；完全恢复最迟在 30s + 渐显时长。定时器在 mpv 里而非 Agent 里，调用方崩溃不会把音乐锁死在低电平；长对话由调用方每 ≤20s 再发一次 `duck on` 续期。
 - **生命周期**（`volume-gain` 是播放器级属性，助手定时器走墙钟）：暂停、`seek`、`next`/`prev`/队列续播、`play` 替换整队均保持闪避（新曲以闪避电平进入）；暂停中到期照常渐显；队列放毕进入空闲后增益保持、定时器照常，但空闲态 `status` 早返回，不出现 `duck`；空闲中 `duck` 为 4 `not_playing`；`control stop` / mpv 退出时状态随进程消失，下一个 mpv 从 0 dB 开始。
 - **可观测面**：非空闲 `status` 与 `snapshot` 多读一次 `volume-gain`，低于 −0.05 dB 时出现 `duck`（整数，与 `--level` 同刻度的**瞬时**电平百分比，渐变途中读到中间值）；未闪避时信封逐字节不变。
+- **电源与空闲看门狗（v2.4.3）**：`jue_duck.lua` 同时承担两项宿主机能耗防御：(1) 异步轮询 `/usr/bin/pmset -g batt`（非 macOS 首探失败即停用），检测到供电由 `AC Power` 切至 `Battery Power` 时立即执行 `mp.command("quit")` 退出，防止拔电离席后后台继续耗电（电池初态主动起播不受影响）；(2) 监听 `idle-active` 属性，队列播毕空闲满 600s 自动退出守护进程。
 - **局限**：共享 socket 上任何人经 IPC 改写 `volume-gain` 都会被如实呈现为 `duck`，也会被下一次闪避覆盖，不做防御；升级 jue 时 2.1.0 拉起的 mpv 没有助手，提示 stop 后重新 play，不做 `load-script` 热注入（那会把运行时目录外的执行面开放给 IPC）；平滑度受 mpv 按音频块应用增益的颗粒度限制，200ms 渐隐到 20% 单步最大 2.41 dB。
 
 ---
@@ -374,11 +375,13 @@ mpv 启动时配置 `--input-media-keys=yes`。在 macOS 上原生接管全局�
 
 ## 7. 验证与设计镜像公理 (Verification-Design Mirror Axiom)
 
-系统设计坚决贯彻“没有自动化可执行物理断言的设计就是空头支票”原则：
-1. **工作流 1:1 物理镜像**：用户手册与系统总纲所声明的 7 大核心人机工作流，在本地回归套件 `tests/test_suite.sh` 中必须拥有完全对应的端到端用例（Agent workflows 平面的 `Block E-a`、`E-b+f`、`E-c`、`E-d`、`E-e`、`E-g` 与 `Block H`，另有 `Block M` 视觉帧感知契约），零 Mock 驱动真实 mpv 与外部端点；
-2. **两轨感知闭环覆盖**：静轨（Pull）被动事实提取与动轨（Push）主动事件信标（Block I 14 项、Block L 11 项断言）均实现物理核销，包括曲目自然放毕（`reason=="eof"`）、队列放毕（`queue_ended`）、AirPods 硬件急停捕获、初始伪事件去抖与背压安全；
-3. **闪避与设备感知覆盖**：声学闪避（Block N 51 项：非阻塞、渐隐/渐显中间值、续期、音量正交、−96 dB 地板、外部非有限值不污染、零 `audio-reconfig`、跨曲/seek/暂停/替换/放毕/stop 生命周期、旧助手与协议不匹配、符号链接防御）与 30s 看门狗（Block NW 5 项，生产时长不缩短；独立成块以便与 N 并行）由真实 mpv 驱动；设备热插拔无法在套件里构造（不引入虚拟音频驱动），以单元层五项与人工验收覆盖；
-4. **持久历史覆盖**：Block O（33 项）由真实 mpv 驱动核销记录字段、倒序与 `--limit`、0700/0600、跨 stop 存续、失败播放不记、坏行跳过、500 条裁旧、`clear` 与门禁拒收时播放照常；Block J 另核 6 路并发 add 历史零丢失；
-5. **队列与检索契约覆盖**：瞬态队列（Block J 31 项，含 6 路并发冷启动 add 单 mpv 零丢失）与显式检索分流（Block K 15 项，含非白名单前缀与普通 `search_query` URL 的正反例）均由真实 mpv/yt-dlp 驱动核销；
-6. **套件韧性**：端到端套件按六大能力平面（Boundary · Ingest · Playback · Acoustic · Events · Agent workflows）组织，共 21 块 377 项断言；每块独立 `XDG_STATE_HOME`，绝不触碰用户真实历史；跨网动词只对退出码契约定义的瞬态结果（2，或 4 且 `status=="error"`）有界重试；前置条件失败即止于一条 FAIL；每块 300s 看门狗与 `mpv_ipc` 5s 套接字超时保证挂起有界；
-7. **零漂移度量衡**：全生命周期的测试、编译与静态分析在宿主机本地完全闭环；代码规模不设人工行数魔数，遵循 Need-based 零冗余原则——每项新特性必须证明无法由既有原语或 Agent 自身承担，且不得突破纯 Go 标准库与双原语依赖的红线。
+系统设计坚决贯彻“没有自动化可执行物理断言的设计就是空头支票”原则，并严格执行**单元层与端到端层正交分工（零跨层同义反复）**：
+1. **单元层（In-Process · 离线确定性 · 毫秒级）**：`cmd/jue/verbs_test.go` 与 `internal/engine/*_test.go` 负责穷举全部动词语法边界（85+ 项用法闸门）、`VERSION` 单一真源校验、多格式字幕/章节解析状态机（JSON3/VTT/SRT/ASS/LRC/Podcast 2.0/ID3v2）、内存管道 IPC 线协议与并发锁不变量、`firstEntryGuard` 歌单首项截断与进程组强杀、缓存正证据表与 GC 防饥饿；
+2. **端到端层（Real Binary + Real mpv/yt-dlp · 六大平面 15 块 304 项断言）**：
+   - **Boundary（`Block A`, `Block F`）**：0700/符号链接门禁、无播放器零落盘、各动词代表性退出码 1 二进制映射、40 章长视频与字幕切片的派生字节预算上限；
+   - **Ingest（`Block B`, `Block K`, `Block M`）**：章节与时间窗截断、无标签纯净文本（`$CLEAN`）、B 站与网易云纯音乐 `unavailable` 及 `inspect` 兜底、`ytsearch1:` 全动词解析、YouTube/本地 HTTP 容器/外框缩放单帧视觉抽取与直链缓存冷热命中；
+   - **Playback（`Block C`, `Block D`, `Block J`, `Block L`, `Block O`）**：本地与网络音频状态机、200ms 起播即停与暂停冻结声学人机、kill -9 死 socket 自愈、6 路冷/热 `play` 与 6 路冷启动 `queue add` 并发同锁零丢失、瞬态队列状态机、`queue_ended` 感知、持久历史（500 条原子裁旧、坏行跳过、门禁拒收不影响播放）；
+   - **Acoustic（`Block N`, `Block NW`）**：声学闪避（非阻塞、单进程采样渐隐/渐显、续期、音量正交、−96 dB 地板、外部非有限值防御、零 `audio-reconfig`、跨曲/跳转/暂停保持、旧助手与协议不匹配、符号链接防御、AC→Battery 拔电自动退出）与独立并行的 30s 生产墙钟看门狗；
+   - **Events（`Block I`）**：流式 `snapshot`、初值压制、`paused`/`resumed` 边沿、`track_ended`（`eof`/`stopped`）、`audio_device_changed` 基线与空闲等待；
+   - **Agent workflows（`Block E-a`, `Block E-b`）**：剔除所有测试脚本自拼 Markdown 字符串的假断言，收敛为两条跨平面真实闭环——`E-a` 多模态章节研读（`inspect` 锁章 → `transcript --range` 跨界原话 → `frame --at` 章节抽帧）与 `E-b` 实时播放头原话锚定（`play` → `pause` → `status` → `transcript --range` 对齐在唱词 → `seek -2` → `resume` → `stop`）；
+3. **套件韧性与零污染**：每块独立 `TMPDIR` 与 `XDG_STATE_HOME`（绝不触碰用户真实播放器与历史）；跨网动词只对瞬态错误有界重试；每块 300s 看门狗与 `mpv_ipc` 5s 套接字超时保证挂起有界；退出时断言零残留进程与临时目录。

@@ -47,48 +47,37 @@ stop_daemon() {
     echo "    ✔ ${name} 守护已停止并清理沙箱"
 }
 
-stop_legacy_daemon() { stop_daemon ting ting; }
 stop_jue_daemon() { stop_daemon jue jue; }
 
 # -----------------------------------------------------------------------------
 # 卸载逻辑 (--uninstall)
 # -----------------------------------------------------------------------------
 if [[ "${1:-}" == "--uninstall" ]]; then
-    echo "==> 正在卸载 co-jue (v${VERSION}) 及旧版残留..."
-    stop_legacy_daemon
+    echo "==> 正在卸载 co-jue (v${VERSION})..."
     stop_jue_daemon
 
-    for b in jue ting co-ting; do
-        if [[ -f "${BIN_DIR}/$b" || -L "${BIN_DIR}/$b" ]]; then
-            rm -f "${BIN_DIR}/$b"
-            echo "    ✔ 已删除二进制/软链: ${BIN_DIR}/$b"
-        fi
-        if [[ -f "${REPO_DIR}/$b" ]]; then
-            rm -f "${REPO_DIR}/$b"
-            echo "    ✔ 已删除编译产物: ${REPO_DIR}/$b"
-        fi
-    done
+    if [[ -f "${BIN_DIR}/jue" || -L "${BIN_DIR}/jue" ]]; then
+        rm -f "${BIN_DIR}/jue"
+        echo "    ✔ 已删除二进制/软链: ${BIN_DIR}/jue"
+    fi
+    if [[ -f "${REPO_DIR}/jue" ]]; then
+        rm -f "${REPO_DIR}/jue"
+        echo "    ✔ 已删除编译产物: ${REPO_DIR}/jue"
+    fi
 
     for s in \
         "${GLOBAL_SKILLS}" \
-        "${GLOBAL_SKILLS_PARENT}/ting" \
-        "${GLOBAL_SKILLS_PARENT}/co-ting" \
-        "${HOME}/.agents/skills/jue" \
-        "${HOME}/.agents/skills/ting" \
-        "${HOME}/.agents/skills/co-ting" \
-        "${CO_BRAIN_DIR}/skills/co-ting"; do
+        "${HOME}/.agents/skills/jue"; do
         if [[ -L "$s" || -f "$s" ]]; then
             rm -f "$s"
             echo "    ✔ 已移除技能软链: $s"
         fi
     done
 
-    for d in "${CO_BRAIN_SKILLS}" "${CO_BRAIN_DIR}/skills/ting"; do
-        if [[ -d "$d" ]]; then
-            rm -rf "$d"
-            echo "    ✔ 已清理技能目录: $d"
-        fi
-    done
+    if [[ -d "${CO_BRAIN_SKILLS}" ]]; then
+        rm -rf "${CO_BRAIN_SKILLS}"
+        echo "    ✔ 已清理技能目录: ${CO_BRAIN_SKILLS}"
+    fi
 
     if command -v co-doctor >/dev/null 2>&1; then
         echo "==> 运行 co-doctor 全局健康自愈..."
@@ -98,16 +87,13 @@ if [[ "${1:-}" == "--uninstall" ]]; then
         brain-doctor --treat
     fi
 
-    echo "🎉 卸载完成！co-jue 及旧残留已从系统 PATH 与全局 Agent 技能中移除。"
+    echo "🎉 卸载完成！co-jue 已从系统 PATH 与全局 Agent 技能中移除。"
     exit 0
 fi
 
 # -----------------------------------------------------------------------------
 # 安装逻辑 (默认)
 # -----------------------------------------------------------------------------
-# 卸载或安装前若检测到旧 ting 守护，显式优雅停止
-stop_legacy_daemon
-
 echo "==> 1. 检查运行时依赖..."
 missing=0
 for dep in go mpv yt-dlp jq; do
@@ -130,28 +116,21 @@ echo "==> 2. 编译并安装 co-jue CLI (v${VERSION})..."
 mkdir -p "$BIN_DIR"
 (cd "$REPO_DIR" && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o "${REPO_DIR}/jue" ./cmd/jue)
 ln -sfn "${REPO_DIR}/jue" "${BIN_DIR}/jue"
-# 彻底清理可能残留的旧 ting / co-ting 软链
-rm -f "${BIN_DIR}/ting" "${BIN_DIR}/co-ting"
 echo "    ✔ 已安装软链至 ${BIN_DIR}/jue ($("${BIN_DIR}/jue" -V))"
 
 echo "==> 3. 部署并更新全局 Agent Skill..."
 mkdir -p "$CO_BRAIN_SKILLS"
 cp "$REPO_DIR/SKILL.md" "$CO_BRAIN_SKILLS/SKILL.md"
-# 清理 co-brain 中的旧别名软链/目录
-rm -f "${CO_BRAIN_DIR}/skills/co-ting"
-rm -rf "${CO_BRAIN_DIR}/skills/ting"
 echo "    ✔ 已同步至 co-brain 技能库: ${CO_BRAIN_SKILLS}/SKILL.md"
 
 if [[ -d "$GLOBAL_SKILLS_PARENT" ]]; then
     ln -sfn "$CO_BRAIN_SKILLS" "$GLOBAL_SKILLS"
-    rm -f "${GLOBAL_SKILLS_PARENT}/ting" "${GLOBAL_SKILLS_PARENT}/co-ting"
     echo "    ✔ 已建立/刷新全局技能软链: ${GLOBAL_SKILLS}"
 fi
 
-# 确保 ~/.agents/skills/jue 可达，并清理旧软链
+# 确保 ~/.agents/skills/jue 可达
 if [[ -d "${HOME}/.agents/skills" ]]; then
     ln -sfn "$CO_BRAIN_SKILLS" "${HOME}/.agents/skills/jue"
-    rm -f "${HOME}/.agents/skills/ting" "${HOME}/.agents/skills/co-ting"
     echo "    ✔ 已建立 ~/.agents 技能软链: jue"
 fi
 

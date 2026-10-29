@@ -162,19 +162,22 @@ func TestHistoryConcurrentRecords(t *testing.T) {
 func TestHistoryCorruptLines(t *testing.T) {
 	_, dir := isolateState(t)
 	os.MkdirAll(dir, 0700)
-	good, _ := json.Marshal(entry(1))
-	body := "not json\n" + string(good) + "\n{\"timestamp\":\"x\"}\n{}\n\n{\"action\":\"play\",\"url\":\"half" + "\n" +
-		strings.Repeat("z", 2<<20) + "\n"
+	a, _ := json.Marshal(entry(1))
+	b, _ := json.Marshal(entry(2))
+	body := "not json\n" + string(a) + "\n{\"timestamp\":\"x\"}\n{}\n\n{\"action\":\"play\",\"url\":\"half\n" +
+		strings.Repeat("z", 2<<20) + "\n" + string(b) + "\n"
 	if err := os.WriteFile(filepath.Join(dir, "history.jsonl"), []byte(body), 0600); err != nil {
 		t.Fatal(err)
 	}
 	r, err := HistoryList(20)
-	if err != nil || r.Count != 1 || r.Items[0] != entry(1) {
-		t.Fatalf("HistoryList over corrupt lines = %+v, %v; want the one good entry", r, err)
+	if err != nil || r.Count != 2 || r.Items[0] != entry(2) || r.Items[1] != entry(1) {
+		t.Fatalf("HistoryList over corrupt/oversized lines = %+v, %v; want entries 2, 1", r, err)
 	}
-	// The next record rewrites the file clean: the good entry and the new one.
-	recordHistory(entry(2))
-	if r, _ := HistoryList(20); r.Count != 2 || r.Items[0] != entry(2) || r.Items[1] != entry(1) {
+	// The next record rewrites the file clean: the good entries and the new one.
+	if err := recordHistory(entry(3)); err != nil {
+		t.Fatal(err)
+	}
+	if r, _ := HistoryList(20); r.Count != 3 || r.Items[0] != entry(3) || r.Items[1] != entry(2) || r.Items[2] != entry(1) {
 		t.Errorf("after a record over corrupt lines: %+v", r)
 	}
 }
@@ -327,36 +330,6 @@ func TestHistoryFIFORefused(t *testing.T) {
 		wantFail(t, err, 2, "error", "not a regular file")
 	case <-time.After(200 * time.Millisecond):
 		t.Fatal("recordHistory hung on FIFO: O_NONBLOCK missing")
-	}
-}
-
-func TestHistoryOversizedCorruptLine(t *testing.T) {
-	_, dir := isolateState(t)
-	if err := os.Mkdir(dir, 0700); err != nil {
-		t.Fatal(err)
-	}
-	a, _ := json.Marshal(entry(1))
-	b, _ := json.Marshal(entry(2))
-	body := string(a) + "\n" + strings.Repeat("z", 2<<20) + "\n" + string(b) + "\n"
-	if err := os.WriteFile(filepath.Join(dir, "history.jsonl"), []byte(body), 0600); err != nil {
-		t.Fatal(err)
-	}
-	r, err := HistoryList(20)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r.Count != 2 {
-		t.Errorf("before rewrite: got %d valid entries, want 2", r.Count)
-	}
-	if err := recordHistory(entry(3)); err != nil {
-		t.Fatal(err)
-	}
-	r, err = HistoryList(20)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r.Count != 3 {
-		t.Errorf("after rewrite: got %d valid entries, want 3", r.Count)
 	}
 }
 

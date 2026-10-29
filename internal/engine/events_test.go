@@ -76,7 +76,7 @@ func TestEventsSnapshotAndInitialPropertySuppression(t *testing.T) {
 		`{"event":"property-change","id":1,"name":"pause","data":true}`)
 
 	var buf bytes.Buffer
-	if _, err := eventsOn(c, "", 0.3, &buf); err != nil {
+	if _, err := eventsOn(c, "", 0.03, &buf); err != nil {
 		t.Fatalf("eventsOn error: %v", err)
 	}
 	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
@@ -117,7 +117,7 @@ func TestEventsUntilTimeout(t *testing.T) {
 		}
 		return nil
 	})
-	_, err := eventsOn(c, "track_started", 0.1, &bytes.Buffer{})
+	_, err := eventsOn(c, "track_started", 0.03, &bytes.Buffer{})
 	var f *Fail
 	if !errors.As(err, &f) || f.Code != 4 || f.Status != "timeout" {
 		t.Fatalf("expected fail(4, timeout), got: %v", err)
@@ -152,7 +152,7 @@ func TestEventsTrackEndedURLFollowsStartFile(t *testing.T) {
 		`{"event":"start-file","playlist_entry_id":2}`,
 		`{"event":"end-file","reason":"error","playlist_entry_id":2,"file_error":"loading failed"}`)
 	var buf bytes.Buffer
-	if _, err := eventsOn(c, "", 0.3, &buf); err != nil {
+	if _, err := eventsOn(c, "", 0.03, &buf); err != nil {
 		t.Fatal(err)
 	}
 	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
@@ -185,7 +185,7 @@ func TestEventsQueueEndedNotOnStop(t *testing.T) {
 	c := eventsPeer(t, playing("/a.wav"),
 		`{"event":"end-file","reason":"stop","playlist_entry_id":1}`,
 		`{"event":"property-change","id":3,"name":"idle-active","data":true}`)
-	_, err := eventsOn(c, "queue_ended", 0.3, &bytes.Buffer{})
+	_, err := eventsOn(c, "queue_ended", 0.03, &bytes.Buffer{})
 	var f *Fail
 	if !errors.As(err, &f) || f.Status != "timeout" {
 		t.Errorf("err = %v, want a timeout: no queue_ended after a stop", err)
@@ -250,7 +250,7 @@ const (
 func deviceLines(t *testing.T, c *IPCClient) []string {
 	t.Helper()
 	var buf bytes.Buffer
-	if _, err := eventsOn(c, "", 0.15, &buf); err != nil {
+	if _, err := eventsOn(c, "", 0.03, &buf); err != nil {
 		t.Fatal(err)
 	}
 	var out []string
