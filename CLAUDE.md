@@ -31,7 +31,7 @@ This file provides guidance to Claude Code (claude.ai/code) and all coding agent
 
 ## 项目性质
 
-**co-jue**（CLI 二进制命令为 `jue`）—— `co` 生态面向 AI Agent（Claude Code、OpenCode、co-cli、co-s2s）的端侧视听感知与播放微外设（Go 静态单二进制，收容于 `~/workspace_genai/co-jue/`）。版本严格遵循 SemVer 语义化规范（单一真源声明于根目录 `VERSION`；演进全表与更新日志见 `CHANGELOG.md`）。
+**co-jue**（CLI 二进制命令为 `jue`）—— `co` 生态面向 AI Agent（Claude Code、OpenCode、co-agent、co-s2s）的端侧视听感知与播放微外设（Go 静态单二进制，收容于 `~/workspace_genai/co-jue/`）。版本严格遵循 SemVer 语义化规范（单一真源声明于根目录 `VERSION`；演进全表与更新日志见 `CHANGELOG.md`）。
 
 - **感知平面 (Ingest)**：
   - `jue inspect <url>`：极简提取章节时间轴（Chapters）与元数据，Token 开销 < 100 Tokens；对本地媒体文件、本地回环 HTTP 流（如 `qnap-media`）或 `.m3u8` 直链通过瞬态无头 mpv 提取真实 `duration`、容器 `chapters` 与音视频/字幕轨道 `tracks`；

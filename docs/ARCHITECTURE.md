@@ -1,6 +1,6 @@
 # ARCHITECTURE —— co-jue (jue)
 
-**co-jue**（CLI 二进制命令为 `jue`）—— `co` 生态面向 AI Agent（Claude Code、OpenCode、co-cli、co-s2s）的轻量端侧视听感知与播放微外设（Go 静态单二进制，纯 Go 标准库，代码规模遵循 Need-based 零冗余原则，无 cgo，无第三方依赖，收容于 `~/workspace_genai/co-jue/`）。版本遵循 SemVer 规范，单一数据源声明于根目录 `VERSION`（演进历史与工程阶段全表见根目录 [`CHANGELOG.md`](../CHANGELOG.md)）。
+**co-jue**（CLI 二进制命令为 `jue`）—— `co` 生态面向 AI Agent（Claude Code、OpenCode、co-agent、co-s2s）的轻量端侧视听感知与播放微外设（Go 静态单二进制，纯 Go 标准库，代码规模遵循 Need-based 零冗余原则，无 cgo，无第三方依赖，收容于 `~/workspace_genai/co-jue/`）。版本遵循 SemVer 规范，单一数据源声明于根目录 `VERSION`（演进历史与工程阶段全表见根目录 [`CHANGELOG.md`](../CHANGELOG.md)）。
 
 ---
 
@@ -88,7 +88,7 @@ jue 仅保留满足以下两个判据交集的最小原子功能：
                |                                               |
                v                                               |
 +-------------------------------------------------------------+ |
-|            The Agent (Claude / OpenCode / co-cli)           | |
+|           The Agent (Claude / OpenCode / co-agent)          | |
 |                 * 唯一的端侧播放 UX 呈现层 *                 | |
 |  - 意图识别、语义检索与候选挑选                               | |
 |  - 呈现轻量 Markdown 媒体卡片与状态同步                      | |
@@ -214,7 +214,7 @@ mpv 启动时配置 `--input-media-keys=yes`。在 macOS 上原生接管全局�
 为打破“只能被动轮询（Pull-only）”的局限，jue 增加了 `events` 动词，支持主动事件感知（Push-based）：
 - **零第二常驻守护**：宿主机唯一常驻进程仍仅为 mpv。`jue events` 仅作为轻量监听客户端直连已有的 Unix Socket，复用 mpv 原生多客户端事件广播机制与有界环形背压隔离；
 - **双执行模式**：
-  - **单次阻塞模式 (`--until <EVENT> [--timeout SEC]`)**：面向一问一答式 Coding Agent（如 Claude Code / co-cli），阻塞等待目标事件触发（默认上限 600s），命中即输出单行 JSON 并以退出码 0 退出，**彻底消除自动续播轮询 Token 损耗**；
+  - **单次阻塞模式 (`--until <EVENT> [--timeout SEC]`)**：面向一问一答式 Coding Agent（如 Claude Code / co-agent），阻塞等待目标事件触发（默认上限 600s），命中即输出单行 JSON 并以退出码 0 退出，**彻底消除自动续播轮询 Token 损耗**；
   - **流式管道模式 (`jue events [--timeout SEC]`)**：面向实时语音流智能体（如 `co-s2s`），连接首行立即派发电平快照（`snapshot`），后续持续打印单行紧凑 JSON；
 - **七类确定性事件 Schema**：
   - `snapshot`：初次连接即时电平快照（复用 `status` 数据结构，防漏状态）；
