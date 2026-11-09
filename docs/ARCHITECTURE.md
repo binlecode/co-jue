@@ -37,6 +37,7 @@ jue 仅保留满足以下两个判据交集的最小原子功能：
 | **持久历史 (`history`)** | **保留（v2.3.0）** | 播放器退出即丢失“刚才放过什么”，Agent 跨会话无从回答；mpv 无持久原语。只记成功的 `play` / `queue add`，500 条封顶 JSONL，不建索引、不做歌单。 |
 | **事件感知 (`events`)** | **保留** | 复用 mpv 原生 IPC 广播打通推流感知（曲毕/队列放毕/耳机暂停/换章），避免轮询 Token 损耗。 |
 | **TUI / GUI 终端界面** | **彻底剔除** | 负债代码，由 Agent 交互直接替代。 |
+| **终端内视频画布 (`--terminal` / `--vo=kitty`)** | **彻底剔除** | 与 `play --video`（按条目动态启停原生 GPU 窗口）功能重叠；mpv 绑定的终端 PTY 属进程级状态，破坏单实例常驻模型。实测 Ghostty 1.4.0 在非空 `command` 下强制 `wait-after-command=true`（播毕不关窗），且在 macOS 下经 setuid-root `/usr/bin/login -flp <user> /bin/bash -c "exec -l <command>"` 派生自定义命令会触发 EDR（SentinelOne）告警。 |
 | **搜索与推荐算法** | **彻底剔除** | Agent 原生具备 `web_search` 和浏览器，无需自研爬虫中间层；唯一例外是显式 `ytsearch1:` 前缀，它只是把检索词原样转交 yt-dlp 原生检索协议，jue 自身不含任何抓取或排序逻辑。 |
 | **歌单与可检索数据库** | **彻底剔除** | 由 `co-brain` 记忆系统与 `co-library` 原生管理；`queue` 只是 mpv 进程内存中的瞬态播放列表，随 mpv 启停生灭，绝不落盘。v2.3.0 起唯一落盘的是 `history`：封顶追加日志，只读不检索，筛选与回放由 Agent 完成。 |
 | **派生 AI 摘要** | **彻底剔除** | 摘要由模型生成，jue 绝不拿第三方模型总结冒充事实证据。 |
