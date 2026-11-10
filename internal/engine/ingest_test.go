@@ -772,4 +772,60 @@ echo 'JUE_TRACKS:[{"id":1,"type":"video","codec":"h264"},{"id":1,"type":"audio",
 	}
 }
 
+func TestParseCUEChaptersAndSidecarInspect(t *testing.T) {
+	cueText := "PERFORMER \"Spice Girls\"\r\n" +
+		"TITLE \"Spice\"\r\n" +
+		"FILE \"CDImage.ape\" WAVE\r\n" +
+		"  TRACK 01 AUDIO\r\n" +
+		"    TITLE \"Wannabe\"\r\n" +
+		"    PERFORMER \"Spice Girls\"\r\n" +
+		"    INDEX 01 00:00:00\r\n" +
+		"  TRACK 02 AUDIO\r\n" +
+		"    TITLE \"Say You'll Be There\"\r\n" +
+		"    PERFORMER \"Spice Girls\"\r\n" +
+		"    INDEX 00 02:52:66\r\n" +
+		"    INDEX 01 02:53:15\r\n" +
+		"  TRACK 03 AUDIO\r\n" +
+		"    TITLE \"Rehab\"\r\n" +
+		"    PERFORMER \"Amy Winehouse\"\r\n" +
+		"    INDEX 01 06:49:00\r\n"
+
+	title, chs := parseCUEChapters([]byte(cueText))
+	wantChs := []Chapter{
+		{Start: 0, Title: "Wannabe"},
+		{Start: 173.2, Title: "Say You'll Be There"},
+		{Start: 409, Title: "Amy Winehouse - Rehab"},
+	}
+	if title != "Spice Girls - Spice" || !reflect.DeepEqual(chs, wantChs) {
+		t.Fatalf("parseCUEChapters = (%q, %+v), want (\"Spice Girls - Spice\", %+v)", title, chs, wantChs)
+	}
+
+	tmp := t.TempDir()
+	bin := filepath.Join(tmp, "bin")
+	os.MkdirAll(bin, 0755)
+	t.Setenv("TMPDIR", tmp)
+	mpvScript := "#!/bin/sh\necho \"JUE_TITLE:CDImage.ape\"\necho \"JUE_DURATION:2400.0\"\necho 'JUE_CHAPTERS:[]'\necho 'JUE_TRACKS:[{\"id\":1,\"type\":\"audio\",\"codec\":\"ape\"}]'\n"
+	os.WriteFile(filepath.Join(bin, "mpv"), []byte(mpvScript), 0755)
+	t.Setenv("PATH", bin)
+
+	ape := filepath.Join(tmp, "CDImage.ape")
+	os.WriteFile(ape, []byte("fake-ape"), 0600)
+	os.WriteFile(filepath.Join(tmp, "CDImage.cue"), []byte(cueText), 0600)
+
+	ir, err := Inspect(ape)
+	if err != nil {
+		t.Fatalf("Inspect(ape with sidecar cue) = %v", err)
+	}
+	if ir.Title != "Spice Girls - Spice" || !reflect.DeepEqual(ir.Chapters, wantChs) {
+		t.Errorf("Inspect(ape with sidecar cue) = %+v, want title %q and chapters %+v", ir, "Spice Girls - Spice", wantChs)
+	}
+
+	for _, ext := range []string{".rm", ".ra", ".wma"} {
+		if !mediaExtRe.MatchString("track" + ext) {
+			t.Errorf("mediaExtRe failed to match %s", ext)
+		}
+	}
+}
+
+
 

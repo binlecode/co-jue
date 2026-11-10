@@ -274,6 +274,14 @@ func Inspect(u string) (*InspectResponse, error) {
 				r.Chapters = append(r.Chapters, id3Chapters(head)...)
 			}
 		}
+		if len(r.Chapters) == 0 && cueAudioExtRe.MatchString(urlPath(bare)) {
+			if cueTitle, chs := sidecarCUE(bare); len(chs) > 0 {
+				r.Chapters = chs
+				if cueTitle != "" && (r.Title == "" || strings.EqualFold(r.Title, filepath.Base(urlPath(bare)))) {
+					r.Title = cueTitle
+				}
+			}
+		}
 		return r, nil
 	}
 
@@ -1135,7 +1143,8 @@ func id3Text(b []byte) string {
 }
 
 var (
-	mediaExtRe = regexp.MustCompile(`\.(mp4|mkv|mov|webm|avi|rmvb|flv|ts|m4v|mp3|flac|m4a|aac|ape|dsf|dff|wav|ogg|opus)$`)
+	mediaExtRe    = regexp.MustCompile(`\.(mp4|mkv|mov|webm|avi|rmvb|rm|ra|wma|flv|ts|m4v|mp3|flac|m4a|aac|ape|dsf|dff|wav|ogg|opus)$`)
+	cueAudioExtRe = regexp.MustCompile(`\.(ape|wav|flac|mp3|m4a|aac|dsf|dff|ogg|opus|wma)$`)
 	subExtRe   = regexp.MustCompile(`\.(vtt|srt|ass|ssa|lrc)$`)
 	assDrawRe  = regexp.MustCompile(`\\p[1-9]`)
 )
@@ -1487,6 +1496,137 @@ func httpGetSidecar(u string) ([]byte, error) {
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	return io.ReadAll(io.LimitReader(resp.Body, maxFetchBytes))
+}
+
+func mediaStem(u string) string {
+	stem := strings.TrimSuffix(u, filepath.Ext(u))
+	if isHTTP(u) {
+		if p, err := url.Parse(u); err == nil {
+			ext := filepath.Ext(p.Path)
+			p.Path = strings.TrimSuffix(p.Path, ext)
+			p.RawPath = ""
+			p.RawQuery = ""
+			p.Fragment = ""
+			stem = p.String()
+		}
+	}
+	return stem
+}
+
+// sidecarCUE probes <stem>.cue (and <url>.cue) alongside a local or loopback HTTP audio file
+// to extract CD track boundaries when the audio container itself carries no embedded chapters.
+func sidecarCUE(u string) (string, []Chapter) {
+	stem := mediaStem(u)
+	for _, cand := range []string{stem + ".cue", stem + ".CUE", u + ".cue"} {
+		var body []byte
+		if isHTTP(u) {
+			b, err := httpGetSidecar(cand)
+			if err != nil {
+				continue
+			}
+			body = b
+		} else {
+			if !isLocalRegularFile(cand) {
+				continue
+			}
+			f, err := os.Open(cand)
+			if err != nil {
+				continue
+			}
+			b, err := io.ReadAll(io.LimitReader(f, maxFetchBytes))
+			f.Close()
+			if err != nil {
+				continue
+			}
+			body = b
+		}
+		if title, chs := parseCUEChapters(body); len(chs) > 0 {
+			return title, chs
+		}
+	}
+	return "", nil
+}
+
+// parseCUEChapters parses a CD CUE sheet's TRACK / TITLE / PERFORMER / INDEX 01 (MM:SS:FF at
+// 75 frames/sec) into chapters and returns the album title when present.
+func parseCUEChapters(body []byte) (string, []Chapter) {
+	s := strings.TrimPrefix(string(body), "\xef\xbb\xbf")
+	var albumTitle, albumPerformer string
+	inTrack := false
+	var trkTitle, trkPerformer string
+	var trkStart float64
+	hasStart := false
+	var chs []Chapter
+
+	flush := func() {
+		if !inTrack || !hasStart {
+			return
+		}
+		t := trkTitle
+		if trkPerformer != "" && trkPerformer != albumPerformer && t != "" {
+			t = trkPerformer + " - " + t
+		} else if t == "" {
+			t = trkPerformer
+		}
+		chs = append(chs, Chapter{Start: math.Round(trkStart*1000) / 1000, Title: cleanText(t)})
+	}
+
+	unquote := func(val string) string {
+		val = strings.TrimSpace(val)
+		if len(val) >= 2 && val[0] == '"' && val[len(val)-1] == '"' {
+			return val[1 : len(val)-1]
+		}
+		return val
+	}
+
+	for _, rawLine := range strings.Split(s, "\n") {
+		line := strings.TrimSpace(strings.TrimRight(rawLine, "\r"))
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		kw := strings.ToUpper(fields[0])
+		rest := strings.TrimSpace(line[len(fields[0]):])
+		switch kw {
+		case "TRACK":
+			flush()
+			inTrack = len(fields) >= 3 && strings.EqualFold(fields[2], "AUDIO")
+			trkTitle, trkPerformer, trkStart, hasStart = "", "", 0, false
+		case "TITLE":
+			if inTrack {
+				trkTitle = unquote(rest)
+			} else if albumTitle == "" {
+				albumTitle = cleanText(unquote(rest))
+			}
+		case "PERFORMER":
+			if inTrack {
+				trkPerformer = unquote(rest)
+			} else if albumPerformer == "" {
+				albumPerformer = cleanText(unquote(rest))
+			}
+		case "INDEX":
+			if inTrack && len(fields) >= 3 && (fields[1] == "01" || (fields[1] == "1" && !hasStart)) {
+				parts := strings.Split(fields[2], ":")
+				if len(parts) == 3 {
+					mm, e1 := strconv.Atoi(parts[0])
+					ss, e2 := strconv.Atoi(parts[1])
+					ff, e3 := strconv.Atoi(parts[2])
+					if e1 == nil && e2 == nil && e3 == nil && mm >= 0 && ss >= 0 && ss < 60 && ff >= 0 && ff < 75 {
+						trkStart = float64(mm)*60 + float64(ss) + float64(ff)/75.0
+						hasStart = true
+					}
+				}
+			}
+		}
+	}
+	flush()
+	if albumPerformer != "" && albumTitle != "" && !strings.Contains(albumTitle, albumPerformer) {
+		albumTitle = albumPerformer + " - " + albumTitle
+	}
+	return albumTitle, chs
 }
 
 // containerTranscript extracts cues for a local media file or loopback HTTP media stream:
